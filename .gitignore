@@ -1,0 +1,84 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.pyo
+.pyd
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.local.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+*.js.map
+*.css.map
+
+# Test coverage
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Credentials
+credentials/
+*.pem
+*.key
+google-cloud-key.json
+
+# Supabase
+.supabase/
+
+# Frontend build
+frontend/dist/
+frontend/.next/
+frontend/out/
+
+# Cache
+.cache/
+.parcel-cache/
+
+# Misc
+*.bak
+*.tmp
+*.temp
+
+# Binary files (but not .docx)
+*.exe
+*.dll
+*.so
+*.dylib
+
