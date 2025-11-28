@@ -9,6 +9,8 @@ import {
   Globe,
   Menu,
   X,
+  Tv,
+  CreditCard,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -18,8 +20,9 @@ interface LayoutProps {
 
 const navigation = [
   { name: '홈', href: '/', icon: Home },
+  { name: '번역', href: '/media-source', icon: Tv },
   { name: '회의', href: '/meetings', icon: Video },
-  { name: '기록', href: '/history', icon: History },
+  { name: '요금제', href: '/pricing', icon: CreditCard },
   { name: '설정', href: '/settings', icon: Settings },
 ]
 

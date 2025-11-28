@@ -48,6 +48,13 @@ const platforms = [
   { name: 'Webex', logo: '🖥️', color: 'bg-red-100 text-red-600' },
 ]
 
+const mediaSources = [
+  { name: 'YouTube', logo: '📺', color: 'bg-red-100 text-red-600', desc: '영상 자막 번역' },
+  { name: '영상 파일', logo: '🎬', color: 'bg-purple-100 text-purple-600', desc: '로컬 파일 업로드' },
+  { name: '화면 캡처', logo: '🖥️', color: 'bg-cyan-100 text-cyan-600', desc: '시스템 오디오 포함' },
+  { name: '영상통화', logo: '📱', color: 'bg-amber-100 text-amber-600', desc: 'Discord, 카카오톡 등' },
+]
+
 const container = {
   hidden: { opacity: 0 },
   show: {
@@ -91,21 +98,21 @@ export default function HomePage() {
 
           {/* Description */}
           <p className="text-lg md:text-xl text-slate-600 mb-10 max-w-2xl mx-auto">
-            Zoom, Teams, Meet, Webex 화상회의에서
+            화상회의, YouTube, 영상통화, 로컬 미디어에서
             <br className="hidden md:block" />
             실시간 다국어 통역 자막을 경험하세요
           </p>
 
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/meetings">
+            <Link to="/media-source">
               <Button size="lg" rightIcon={<ArrowRight className="w-5 h-5" />}>
-                회의 시작하기
+                번역 시작하기
               </Button>
             </Link>
-            <Link to="/settings">
+            <Link to="/pricing">
               <Button variant="outline" size="lg">
-                플랫폼 연동하기
+                요금제 보기
               </Button>
             </Link>
           </div>
@@ -177,6 +184,33 @@ export default function HomePage() {
                 <span className="text-xl">{platform.logo}</span>
                 <span className="font-medium">{platform.name}</span>
               </div>
+            ))}
+          </div>
+        </motion.div>
+      </section>
+
+      {/* Extended Media Sources */}
+      <section>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="text-center mb-10"
+        >
+          <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-4">
+            확장 미디어 소스
+          </h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-4xl mx-auto">
+            {mediaSources.map((source) => (
+              <Link to="/media-source" key={source.name}>
+                <div
+                  className={`flex flex-col items-center gap-2 px-5 py-4 rounded-xl ${source.color} hover:scale-105 transition-transform cursor-pointer`}
+                >
+                  <span className="text-3xl">{source.logo}</span>
+                  <span className="font-medium">{source.name}</span>
+                  <span className="text-xs opacity-75">{source.desc}</span>
+                </div>
+              </Link>
             ))}
           </div>
         </motion.div>

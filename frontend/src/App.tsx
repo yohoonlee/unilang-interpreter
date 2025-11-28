@@ -6,6 +6,8 @@ import MeetingPage from '@/pages/MeetingPage'
 import MeetingListPage from '@/pages/MeetingListPage'
 import MeetingHistoryPage from '@/pages/MeetingHistoryPage'
 import SettingsPage from '@/pages/SettingsPage'
+import MediaSourcePage from '@/pages/MediaSourcePage'
+import PricingPage from '@/pages/PricingPage'
 
 function App() {
   return (
@@ -17,6 +19,8 @@ function App() {
           <Route path="/meeting/:meetingId" element={<MeetingPage />} />
           <Route path="/history/:meetingId" element={<MeetingHistoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/media-source" element={<MediaSourcePage />} />
+          <Route path="/pricing" element={<PricingPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>
