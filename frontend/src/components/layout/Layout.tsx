@@ -10,10 +10,8 @@ import {
   X,
   Tv,
   CreditCard,
-  LogIn,
 } from 'lucide-react'
 import { useState } from 'react'
-import { Button } from '@/components/ui/Button'
 import Footer from './Footer'
 
 interface LayoutProps {
@@ -42,7 +40,6 @@ export default function Layout({ children }: LayoutProps) {
   const handleNavClick = (href: string) => {
     setMobileMenuOpen(false)
     
-    // 해시 링크인 경우
     if (href.includes('#')) {
       const [path, hash] = href.split('#')
       if (location.pathname === path || path === '/') {
@@ -53,115 +50,107 @@ export default function Layout({ children }: LayoutProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 flex flex-col">
-      {/* 배경 장식 */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary-200/30 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-accent-200/20 rounded-full blur-3xl" />
-      </div>
-
+    <div className="min-h-screen bg-white flex flex-col">
       {/* 네비게이션 */}
-      <nav className="fixed top-0 left-0 right-0 z-50">
-        <div className="glass-card mx-4 mt-4 px-6 py-3 flex items-center justify-between">
-          {/* 로고 */}
-          <Link to="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
-              <Globe className="w-6 h-6 text-white" />
-            </div>
-            <span className="font-display font-bold text-xl bg-gradient-to-r from-primary-600 to-accent-600 bg-clip-text text-transparent">
-              UniLang
-            </span>
-          </Link>
+      <nav className="sticky top-0 z-50 bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            {/* 로고 */}
+            <Link to="/" className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+                <Globe className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-bold text-xl text-gray-900">
+                UniLang
+              </span>
+            </Link>
 
-          {/* 데스크톱 네비게이션 */}
-          <div className="hidden md:flex items-center gap-1">
-            {navigation.map((item) => {
-              const isActive = location.pathname === item.href || 
-                (item.href !== '/' && location.pathname.startsWith(item.href.split('#')[0]))
-              
-              return (
+            {/* 데스크톱 네비게이션 */}
+            <div className="hidden md:flex items-center gap-8">
+              {navigation.map((item) => (
                 <Link
                   key={item.name}
                   to={item.href}
                   onClick={() => handleNavClick(item.href)}
-                  className={cn(
-                    'px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200',
-                    isActive
-                      ? 'text-primary-700'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  )}
+                  className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
                 >
                   {item.name}
                 </Link>
-              )
-            })}
-          </div>
+              ))}
+            </div>
 
-          {/* 우측 버튼들 */}
-          <div className="hidden md:flex items-center gap-3">
-            <Link to="/media-source">
-              <Button size="sm">서비스</Button>
-            </Link>
-            <Button variant="outline" size="sm" className="gap-2">
-              <LogIn className="w-4 h-4" />
-              로그인
-            </Button>
-          </div>
+            {/* 우측 버튼들 */}
+            <div className="hidden md:flex items-center gap-3">
+              <Link to="/media-source">
+                <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                  서비스
+                </button>
+              </Link>
+              <button className="px-4 py-2 text-gray-600 hover:text-gray-900 text-sm font-medium transition-colors">
+                로그인
+              </button>
+              <button className="px-4 py-2 text-gray-600 hover:text-gray-900 text-sm font-medium transition-colors">
+                관리자
+              </button>
+            </div>
 
-          {/* 모바일 메뉴 버튼 */}
-          <button
-            type="button"
-            className="md:hidden p-2 rounded-lg hover:bg-slate-100"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          >
-            {mobileMenuOpen ? (
-              <X className="w-6 h-6" />
-            ) : (
-              <Menu className="w-6 h-6" />
-            )}
-          </button>
+            {/* 모바일 메뉴 버튼 */}
+            <button
+              type="button"
+              className="md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              {mobileMenuOpen ? (
+                <X className="w-6 h-6 text-gray-600" />
+              ) : (
+                <Menu className="w-6 h-6 text-gray-600" />
+              )}
+            </button>
+          </div>
         </div>
 
         {/* 모바일 네비게이션 */}
         {mobileMenuOpen && (
-          <div className="md:hidden glass-card mx-4 mt-2 p-4">
-            {mobileNavigation.map((item) => {
-              const isActive = location.pathname === item.href
-              
-              return (
-                <Link
-                  key={item.name}
-                  to={item.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={cn(
-                    'flex items-center gap-3 px-4 py-3 rounded-xl text-base font-medium transition-all',
-                    isActive
-                      ? 'bg-primary-100 text-primary-700'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  )}
-                >
-                  <item.icon className="w-5 h-5" />
-                  {item.name}
+          <div className="md:hidden border-t border-gray-200 bg-white">
+            <div className="px-4 py-4 space-y-1">
+              {mobileNavigation.map((item) => {
+                const isActive = location.pathname === item.href
+                
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={cn(
+                      'flex items-center gap-3 px-4 py-3 rounded-lg text-base font-medium transition-colors',
+                      isActive
+                        ? 'bg-blue-50 text-blue-600'
+                        : 'text-gray-600 hover:bg-gray-50'
+                    )}
+                  >
+                    <item.icon className="w-5 h-5" />
+                    {item.name}
+                  </Link>
+                )
+              })}
+              <div className="pt-4 mt-4 border-t border-gray-200 flex gap-2">
+                <Link to="/media-source" className="flex-1">
+                  <button className="w-full py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium">
+                    서비스
+                  </button>
                 </Link>
-              )
-            })}
-            <div className="mt-4 pt-4 border-t border-slate-200 flex gap-2">
-              <Link to="/media-source" className="flex-1">
-                <Button className="w-full" size="sm">서비스</Button>
-              </Link>
-              <Button variant="outline" className="flex-1" size="sm">
-                로그인
-              </Button>
+                <button className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium">
+                  로그인
+                </button>
+              </div>
             </div>
           </div>
         )}
       </nav>
 
       {/* 메인 콘텐츠 */}
-      <main className="relative pt-24 pb-8 px-4 flex-1">
-        <div className="max-w-7xl mx-auto">
-          {children}
-        </div>
+      <main className="flex-1">
+        {children}
       </main>
 
       {/* 푸터 */}
