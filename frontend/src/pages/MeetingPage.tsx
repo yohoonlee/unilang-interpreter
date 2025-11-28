@@ -50,8 +50,6 @@ export default function MeetingPage() {
   // Local State
   const [isLoading, setIsLoading] = useState(true)
   const [showSubtitles, setShowSubtitles] = useState(true)
-  const [, setShowParticipants] = useState(false)
-  const [, setShowTranscript] = useState(false)
   const [activeTab, setActiveTab] = useState<'participants' | 'transcript'>('participants')
 
   // WebSocket 연결
