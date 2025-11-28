@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils'
 import { 
   Home, 
   Video, 
-  History, 
   Settings, 
   Globe,
   Menu,

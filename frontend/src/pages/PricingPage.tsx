@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { PricingPlans, CostEstimator } from '@/components/billing/PricingPlans'
 import { toast } from '@/components/ui/Toaster'
 import { type SubscriptionTier } from '@/types/billing'
-import { ArrowLeft, CreditCard, HelpCircle } from 'lucide-react'
+import { ArrowLeft, HelpCircle } from 'lucide-react'
 
 export default function PricingPage() {
   const navigate = useNavigate()
