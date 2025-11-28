@@ -17,7 +17,6 @@ import {
   Play,
   CheckCircle,
   Clock,
-  BarChart3,
 } from 'lucide-react'
 
 // 지원 플랫폼
@@ -74,13 +73,6 @@ const features = [
     description: '여러 참가자가 동시에 각자의 언어로 자막을 볼 수 있습니다.',
     color: 'from-indigo-500 to-blue-500',
   },
-]
-
-// 통계
-const stats = [
-  { icon: CheckCircle, label: '실시간 고정확도 통역', value: '99.9%', desc: '정확도' },
-  { icon: Zap, label: '즉각적인 자막 생성', value: '24/7', desc: '실시간 지원' },
-  { icon: Globe, label: '14개국 언어 지원', value: '80%', desc: '비용 절감' },
 ]
 
 // 데모 메시지
