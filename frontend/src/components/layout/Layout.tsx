@@ -10,14 +10,24 @@ import {
   X,
   Tv,
   CreditCard,
+  LogIn,
 } from 'lucide-react'
 import { useState } from 'react'
+import { Button } from '@/components/ui/Button'
+import Footer from './Footer'
 
 interface LayoutProps {
   children: ReactNode
 }
 
 const navigation = [
+  { name: '기능', href: '/#features' },
+  { name: '사용방법', href: '/#how-it-works' },
+  { name: '데모', href: '/#demo-section' },
+  { name: '요금제', href: '/pricing' },
+]
+
+const mobileNavigation = [
   { name: '홈', href: '/', icon: Home },
   { name: '번역', href: '/media-source', icon: Tv },
   { name: '회의', href: '/meetings', icon: Video },
@@ -29,8 +39,21 @@ export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
+  const handleNavClick = (href: string) => {
+    setMobileMenuOpen(false)
+    
+    // 해시 링크인 경우
+    if (href.includes('#')) {
+      const [path, hash] = href.split('#')
+      if (location.pathname === path || path === '/') {
+        const element = document.getElementById(hash)
+        element?.scrollIntoView({ behavior: 'smooth' })
+      }
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 flex flex-col">
       {/* 배경 장식 */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary-200/30 rounded-full blur-3xl" />
@@ -54,24 +77,35 @@ export default function Layout({ children }: LayoutProps) {
           <div className="hidden md:flex items-center gap-1">
             {navigation.map((item) => {
               const isActive = location.pathname === item.href || 
-                (item.href !== '/' && location.pathname.startsWith(item.href))
+                (item.href !== '/' && location.pathname.startsWith(item.href.split('#')[0]))
               
               return (
                 <Link
                   key={item.name}
                   to={item.href}
+                  onClick={() => handleNavClick(item.href)}
                   className={cn(
-                    'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200',
+                    'px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200',
                     isActive
-                      ? 'bg-primary-100 text-primary-700'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      ? 'text-primary-700'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   )}
                 >
-                  <item.icon className="w-4 h-4" />
                   {item.name}
                 </Link>
               )
             })}
+          </div>
+
+          {/* 우측 버튼들 */}
+          <div className="hidden md:flex items-center gap-3">
+            <Link to="/media-source">
+              <Button size="sm">서비스</Button>
+            </Link>
+            <Button variant="outline" size="sm" className="gap-2">
+              <LogIn className="w-4 h-4" />
+              로그인
+            </Button>
           </div>
 
           {/* 모바일 메뉴 버튼 */}
@@ -91,7 +125,7 @@ export default function Layout({ children }: LayoutProps) {
         {/* 모바일 네비게이션 */}
         {mobileMenuOpen && (
           <div className="md:hidden glass-card mx-4 mt-2 p-4">
-            {navigation.map((item) => {
+            {mobileNavigation.map((item) => {
               const isActive = location.pathname === item.href
               
               return (
@@ -111,17 +145,27 @@ export default function Layout({ children }: LayoutProps) {
                 </Link>
               )
             })}
+            <div className="mt-4 pt-4 border-t border-slate-200 flex gap-2">
+              <Link to="/media-source" className="flex-1">
+                <Button className="w-full" size="sm">서비스</Button>
+              </Link>
+              <Button variant="outline" className="flex-1" size="sm">
+                로그인
+              </Button>
+            </div>
           </div>
         )}
       </nav>
 
       {/* 메인 콘텐츠 */}
-      <main className="relative pt-24 pb-8 px-4 min-h-screen">
+      <main className="relative pt-24 pb-8 px-4 flex-1">
         <div className="max-w-7xl mx-auto">
           {children}
         </div>
       </main>
+
+      {/* 푸터 */}
+      <Footer />
     </div>
   )
 }
-
