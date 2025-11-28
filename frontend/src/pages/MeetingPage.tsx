@@ -13,12 +13,11 @@ import { useMeetingStore } from '@/store/meetingStore'
 import { meetingsApi, participantsApi } from '@/lib/api'
 import { cn, formatTime, getLanguageFlag } from '@/lib/utils'
 import { LANGUAGE_NAMES, PLATFORM_INFO } from '@/types'
-import type { LanguageCode, SubtitleMessage, Participant, Meeting } from '@/types'
+import type { LanguageCode, SubtitleMessage } from '@/types'
 import { 
   Users, 
   MessageSquare, 
   FileText, 
-  X,
   ExternalLink,
   Clock,
   Loader2,
@@ -34,7 +33,6 @@ export default function MeetingPage() {
     setCurrentMeeting,
     participants,
     setParticipants,
-    addParticipant,
     removeParticipant,
     currentParticipant,
     setCurrentParticipant,
@@ -42,7 +40,6 @@ export default function MeetingPage() {
     setPreferredLanguage,
     subtitles,
     addSubtitle,
-    clearSubtitles,
     isConnected,
     setIsConnected,
     isRecording,
@@ -53,8 +50,8 @@ export default function MeetingPage() {
   // Local State
   const [isLoading, setIsLoading] = useState(true)
   const [showSubtitles, setShowSubtitles] = useState(true)
-  const [showParticipants, setShowParticipants] = useState(false)
-  const [showTranscript, setShowTranscript] = useState(false)
+  const [, setShowParticipants] = useState(false)
+  const [, setShowTranscript] = useState(false)
   const [activeTab, setActiveTab] = useState<'participants' | 'transcript'>('participants')
 
   // WebSocket 연결

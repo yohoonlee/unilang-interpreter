@@ -8,7 +8,6 @@ import {
   Settings, 
   Users,
   Subtitles,
-  SubtitlesOff,
   MoreVertical,
 } from 'lucide-react'
 import type { LanguageCode } from '@/types'
@@ -117,11 +116,7 @@ export function MeetingControls({
             )}
             title={showSubtitles ? '자막 숨기기' : '자막 표시'}
           >
-            {showSubtitles ? (
-              <Subtitles className="w-5 h-5" />
-            ) : (
-              <SubtitlesOff className="w-5 h-5" />
-            )}
+            <Subtitles className="w-5 h-5" />
           </button>
 
           {/* 참여자 */}

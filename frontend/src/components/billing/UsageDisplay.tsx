@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { cn, formatDuration } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { formatMinutes, formatPrice, type UsageSummary } from '@/types/billing'
 import { Clock, MessageSquare, FileText, TrendingUp } from 'lucide-react'

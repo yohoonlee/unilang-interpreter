@@ -8,9 +8,9 @@ import { LanguageSelector } from '@/components/meeting/LanguageSelector'
 import { SubtitleItem } from '@/components/meeting/SubtitleOverlay'
 import { toast } from '@/components/ui/Toaster'
 import { meetingsApi, summariesApi } from '@/lib/api'
-import { cn, formatDateTime, formatDuration, getLanguageFlag } from '@/lib/utils'
-import { LANGUAGE_NAMES, PLATFORM_INFO } from '@/types'
-import type { LanguageCode, Summary, Utterance } from '@/types'
+import { cn, formatDateTime, formatDuration } from '@/lib/utils'
+import { PLATFORM_INFO } from '@/types'
+import type { LanguageCode } from '@/types'
 import {
   ArrowLeft,
   Calendar,

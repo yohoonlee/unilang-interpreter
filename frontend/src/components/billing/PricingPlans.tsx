@@ -9,7 +9,7 @@ import {
   formatMinutes,
   type SubscriptionTier,
 } from '@/types/billing'
-import { Check, Star, Zap, Building2 } from 'lucide-react'
+import { Check, Star, Building2 } from 'lucide-react'
 
 interface PricingPlansProps {
   currentTier?: SubscriptionTier

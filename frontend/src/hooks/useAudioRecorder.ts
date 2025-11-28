@@ -26,7 +26,6 @@ export function useAudioRecorder({
   const [isRecording, setIsRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const processorRef = useRef<ScriptProcessorNode | null>(null)
@@ -64,7 +63,7 @@ export function useAudioRecorder({
     const int16Data = float32ToInt16(combined)
     
     // Base64 인코딩
-    const base64Data = encodeBase64(int16Data.buffer)
+    const base64Data = encodeBase64(int16Data.buffer as ArrayBuffer)
     
     // 콜백 호출
     onAudioData?.(base64Data)

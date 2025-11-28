@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
+import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { LanguageSelector, MultiLanguageSelector } from '@/components/meeting/LanguageSelector'
+import { MultiLanguageSelector } from '@/components/meeting/LanguageSelector'
 import { toast } from '@/components/ui/Toaster'
 import { meetingsApi } from '@/lib/api'
 import { cn, formatDateTime, formatRelativeTime } from '@/lib/utils'
@@ -18,8 +18,6 @@ import {
   Clock,
   Play,
   MoreVertical,
-  Trash2,
-  Edit,
   History,
   X,
   Loader2,

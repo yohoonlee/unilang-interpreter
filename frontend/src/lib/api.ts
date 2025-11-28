@@ -168,7 +168,7 @@ export const translationsApi = {
   // 지원 언어 목록
   getLanguages: async (): Promise<Record<LanguageCode, string>> => {
     const { data } = await api.get<ApiResponse<{ languages: Record<LanguageCode, string> }>>('/translations/languages')
-    return data.data?.languages || {}
+    return data.data?.languages || {} as Record<LanguageCode, string>
   },
   
   // 언어 감지
@@ -221,7 +221,7 @@ export const platformsApi = {
   // 플랫폼 연동 상태
   getStatus: async (): Promise<Record<Platform, { configured: boolean; name: string; features: string[] }>> => {
     const { data } = await api.get<ApiResponse<Record<Platform, any>>>('/platforms/status')
-    return data.data || {}
+    return data.data || {} as Record<Platform, { configured: boolean; name: string; features: string[] }>
   },
   
   // OAuth 인증 URL

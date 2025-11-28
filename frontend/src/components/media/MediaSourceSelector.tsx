@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import {
   MEDIA_SOURCE_CATEGORIES,
   MEDIA_SOURCE_INFO,
   type MediaSourceType,
 } from '@/types/media'
-import { Search, ChevronRight, Upload, Link, Mic, Monitor } from 'lucide-react'
+import { Search, ChevronRight, Upload, Mic, Monitor } from 'lucide-react'
 
 interface MediaSourceSelectorProps {
   onSelect: (sourceType: MediaSourceType, sourceUrl?: string) => void
@@ -34,8 +34,6 @@ export function MediaSourceSelector({
     : null
 
   const handleSourceClick = (sourceType: MediaSourceType) => {
-    const info = MEDIA_SOURCE_INFO[sourceType]
-    
     // URL 입력이 필요한 소스인 경우
     if (['youtube', 'youtube_live', 'twitch', 'vimeo'].includes(sourceType)) {
       setShowUrlInput(true)

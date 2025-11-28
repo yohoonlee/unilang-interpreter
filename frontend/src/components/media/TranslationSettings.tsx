@@ -1,11 +1,9 @@
-import { useState } from 'react'
 import { cn, getLanguageFlag } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
 import { MultiLanguageSelector } from '@/components/meeting/LanguageSelector'
 import { LANGUAGE_NAMES, type LanguageCode } from '@/types'
 import type { TranslationDisplaySettings } from '@/types/media'
-import { Eye, EyeOff, Type, AlignLeft, Clock, User } from 'lucide-react'
+import { Eye, EyeOff, Type, Clock, User } from 'lucide-react'
 
 interface TranslationSettingsProps {
   settings: TranslationDisplaySettings
