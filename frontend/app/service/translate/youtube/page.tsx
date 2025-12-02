@@ -256,16 +256,42 @@ function YouTubeTranslatePageContent() {
     setResult(null)
   }
 
-  // 원클릭 실시간 통역 시작 - 현재 페이지에서 전체화면 모드로 전환
+  // 원클릭 실시간 통역 시작 - YouTube를 팝업으로 열고 현재 페이지에서 자막 표시
   const startOneClickLiveMode = async () => {
     if (!videoId) {
       setError("YouTube URL을 먼저 입력해주세요")
       return
     }
 
-    // 전용 실시간 통역 페이지로 이동 (새 탭이 아닌 현재 탭에서)
-    const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}`
-    window.location.href = liveUrl
+    // 1. YouTube를 팝업 창으로 열기
+    const width = 800
+    const height = 500
+    const left = (window.screen.width - width) / 2
+    const top = (window.screen.height - height) / 2
+    
+    const youtubePopup = window.open(
+      `https://www.youtube.com/watch?v=${videoId}`,
+      "youtube_popup",
+      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=no,resizable=yes`
+    )
+    
+    if (!youtubePopup) {
+      setError("팝업이 차단되었습니다. 팝업 차단을 해제해주세요.")
+      return
+    }
+
+    // 2. 실시간 모드 시작
+    setError(null)
+    setIsLiveMode(true)
+    setNoSubtitleError(false)
+    setUtterances([])
+    setResult(null)
+    
+    // 3. 안내 메시지 표시
+    alert("1. 화면 공유 팝업에서 '창' 탭을 선택하세요\n2. YouTube 팝업 창을 선택하세요\n3. '오디오 공유'를 체크하세요\n4. '공유'를 클릭하세요")
+    
+    // 4. 시스템 오디오 캡처 시작
+    await startSystemAudioCapture()
   }
 
   // 자막 오버레이 창 열기
