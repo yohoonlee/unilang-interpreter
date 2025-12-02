@@ -1326,6 +1326,8 @@ ${combinedText}
   }
 
   // 현재 세션 요약
+  // ===== 요약 기능 =====
+  
   const summarizeCurrentSession = async () => {
     if (transcripts.length === 0) {
       setError("요약할 내용이 없습니다.")
