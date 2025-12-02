@@ -20,36 +20,38 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 발화 데이터를 텍스트로 변환
+    // 발화 데이터를 텍스트로 변환 (원문 사용)
     const utteranceText = utterances
       .map((u: { id: number; text: string; translated?: string }) => 
-        `[${u.id}] ${u.translated || u.text}`
+        `[${u.id}] ${u.text}`
       )
       .join("\n")
 
-    const langName = targetLanguage === "ko" ? "한국어" : 
-                     targetLanguage === "en" ? "영어" :
-                     targetLanguage === "ja" ? "일본어" :
-                     targetLanguage === "zh" ? "중국어" : "한국어"
+    // 원문 언어 감지 (첫 번째 발화 기준)
+    const firstText = utterances[0]?.text || ""
+    const isKorean = /[가-힣]/.test(firstText)
+    const sourceLangName = isKorean ? "한국어" : "영어"
 
-    const prompt = `당신은 실시간 통역 텍스트를 재정리하는 전문가입니다.
+    const prompt = `당신은 실시간 음성인식 텍스트를 재정리하는 전문가입니다.
 
-아래는 실시간 통역으로 생성된 문장들입니다. 각 문장은 [번호] 형식으로 시작합니다.
+아래는 실시간 음성인식으로 생성된 ${sourceLangName} 문장들입니다. 각 문장은 [번호] 형식으로 시작합니다.
 불완전하거나 연결된 문장들을 자연스러운 문장으로 재정리해주세요.
 
 규칙:
 1. 의미가 연결되는 문장들은 하나로 합칠 수 있습니다
-2. 문법적으로 올바른 ${langName} 문장으로 만들어주세요
+2. 문법적으로 올바른 ${sourceLangName} 문장으로 만들어주세요
 3. 원래 의미를 유지하되 자연스럽게 다듬어주세요
-4. 반드시 JSON 배열 형식으로만 응답하세요
+4. 입력된 순서를 유지해주세요 (merged_from의 첫 번째 번호 기준 오름차순)
+5. 반드시 JSON 배열 형식으로만 응답하세요
+6. 입력 언어(${sourceLangName})를 그대로 유지하세요. 번역하지 마세요.
 
 입력:
 ${utteranceText}
 
-응답 형식 (JSON 배열만):
+응답 형식 (JSON 배열만, 순서 유지):
 [
-  {"merged_from": [1, 2], "text": "합쳐진 문장"},
-  {"merged_from": [3], "text": "단독 문장"},
+  {"merged_from": [1, 2], "text": "합쳐진 문장 (${sourceLangName})"},
+  {"merged_from": [3], "text": "단독 문장 (${sourceLangName})"},
   ...
 ]`
 
