@@ -278,12 +278,13 @@ function YouTubeTranslatePageContent() {
     }
     
     setUtterances(prev => {
-      const updated = [...prev, newUtterance]
+      // 최신 결과를 맨 위에 추가 (DESC 순서)
+      const updated = [newUtterance, ...prev]
       console.log("[YouTube Live] 총 발화 수:", updated.length)
-      // 자동 스크롤
+      // 맨 위로 자동 스크롤
       setTimeout(() => {
         liveResultsRef.current?.scrollTo({
-          top: liveResultsRef.current.scrollHeight,
+          top: 0,
           behavior: "smooth"
         })
       }, 100)
@@ -303,35 +304,67 @@ function YouTubeTranslatePageContent() {
     recognition.continuous = true
     recognition.interimResults = true
     recognition.lang = getLanguageCode(sourceLanguage)
+    // 정확도 향상을 위한 추가 설정
+    recognition.maxAlternatives = 3  // 여러 대안 중 최적 선택
+
+    // 문장 버퍼 (짧은 인식 결과를 모아서 처리)
+    let sentenceBuffer = ""
+    let silenceTimer: NodeJS.Timeout | null = null
+    const SILENCE_THRESHOLD = 1500  // 1.5초 무음 시 문장 완료로 처리
 
     recognition.onresult = (event) => {
       let interimTranscript = ""
       let finalTranscript = ""
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript
-          console.log("[YouTube Live] 최종 인식:", transcript)
+        // 가장 신뢰도 높은 결과 사용
+        const result = event.results[i]
+        const transcript = result[0].transcript
+        const confidence = result[0].confidence
+        
+        if (result.isFinal) {
+          // 신뢰도가 낮은 결과는 필터링 (0.5 이상만)
+          if (confidence === undefined || confidence >= 0.5) {
+            finalTranscript += transcript
+            console.log(`[YouTube Live] 최종 인식 (신뢰도: ${(confidence * 100).toFixed(1)}%):`, transcript)
+          } else {
+            console.log(`[YouTube Live] 낮은 신뢰도로 무시 (${(confidence * 100).toFixed(1)}%):`, transcript)
+          }
         } else {
           interimTranscript += transcript
         }
       }
 
       setCurrentTranscript(interimTranscript)
-      if (interimTranscript) {
-        console.log("[YouTube Live] 중간 인식:", interimTranscript)
-      }
 
       if (finalTranscript.trim()) {
-        addLiveUtterance(finalTranscript.trim())
-        setCurrentTranscript("")
+        // 문장 버퍼에 추가
+        sentenceBuffer += (sentenceBuffer ? " " : "") + finalTranscript.trim()
+        
+        // 무음 타이머 리셋
+        if (silenceTimer) clearTimeout(silenceTimer)
+        
+        // 문장 종결 부호가 있으면 즉시 처리
+        if (/[.!?。！？]$/.test(sentenceBuffer.trim())) {
+          addLiveUtterance(sentenceBuffer.trim())
+          sentenceBuffer = ""
+          setCurrentTranscript("")
+        } else {
+          // 무음 감지 시 문장 완료 처리
+          silenceTimer = setTimeout(() => {
+            if (sentenceBuffer.trim()) {
+              addLiveUtterance(sentenceBuffer.trim())
+              sentenceBuffer = ""
+              setCurrentTranscript("")
+            }
+          }, SILENCE_THRESHOLD)
+        }
       }
     }
 
     recognition.onerror = (event) => {
       console.error("음성 인식 오류:", event.error)
-      if (event.error === "no-speech" && isListeningRef.current) {
+      if ((event.error === "no-speech" || event.error === "audio-capture") && isListeningRef.current) {
         // 자동 재시작
         try {
           recognition.stop()
@@ -345,6 +378,13 @@ function YouTubeTranslatePageContent() {
     }
 
     recognition.onend = () => {
+      // 남은 버퍼 처리
+      if (sentenceBuffer.trim()) {
+        addLiveUtterance(sentenceBuffer.trim())
+        sentenceBuffer = ""
+      }
+      if (silenceTimer) clearTimeout(silenceTimer)
+      
       if (isListeningRef.current) {
         try {
           recognition.start()
@@ -922,29 +962,37 @@ function YouTubeTranslatePageContent() {
                     )}
                   </div>
                 ) : (
-                  utterances.map((utterance, index) => (
-                    <div
-                      key={index}
-                      className="p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-slate-500">
-                          #{index + 1}
-                        </span>
-                        <span className="text-xs text-slate-400">
-                          {new Date(utterance.start).toLocaleTimeString("ko-KR")}
-                        </span>
-                      </div>
-                      <p className="text-slate-700 dark:text-slate-300">
-                        {utterance.text}
-                      </p>
-                      {utterance.translated && (
-                        <p className="mt-2 text-sm text-green-600 dark:text-green-400 border-t pt-2 border-slate-200 dark:border-slate-700">
-                          🌐 {utterance.translated}
+                  utterances.map((utterance, index) => {
+                    // 최신이 위에 있으므로 번호는 역순으로 계산
+                    const displayNumber = utterances.length - index
+                    return (
+                      <div
+                        key={`${utterance.start}-${index}`}
+                        className={`p-3 rounded-lg border shadow-sm ${
+                          index === 0 
+                            ? "bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700" 
+                            : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-xs font-medium ${index === 0 ? "text-green-600" : "text-slate-500"}`}>
+                            #{displayNumber} {index === 0 && "✨ 최신"}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            {new Date(utterance.start).toLocaleTimeString("ko-KR")}
+                          </span>
+                        </div>
+                        <p className="text-slate-700 dark:text-slate-300">
+                          {utterance.text}
                         </p>
-                      )}
-                    </div>
-                  ))
+                        {utterance.translated && (
+                          <p className="mt-2 text-sm text-green-600 dark:text-green-400 border-t pt-2 border-slate-200 dark:border-slate-700">
+                            🌐 {utterance.translated}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })
                 )}
               </div>
 
