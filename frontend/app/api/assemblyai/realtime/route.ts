@@ -17,16 +17,19 @@ export async function POST(request: NextRequest) {
     }
 
     // AssemblyAI 실시간 토큰 발급
+    // 참고: https://www.assemblyai.com/docs/api-reference/streaming
     const response = await fetch("https://api.assemblyai.com/v2/realtime/token", {
       method: "POST",
       headers: {
-        "authorization": apiKey,
-        "content-type": "application/json",
+        "Authorization": apiKey,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         expires_in: 3600, // 1시간
       }),
     })
+    
+    console.log("[AssemblyAI] Request headers - Authorization:", apiKey?.substring(0, 10) + "...")
     
     console.log("[AssemblyAI] Token response status:", response.status)
 
