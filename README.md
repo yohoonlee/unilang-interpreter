@@ -57,9 +57,9 @@
 
 ### 6. 📺 YouTube 통역 ✨ NEW
 - YouTube URL 직접 입력으로 자동 전사
-- 화자 구분 + 다국어 번역
-- SRT 자막 파일 다운로드
-- AI 요약 기능
+- **YouTube 자막 API 사용** (자막이 있는 영상만 지원)
+- 다국어 번역 + SRT 자막 파일 다운로드
+- Google Gemini 기반 AI 요약 기능
 
 ### 7. 🎥 화상회의 통역 ✨ NEW
 - **Zoom, Teams, Meet, Discord** 등 모든 플랫폼 지원
@@ -129,7 +129,9 @@ transcript.utterances.forEach(utterance => {
 | YouTube 통역 | `/service/translate/youtube` | YouTube URL 자동 전사 + 번역 |
 | 통역 기록 | `/service/history` | 저장된 통역 세션 조회 |
 
-## 🔌 API 엔드포인트 (AssemblyAI)
+## 🔌 API 엔드포인트 (Frontend - Next.js API Routes)
+
+### AssemblyAI (화자 구분, 녹음 통역)
 
 | 엔드포인트 | 메서드 | 설명 |
 |------------|--------|------|
@@ -138,6 +140,15 @@ transcript.utterances.forEach(utterance => {
 | `/api/assemblyai/summarize` | POST | LeMUR AI 요약 |
 | `/api/assemblyai/realtime` | POST | 실시간 전사 토큰 발급 |
 | `/api/assemblyai/speakers` | GET/POST | 화자 매칭 관리 |
+
+### YouTube (YouTube 통역)
+
+| 엔드포인트 | 메서드 | 설명 |
+|------------|--------|------|
+| `/api/youtube/transcript` | POST | YouTube 자막 추출 + 번역 |
+
+> ⚠️ **참고**: YouTube는 AssemblyAI가 아닌 `youtube-transcript` 패키지를 사용합니다.
+> AssemblyAI는 YouTube URL을 직접 지원하지 않습니다.
 
 ## 📁 프로젝트 구조
 
@@ -336,6 +347,53 @@ npm run dev
 1. [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트 생성
 2. Calendar API, Meet API 활성화
 3. OAuth 2.0 자격 증명 생성
+
+## ☁️ Google Cloud API 설정
+
+UniLang은 다음 Google Cloud API를 사용합니다. **반드시 활성화해야 합니다.**
+
+### 필수 API 목록
+
+| API | 용도 | 활성화 링크 |
+|-----|------|-------------|
+| **Cloud Translation API** | 실시간 번역 | [활성화](https://console.cloud.google.com/apis/library/translate.googleapis.com) |
+| **Generative Language API** | AI 재정리, 요약 (Gemini) | [활성화](https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com) |
+| Cloud Speech-to-Text API | 음성 인식 (선택) | [활성화](https://console.cloud.google.com/apis/library/speech.googleapis.com) |
+
+### API 활성화 방법
+
+1. [Google Cloud Console](https://console.cloud.google.com/) 접속
+2. 프로젝트 선택 (없으면 새로 생성)
+3. **API 및 서비스** > **라이브러리** 이동
+4. 각 API 검색 후 **"사용"** 버튼 클릭
+5. **API 키 생성**: API 및 서비스 > 사용자 인증 정보 > API 키 생성
+
+### Generative Language API (Gemini) - 중요 ⚠️
+
+AI 재정리 및 요약 기능에 **필수**입니다.
+
+```
+에러 메시지:
+"Generative Language API has not been used in project XXXXX before or it is disabled"
+```
+
+**해결 방법**:
+1. [Generative Language API](https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com) 접속
+2. **"사용"(ENABLE)** 버튼 클릭
+3. 활성화 후 2~3분 대기
+
+### API 키 권한 설정 (권장)
+
+보안을 위해 API 키에 제한을 설정하세요:
+
+1. [API 키 관리](https://console.cloud.google.com/apis/credentials) 접속
+2. 해당 API 키 클릭
+3. **API 제한사항** > "키 제한" 선택
+4. 다음 API만 허용:
+   - Cloud Translation API
+   - Generative Language API
+5. **애플리케이션 제한사항** (선택):
+   - HTTP 리퍼러: `https://your-domain.vercel.app/*`
 
 ### Cisco Webex
 1. [Webex Developer](https://developer.webex.com/)에서 앱 생성
