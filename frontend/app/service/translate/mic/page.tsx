@@ -95,8 +95,18 @@ function MicTranslatePageContent() {
   const isEmbedded = searchParams.get("embedded") === "true"
   
   const [isListening, setIsListening] = useState(false)
-  const [sourceLanguage, setSourceLanguage] = useState("ko") // 기본값: 한국어
-  const [targetLanguage, setTargetLanguage] = useState("en") // 기본값: 영어
+  const [sourceLanguage, setSourceLanguage] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("unilang_source_language") || "ko"
+    }
+    return "ko"
+  }) // 기본값: 설정에서 저장된 언어 또는 한국어
+  const [targetLanguage, setTargetLanguage] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("unilang_target_language") || "en"
+    }
+    return "en"
+  }) // 기본값: 설정에서 저장된 언어 또는 영어
   const [currentTranscript, setCurrentTranscript] = useState("")
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([])
   const [isTranslating, setIsTranslating] = useState(false)

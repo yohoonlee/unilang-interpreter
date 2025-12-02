@@ -24,7 +24,8 @@ import {
   Users,
   FileAudio,
   Monitor,
-  History
+  History,
+  Volume2
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
@@ -403,57 +404,367 @@ function PricingContent() {
 }
 
 function SettingsContent() {
+  // 오디오 설정 상태 (localStorage에서 불러오기)
+  const [audioSettings, setAudioSettings] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("unilang_audio_settings")
+      if (saved) {
+        try {
+          return JSON.parse(saved)
+        } catch {
+          // 파싱 실패 시 기본값
+        }
+      }
+    }
+    return {
+      autoPlayTTS: false,
+      ttsVolume: 1,
+      ttsRate: 1,
+      selectedMicDevice: "",
+      selectedSpeakerDevice: "",
+      realtimeSummary: false,
+      saveToDb: true,
+    }
+  })
+
+  // 오디오 장치 목록
+  const [audioDevices, setAudioDevices] = useState<{
+    microphones: MediaDeviceInfo[]
+    speakers: MediaDeviceInfo[]
+  }>({ microphones: [], speakers: [] })
+
+  // 언어 설정
+  const [sourceLanguage, setSourceLanguage] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("unilang_source_language") || "ko"
+    }
+    return "ko"
+  })
+  
+  const [targetLanguage, setTargetLanguage] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("unilang_target_language") || "en"
+    }
+    return "en"
+  })
+
+  const LANGUAGES = [
+    { code: "ko", name: "한국어", flag: "🇰🇷" },
+    { code: "en", name: "영어", flag: "🇺🇸" },
+    { code: "ja", name: "일본어", flag: "🇯🇵" },
+    { code: "zh", name: "중국어", flag: "🇨🇳" },
+    { code: "es", name: "스페인어", flag: "🇪🇸" },
+    { code: "fr", name: "프랑스어", flag: "🇫🇷" },
+    { code: "de", name: "독일어", flag: "🇩🇪" },
+    { code: "vi", name: "베트남어", flag: "🇻🇳" },
+  ]
+
+  // 오디오 장치 목록 가져오기
+  useEffect(() => {
+    const getAudioDevices = async () => {
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true })
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        setAudioDevices({
+          microphones: devices.filter(d => d.kind === "audioinput"),
+          speakers: devices.filter(d => d.kind === "audiooutput"),
+        })
+      } catch (err) {
+        console.error("오디오 장치 목록 가져오기 실패:", err)
+      }
+    }
+    getAudioDevices()
+  }, [])
+
+  // 설정 변경 시 localStorage에 저장
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("unilang_audio_settings", JSON.stringify(audioSettings))
+    }
+  }, [audioSettings])
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("unilang_source_language", sourceLanguage)
+      localStorage.setItem("unilang_target_language", targetLanguage)
+    }
+  }, [sourceLanguage, targetLanguage])
+
+  // 음성 테스트
+  const testVoice = () => {
+    if (!("speechSynthesis" in window)) {
+      alert("이 브라우저는 음성 합성을 지원하지 않습니다.")
+      return
+    }
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance("안녕하세요, 음성 테스트입니다.")
+    utterance.lang = "ko-KR"
+    utterance.volume = audioSettings.ttsVolume
+    utterance.rate = audioSettings.ttsRate
+    window.speechSynthesis.speak(utterance)
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">설정</h1>
-        <p className="text-slate-600">계정 및 서비스 설정을 관리하세요.</p>
+        <p className="text-slate-600">실시간 통역 및 서비스 설정을 관리하세요.</p>
       </div>
 
+      {/* 기본 언어 설정 */}
       <Card>
         <CardHeader>
-          <CardTitle>기본 언어 설정</CardTitle>
-          <CardDescription>자주 사용하는 언어를 설정하세요</CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-5 w-5 text-teal-500" />
+            기본 언어 설정
+          </CardTitle>
+          <CardDescription>음성 인식 및 번역에 사용될 기본 언어</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="font-medium">내 언어</p>
-              <p className="text-sm text-slate-500">음성 인식에 사용됩니다</p>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                🎤 음성 인식 언어
+              </label>
+              <select
+                value={sourceLanguage}
+                onChange={(e) => setSourceLanguage(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+              >
+                {LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.flag} {lang.name}
+                  </option>
+                ))}
+              </select>
             </div>
-            <Button variant="outline">한국어</Button>
-          </div>
-          <div className="flex items-center justify-between">
             <div>
-              <p className="font-medium">번역 언어</p>
-              <p className="text-sm text-slate-500">자막으로 표시됩니다</p>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                🌐 번역 언어
+              </label>
+              <select
+                value={targetLanguage}
+                onChange={(e) => setTargetLanguage(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+              >
+                <option value="none">📝 선택안함 (원문만)</option>
+                {LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.flag} {lang.name}
+                  </option>
+                ))}
+              </select>
             </div>
-            <Button variant="outline">영어, 일본어</Button>
           </div>
         </CardContent>
       </Card>
 
+      {/* 오디오 장치 설정 */}
       <Card>
         <CardHeader>
-          <CardTitle>알림 설정</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Mic className="h-5 w-5 text-teal-500" />
+            오디오 장치 설정
+          </CardTitle>
+          <CardDescription>마이크와 스피커를 선택하세요</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="font-medium">사용량 알림</p>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                🎤 마이크 선택
+              </label>
+              <select
+                value={audioSettings.selectedMicDevice}
+                onChange={(e) => setAudioSettings((prev: typeof audioSettings) => ({ ...prev, selectedMicDevice: e.target.value }))}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+              >
+                <option value="">기본 마이크</option>
+                {audioDevices.microphones.map((device) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `마이크 ${device.deviceId.slice(0, 8)}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                🔊 스피커 선택
+              </label>
+              <select
+                value={audioSettings.selectedSpeakerDevice}
+                onChange={(e) => setAudioSettings((prev: typeof audioSettings) => ({ ...prev, selectedSpeakerDevice: e.target.value }))}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+              >
+                <option value="">기본 스피커</option>
+                {audioDevices.speakers.map((device) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `스피커 ${device.deviceId.slice(0, 8)}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* TTS 음성 재생 설정 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Volume2 className="h-5 w-5 text-teal-500" />
+            음성 재생 (TTS) 설정
+          </CardTitle>
+          <CardDescription>번역된 내용을 음성으로 재생하는 설정</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* 자동 TTS 재생 토글 */}
+          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+            <div>
+              <p className="font-medium text-slate-700">자동 음성 재생</p>
+              <p className="text-sm text-slate-500">번역 완료 시 TTS로 자동 방송</p>
+            </div>
+            <button
+              onClick={() => setAudioSettings((prev: typeof audioSettings) => ({ ...prev, autoPlayTTS: !prev.autoPlayTTS }))}
+              className={`w-12 h-6 rounded-full transition-colors ${
+                audioSettings.autoPlayTTS ? "bg-teal-500" : "bg-slate-300"
+              }`}
+            >
+              <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                audioSettings.autoPlayTTS ? "translate-x-6" : "translate-x-0.5"
+              }`} />
+            </button>
+          </div>
+
+          {audioSettings.autoPlayTTS && (
+            <div className="p-3 bg-teal-50 rounded-lg text-sm text-teal-700">
+              ✅ 번역이 완료되면 자동으로 TTS 음성이 재생됩니다
+            </div>
+          )}
+
+          {/* 볼륨 조절 */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              음성 볼륨: {Math.round(audioSettings.ttsVolume * 100)}%
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.1"
+              value={audioSettings.ttsVolume}
+              onChange={(e) => setAudioSettings((prev: typeof audioSettings) => ({ ...prev, ttsVolume: parseFloat(e.target.value) }))}
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-500"
+            />
+          </div>
+
+          {/* 속도 조절 */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              음성 속도: {audioSettings.ttsRate}x
+            </label>
+            <input
+              type="range"
+              min="0.5"
+              max="2"
+              step="0.1"
+              value={audioSettings.ttsRate}
+              onChange={(e) => setAudioSettings((prev: typeof audioSettings) => ({ ...prev, ttsRate: parseFloat(e.target.value) }))}
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-500"
+            />
+          </div>
+
+          {/* 음성 테스트 */}
+          <Button onClick={testVoice} variant="outline" className="w-full">
+            🔊 음성 테스트
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* 기록 및 요약 설정 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-teal-500" />
+            기록 및 요약 설정
+          </CardTitle>
+          <CardDescription>통역 내용 저장 및 요약 관련 설정</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* DB 저장 토글 */}
+          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+            <div>
+              <p className="font-medium text-slate-700">💾 기록 자동 저장</p>
+              <p className="text-sm text-slate-500">통역 내용을 데이터베이스에 자동 저장</p>
+            </div>
+            <button
+              onClick={() => setAudioSettings((prev: typeof audioSettings) => ({ ...prev, saveToDb: !prev.saveToDb }))}
+              className={`w-12 h-6 rounded-full transition-colors ${
+                audioSettings.saveToDb !== false ? "bg-teal-500" : "bg-slate-300"
+              }`}
+            >
+              <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                audioSettings.saveToDb !== false ? "translate-x-6" : "translate-x-0.5"
+              }`} />
+            </button>
+          </div>
+
+          {/* 실시간 요약 토글 */}
+          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+            <div>
+              <p className="font-medium text-slate-700">✨ 실시간 요약</p>
+              <p className="text-sm text-slate-500">회의 종료 시 AI 요약 자동 생성</p>
+            </div>
+            <button
+              onClick={() => setAudioSettings((prev: typeof audioSettings) => ({ ...prev, realtimeSummary: !prev.realtimeSummary }))}
+              className={`w-12 h-6 rounded-full transition-colors ${
+                audioSettings.realtimeSummary ? "bg-teal-500" : "bg-slate-300"
+              }`}
+            >
+              <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                audioSettings.realtimeSummary ? "translate-x-6" : "translate-x-0.5"
+              }`} />
+            </button>
+          </div>
+
+          {audioSettings.realtimeSummary && (
+            <div className="p-3 bg-amber-50 rounded-lg text-sm text-amber-700">
+              ✨ 회의 종료 버튼을 누르면 AI가 자동으로 요약을 생성합니다
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 알림 설정 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="h-5 w-5 text-teal-500" />
+            알림 설정
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+            <div>
+              <p className="font-medium text-slate-700">사용량 알림</p>
               <p className="text-sm text-slate-500">포함 시간 80% 도달 시 알림</p>
             </div>
             <input type="checkbox" defaultChecked className="h-5 w-5 rounded text-teal-500" />
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
             <div>
-              <p className="font-medium">이메일 리포트</p>
+              <p className="font-medium text-slate-700">이메일 리포트</p>
               <p className="text-sm text-slate-500">주간 사용량 리포트 수신</p>
             </div>
             <input type="checkbox" className="h-5 w-5 rounded text-teal-500" />
           </div>
         </CardContent>
       </Card>
+
+      {/* 저장 확인 메시지 */}
+      <div className="p-4 bg-green-50 rounded-lg text-sm text-green-700 text-center">
+        💾 설정은 자동으로 저장됩니다
+      </div>
     </div>
   )
 }
