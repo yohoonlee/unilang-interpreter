@@ -256,26 +256,14 @@ function YouTubeTranslatePageContent() {
     setResult(null)
   }
 
-  // 원클릭 실시간 통역 시작 (YouTube 새 창 + 시스템 오디오 캡처)
+  // 원클릭 실시간 통역 시작 (시스템 오디오 캡처)
   const startOneClickLiveMode = async () => {
     if (!videoId) {
       setError("YouTube URL을 먼저 입력해주세요")
       return
     }
 
-    // 1. YouTube를 새 탭에서 열기
-    const youtubeWindow = window.open(
-      `https://www.youtube.com/watch?v=${videoId}`,
-      "_blank",
-      "noopener,noreferrer"
-    )
-
-    if (!youtubeWindow) {
-      setError("팝업이 차단되었습니다. 팝업 차단을 해제해주세요.")
-      return
-    }
-
-    // 2. 안내 메시지
+    // 1. 실시간 모드 시작
     setError(null)
     setIsLiveMode(true)
     setNoSubtitleError(false)
@@ -283,10 +271,8 @@ function YouTubeTranslatePageContent() {
     setResult(null)
     setShowOverlayButton(true)
 
-    // 3. 시스템 오디오 캡처 시작 (약간의 딜레이 후)
-    setTimeout(() => {
-      startSystemAudioCapture()
-    }, 1000)
+    // 2. 시스템 오디오 캡처 시작
+    await startSystemAudioCapture()
   }
 
   // 자막 오버레이 창 열기
@@ -614,7 +600,7 @@ function YouTubeTranslatePageContent() {
       // 오디오 트랙 확인
       const audioTracks = stream.getAudioTracks()
       if (audioTracks.length === 0) {
-        setError("오디오가 캡처되지 않았습니다. 화면 공유 시 '오디오 공유'를 체크해주세요.")
+        setError("⚠️ 오디오가 캡처되지 않았습니다!\n\n화면 공유 팝업에서:\n1. 'Chrome 탭' 선택\n2. 이 UniLang 탭 선택\n3. '오디오 공유' 체크 ✅\n4. '공유' 클릭")
         stream.getTracks().forEach(track => track.stop())
         return
       }
@@ -973,7 +959,7 @@ function YouTubeTranslatePageContent() {
 
         {/* 에러 */}
         {error && (
-          <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600">
+          <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 whitespace-pre-line">
             {error}
           </div>
         )}
@@ -1070,11 +1056,23 @@ function YouTubeTranslatePageContent() {
               <div className="p-4 bg-white/50 dark:bg-slate-800/50 rounded-lg">
                 {isSystemAudioMode ? (
                   <div className="space-y-3">
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      🎧 <strong>시스템 오디오 캡처 모드</strong><br/>
-                      새 탭에서 YouTube 영상을 재생하세요. 자동으로 음성이 인식됩니다.
-                    </p>
-                    <div className="flex items-center justify-center gap-2">
+                    <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg border border-green-300 dark:border-green-700">
+                      <p className="text-sm text-green-700 dark:text-green-300 font-medium">
+                        🎧 시스템 오디오 캡처 중!
+                      </p>
+                      <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                        위의 YouTube 영상을 재생하세요. 음성이 자동으로 인식되어 아래에 자막이 표시됩니다.
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-center gap-2 flex-wrap">
+                      <Button
+                        onClick={openOverlayWindow}
+                        size="sm"
+                        className="bg-gradient-to-r from-purple-500 to-pink-500 text-white"
+                      >
+                        <Languages className="h-4 w-4 mr-1" />
+                        자막 오버레이 창 (전체화면용)
+                      </Button>
                       <Button
                         onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, "_blank")}
                         size="sm"
@@ -1082,20 +1080,9 @@ function YouTubeTranslatePageContent() {
                         className="text-red-600 border-red-300"
                       >
                         <ExternalLink className="h-4 w-4 mr-1" />
-                        YouTube 열기
-                      </Button>
-                      <Button
-                        onClick={openOverlayWindow}
-                        size="sm"
-                        className="bg-gradient-to-r from-purple-500 to-pink-500 text-white"
-                      >
-                        <Languages className="h-4 w-4 mr-1" />
-                        자막 오버레이 창
+                        YouTube 새 탭
                       </Button>
                     </div>
-                    <p className="text-xs text-center text-slate-500">
-                      💡 오버레이 창을 YouTube 전체화면 위에 배치하세요
-                    </p>
                   </div>
                 ) : (
                   <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
