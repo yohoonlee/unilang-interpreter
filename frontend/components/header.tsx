@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Globe, Menu, X, Sparkles, User, Settings, LogOut } from "lucide-react"
@@ -20,6 +20,7 @@ export function Header() {
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const hasOpenedServiceWindow = useRef(false) // 서비스 창 오픈 여부 추적
 
   // 세션 확인
   useEffect(() => {
@@ -47,9 +48,22 @@ export function Header() {
       if (session?.user) {
         setIsLoggedIn(true)
         setUserEmail(session.user.email || null)
+        
+        // 로그인 이벤트일 때만 서비스 창 자동 오픈 (한 번만)
+        if (event === "SIGNED_IN" && !hasOpenedServiceWindow.current) {
+          hasOpenedServiceWindow.current = true
+          // 로그인 모달 닫기
+          setShowAuthModal(false)
+          // 서비스 창 자동 오픈
+          setTimeout(() => {
+            window.open("/service", "UniLang_Service", "width=1400,height=900,menubar=no,toolbar=no,location=no,status=no")
+          }, 300)
+        }
       } else {
         setIsLoggedIn(false)
         setUserEmail(null)
+        // 로그아웃 시 플래그 리셋
+        hasOpenedServiceWindow.current = false
       }
     })
 

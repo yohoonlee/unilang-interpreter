@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,10 +21,11 @@ import {
   LogOut,
   User
 } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
 
 const menuItems = [
   { id: "home", label: "홈", icon: Home },
-  { id: "translate", label: "번역", icon: Languages },
+  { id: "translate", label: "통역", icon: Languages },
   { id: "meeting", label: "회의", icon: Video },
   { id: "pricing", label: "요금제", icon: CreditCard },
   { id: "settings", label: "설정", icon: Settings },
@@ -32,12 +33,41 @@ const menuItems = [
 
 export default function ServicePage() {
   const [activeMenu, setActiveMenu] = useState("home")
-  const [userEmail] = useState("user@example.com")
+  const [userEmail, setUserEmail] = useState("user@example.com")
+  const supabase = createClient()
+
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user?.email) {
+        setUserEmail(user.email)
+      }
+    }
+    getUser()
+  }, [supabase])
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    
+    // 팝업 창인 경우: 부모 창으로 이동 후 팝업 닫기
+    if (window.opener) {
+      window.opener.location.href = "/"
+      window.close()
+    } else {
+      // 일반 창인 경우: 그냥 이동
+      window.location.href = "/"
+    }
+  }
+
+  // 실시간 통역 시작 버튼 핸들러
+  const startTranslation = () => {
+    setActiveMenu("translate")
+  }
 
   const renderContent = () => {
     switch (activeMenu) {
       case "home":
-        return <HomeContent />
+        return <HomeContent onStartTranslation={startTranslation} />
       case "translate":
         return <TranslateContent />
       case "meeting":
@@ -47,7 +77,7 @@ export default function ServicePage() {
       case "settings":
         return <SettingsContent />
       default:
-        return <HomeContent />
+        return <HomeContent onStartTranslation={startTranslation} />
     }
   }
 
@@ -72,7 +102,7 @@ export default function ServicePage() {
             <Button 
               variant="outline" 
               size="sm"
-              onClick={() => window.close()}
+              onClick={handleLogout}
               className="gap-2"
             >
               <LogOut className="h-4 w-4" />
@@ -105,14 +135,14 @@ export default function ServicePage() {
       </nav>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
+      <main className={activeMenu === "translate" ? "" : "container mx-auto px-4 py-8"}>
         {renderContent()}
       </main>
     </div>
   )
 }
 
-function HomeContent() {
+function HomeContent({ onStartTranslation }: { onStartTranslation: () => void }) {
   return (
     <div className="space-y-6">
       <div>
@@ -160,7 +190,10 @@ function HomeContent() {
           <CardDescription>자주 사용하는 기능을 바로 시작하세요</CardDescription>
         </CardHeader>
         <CardContent className="grid md:grid-cols-3 gap-4">
-          <Button className="h-24 flex-col gap-2 bg-gradient-to-br from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600">
+          <Button 
+            className="h-24 flex-col gap-2 bg-gradient-to-br from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600"
+            onClick={onStartTranslation}
+          >
             <Mic className="h-6 w-6" />
             <span>실시간 통역 시작</span>
           </Button>
@@ -168,42 +201,27 @@ function HomeContent() {
             <Video className="h-6 w-6" />
             <span>화상회의 연결</span>
           </Button>
-          <Button variant="outline" className="h-24 flex-col gap-2">
-            <FileText className="h-6 w-6" />
-            <span>회의 기록 보기</span>
-          </Button>
+          <Link href="/service/history" className="w-full">
+            <Button variant="outline" className="h-24 flex-col gap-2 w-full">
+              <FileText className="h-6 w-6" />
+              <span>회의 기록 보기</span>
+            </Button>
+          </Link>
         </CardContent>
       </Card>
     </div>
   )
 }
 
+// 통역 서비스 - iframe으로 기존 통역 페이지 로드 (embedded 모드)
 function TranslateContent() {
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">실시간 번역</h1>
-        <p className="text-slate-600">다양한 미디어 소스에서 실시간 번역을 시작하세요.</p>
-      </div>
-
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { icon: Video, name: "화상회의", desc: "Zoom, Teams, Meet 연동" },
-          { icon: Play, name: "YouTube", desc: "영상 자막 번역" },
-          { icon: FileText, name: "영상 파일", desc: "로컬 파일 업로드" },
-          { icon: Mic, name: "마이크", desc: "실시간 음성 입력" },
-        ].map((item) => (
-          <Card key={item.name} className="cursor-pointer hover:border-teal-300 transition-colors">
-            <CardContent className="p-6 text-center">
-              <div className="mx-auto w-12 h-12 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center mb-4">
-                <item.icon className="h-6 w-6 text-white" />
-              </div>
-              <h3 className="font-semibold text-slate-800">{item.name}</h3>
-              <p className="text-sm text-slate-500 mt-1">{item.desc}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+    <div className="h-[calc(100vh-8rem)]">
+      <iframe 
+        src="/service/translate/mic?embedded=true" 
+        className="w-full h-full border-0"
+        title="실시간 통역"
+      />
     </div>
   )
 }
@@ -359,6 +377,3 @@ function SettingsContent() {
     </div>
   )
 }
-
-
-
