@@ -49,7 +49,13 @@
 - ✅ 오디오 파일 (MP3, WAV, M4A, AAC)
 - ✅ 화면/시스템 오디오 캡처
 
-### 5. 💰 과금 시스템
+### 5. 🎙️ 화자 구분 (Speaker Diarization) ✨ NEW
+- AssemblyAI 기반 화자 자동 구분
+- 무제한 화자 수 지원
+- 회의 후 화자-참석자 매칭 기능
+- 화자별 발언 통계
+
+### 6. 💰 과금 시스템
 - 시간 단위 사용량 추적
 - 4가지 요금제 (무료, 베이직, 프로, 엔터프라이즈)
 - 종량제 옵션
@@ -58,20 +64,48 @@
 ## 🛠️ 기술 스택
 
 ### Backend
-- **Framework**: Python FastAPI
+- **Framework**: Python FastAPI / Next.js API Routes
 - **Database**: Supabase (PostgreSQL)
 - **Real-time**: WebSocket
 - **AI Services**:
-  - Google Speech-to-Text (STT)
+  - **AssemblyAI** - STT + 화자 구분 (Speaker Diarization) ✨ NEW
   - Google Translate API (번역)
-  - Google Gemini (요약)
+  - AssemblyAI LeMUR / Google Gemini (요약)
 
 ### Frontend
-- **Framework**: React 18 + TypeScript
-- **State Management**: Zustand
-- **Styling**: Tailwind CSS
+- **Framework**: Next.js 16 + TypeScript
+- **State Management**: React Hooks + Context
+- **Styling**: Tailwind CSS + Shadcn UI
 - **Animation**: Framer Motion
-- **HTTP Client**: Axios + React Query
+
+### 🎙️ AssemblyAI 통합 (화자 구분)
+
+| 기능 | 설명 |
+|------|------|
+| **STT** | 고정밀 음성→텍스트 변환 |
+| **Speaker Diarization** | 화자별 자동 구분 (무제한) |
+| **LeMUR** | AI 기반 회의 요약 |
+| **YouTube 지원** | URL 직접 입력으로 자동 처리 |
+
+```javascript
+// AssemblyAI SDK 사용 예시
+import { AssemblyAI } from "assemblyai";
+
+const client = new AssemblyAI({
+  apiKey: process.env.ASSEMBLYAI_API_KEY,
+});
+
+const transcript = await client.transcripts.transcribe({
+  audio: audioUrl,
+  speaker_labels: true,  // 화자 구분 활성화
+  language_code: "ko",   // 한국어
+});
+
+// 결과: 화자별 분리된 텍스트
+transcript.utterances.forEach(utterance => {
+  console.log(`화자 ${utterance.speaker}: ${utterance.text}`);
+});
+```
 
 ## 📁 프로젝트 구조
 
@@ -132,7 +166,27 @@ Real-time interpretation service/
 
 ### 환경 변수 설정
 
-#### Backend (.env)
+#### Vercel 환경변수 (Frontend)
+
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+# Google Cloud
+NEXT_PUBLIC_GOOGLE_API_KEY=your-google-api-key
+
+# AssemblyAI (화자 구분) ✨ NEW
+ASSEMBLYAI_API_KEY=your-assemblyai-api-key
+
+# OAuth (소셜 로그인)
+NEXT_PUBLIC_KAKAO_CLIENT_ID=your-kakao-client-id
+NEXT_PUBLIC_NAVER_CLIENT_ID=your-naver-client-id
+NAVER_CLIENT_SECRET=your-naver-client-secret
+```
+
+#### Backend (.env) - 확장 시
 
 ```env
 # Supabase
@@ -143,24 +197,13 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 # Google Cloud
 GOOGLE_APPLICATION_CREDENTIALS=./credentials/google-cloud-key.json
 GOOGLE_PROJECT_ID=your-project-id
-GEMINI_API_KEY=your-gemini-api-key
 
-# Zoom
+# AssemblyAI
+ASSEMBLYAI_API_KEY=your-assemblyai-api-key
+
+# 화상회의 플랫폼 (향후 확장)
 ZOOM_API_KEY=your-zoom-api-key
 ZOOM_API_SECRET=your-zoom-api-secret
-
-# Microsoft Teams
-MS_TEAMS_CLIENT_ID=your-teams-client-id
-MS_TEAMS_CLIENT_SECRET=your-teams-client-secret
-MS_TEAMS_TENANT_ID=your-teams-tenant-id
-
-# Google Meet
-GOOGLE_MEET_CLIENT_ID=your-meet-client-id
-GOOGLE_MEET_CLIENT_SECRET=your-meet-client-secret
-
-# Webex
-WEBEX_CLIENT_ID=your-webex-client-id
-WEBEX_CLIENT_SECRET=your-webex-client-secret
 ```
 
 ### Backend 설치 및 실행
@@ -301,12 +344,27 @@ npm run dev
 
 ## 📊 API 원가 (참고)
 
+### 현재 구성 (AssemblyAI + Google Translate)
+
+| 서비스 | 단가 | 시간당 비용 | 기능 |
+|--------|------|-------------|------|
+| **AssemblyAI** | $0.011/분 | **$0.66** | STT + 화자 구분 + 요약 |
+| Google Translate | $20/100만자 | ~$0.30 | 번역 |
+| **합계** | - | **~$0.96 (≈₩1,300)** | - |
+
+### 이전 구성 (Google Only) - 참고용
+
 | 서비스 | 단가 | 시간당 비용 |
 |--------|------|-------------|
 | Google STT (Enhanced) | $0.036/분 | $2.16 |
 | Google Translate | $20/100만자 | ~$1.80 |
 | Google Gemini (요약) | - | ~$0.003 |
 | **합계** | - | **~$4.00 (≈₩5,400)** |
+
+### 💡 비용 절감 효과
+- **AssemblyAI 전환으로 약 75% 비용 절감**
+- 화자 구분 기능 추가 (Google은 미지원)
+- 더 정확한 STT 품질
 
 ## 📄 라이선스
 
