@@ -294,3 +294,7 @@ class TeamsAdapter(BasePlatformAdapter):
 
 
 
+
+
+
+

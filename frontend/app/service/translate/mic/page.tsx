@@ -865,64 +865,30 @@ function MicTranslatePageContent() {
     setError(null)
 
     try {
-      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY
-      if (!apiKey) throw new Error("API 키가 설정되지 않았습니다.")
+      // 발화 데이터 준비
+      const utterances = transcripts.map((t, i) => ({
+        id: i + 1,
+        text: t.original,
+        translated: t.translated,
+      }))
 
-      // 원본 텍스트 목록 생성
-      const originalTexts = transcripts.map((t, i) => `[${i + 1}] ${t.original}`).join("\n")
+      // 서버 API 라우트 호출
+      const response = await fetch("/api/gemini/reorganize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          utterances,
+          targetLanguage,
+        }),
+      })
 
-      const prompt = `다음은 실시간 음성인식으로 생성된 텍스트입니다. 문장이 중간에 끊어져 있거나 불완전한 경우가 많습니다.
+      const result = await response.json()
 
-각 문장을 맥락을 고려하여 자연스러운 완전한 문장으로 재구성해주세요.
-- 연속된 문장이 같은 의미를 가지면 하나로 합쳐주세요
-- 문법적으로 불완전한 문장은 완성해주세요
-- 원래 의미를 최대한 보존해주세요
-- 응답은 반드시 JSON 배열 형식으로만 반환해주세요
-
-입력 텍스트:
-${originalTexts}
-
-응답 형식 (JSON 배열만):
-[
-  {"merged_from": [1, 2], "text": "합쳐진 완전한 문장"},
-  {"merged_from": [3], "text": "단독 문장"},
-  ...
-]`
-
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.3,
-              maxOutputTokens: 4096,
-            },
-          }),
-        }
-      )
-
-      if (!response.ok) throw new Error("AI 재정리 요청 실패")
-
-      const data = await response.json()
-      const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
-      
-      // JSON 추출 (```json ... ``` 형식 처리)
-      let jsonStr = responseText
-      const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/)
-      if (jsonMatch) {
-        jsonStr = jsonMatch[1]
-      } else {
-        // JSON 배열 직접 추출
-        const arrayMatch = responseText.match(/\[[\s\S]*\]/)
-        if (arrayMatch) {
-          jsonStr = arrayMatch[0]
-        }
+      if (!result.success) {
+        throw new Error(result.error || "AI 재정리 요청 실패")
       }
 
-      const reorganized = JSON.parse(jsonStr) as { merged_from: number[]; text: string }[]
+      const reorganized = result.data as { merged_from: number[]; text: string }[]
       
       if (!Array.isArray(reorganized) || reorganized.length === 0) {
         throw new Error("AI 응답 형식이 올바르지 않습니다.")
@@ -1094,69 +1060,35 @@ ${originalTexts}
 
   // ==================== 요약 기능 ====================
 
-  // Gemini API로 요약 생성
+  // Gemini API로 요약 생성 (서버 API 라우트 사용)
   const generateSummary = async (texts: string[], language: string): Promise<string> => {
-    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY
-    
-    if (!apiKey) {
-      console.error("Google API 키가 없습니다")
-      throw new Error("Google API 키가 설정되지 않았습니다. 환경변수를 확인해주세요.")
-    }
-
     if (!texts || texts.length === 0) {
       throw new Error("요약할 내용이 없습니다.")
     }
 
-    const langName = LANGUAGES.find(l => l.code === language)?.name || "한국어"
     const combinedText = texts.join("\n")
     
-    console.log("요약 생성 시작:", { 언어: langName, 텍스트수: texts.length })
-    
-    const prompt = `다음 대화/발언 내용을 ${langName}로 요약해주세요. 핵심 내용을 간결하게 정리하고, 중요한 포인트를 불릿 포인트로 나열해주세요.
-
-대화 내용:
-${combinedText}
-
-요약:`
+    console.log("요약 생성 시작:", { 언어: language, 텍스트수: texts.length })
 
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: prompt
-              }]
-            }],
-            generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 1024,
-            }
-          }),
-        }
-      )
+      const response = await fetch("/api/gemini/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: combinedText,
+          targetLanguage: language,
+        }),
+      })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        console.error("Gemini API 에러:", errorData)
-        throw new Error(errorData.error?.message || `API 오류 (${response.status})`)
+      const result = await response.json()
+
+      if (!result.success) {
+        console.error("요약 API 에러:", result.error)
+        throw new Error(result.error || "요약 생성 실패")
       }
 
-      const data = await response.json()
-      const summaryText = data.candidates?.[0]?.content?.parts?.[0]?.text
-      
-      if (!summaryText) {
-        console.error("요약 결과가 비어있음:", data)
-        throw new Error("AI가 요약을 생성하지 못했습니다.")
-      }
-      
       console.log("요약 생성 완료")
-      return summaryText
+      return result.summary
     } catch (fetchError) {
       console.error("요약 API 호출 오류:", fetchError)
       throw fetchError

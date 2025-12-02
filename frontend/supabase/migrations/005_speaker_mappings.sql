@@ -89,3 +89,7 @@ CREATE TRIGGER trigger_update_assemblyai_transcripts_updated_at
 COMMENT ON TABLE public.speaker_mappings IS 'AssemblyAI 화자 구분 결과와 실제 참석자 매칭';
 COMMENT ON TABLE public.assemblyai_transcripts IS 'AssemblyAI 전사 결과 저장';
 
+
+
+
+

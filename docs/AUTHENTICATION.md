@@ -351,3 +351,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 - Supabase Project ID: `ihqcklsrmmxdawffcapy`
 - Frontend URL: `https://frontend-lime-eight-18.vercel.app`
 
+
+
+
+

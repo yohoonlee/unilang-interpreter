@@ -105,6 +105,7 @@ function YouTubeTranslatePageContent() {
   
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const isListeningRef = useRef(false)
+  const liveResultsRef = useRef<HTMLDivElement>(null)
   
   const supabase = createClient()
 
@@ -247,10 +248,20 @@ function YouTubeTranslatePageContent() {
 
   // 실시간 통역에서 번역 추가
   const addLiveUtterance = async (text: string) => {
+    console.log("[YouTube Live] 새 발화 추가:", text)
+    
     const srcLang = sourceLanguage === "auto" ? "en" : sourceLanguage
-    const translated = targetLanguage !== "none" 
-      ? await translateText(text, srcLang, targetLanguage)
-      : ""
+    let translated = ""
+    
+    try {
+      if (targetLanguage !== "none") {
+        translated = await translateText(text, srcLang, targetLanguage)
+        console.log("[YouTube Live] 번역 완료:", translated)
+      }
+    } catch (err) {
+      console.error("[YouTube Live] 번역 실패:", err)
+      // 번역 실패해도 원본은 표시
+    }
     
     const newUtterance: Utterance = {
       speaker: "A",
@@ -260,7 +271,18 @@ function YouTubeTranslatePageContent() {
       translated,
     }
     
-    setUtterances(prev => [...prev, newUtterance])
+    setUtterances(prev => {
+      const updated = [...prev, newUtterance]
+      console.log("[YouTube Live] 총 발화 수:", updated.length)
+      // 자동 스크롤
+      setTimeout(() => {
+        liveResultsRef.current?.scrollTo({
+          top: liveResultsRef.current.scrollHeight,
+          behavior: "smooth"
+        })
+      }, 100)
+      return updated
+    })
   }
 
   // 음성 인식 초기화
@@ -284,12 +306,16 @@ function YouTubeTranslatePageContent() {
         const transcript = event.results[i][0].transcript
         if (event.results[i].isFinal) {
           finalTranscript += transcript
+          console.log("[YouTube Live] 최종 인식:", transcript)
         } else {
           interimTranscript += transcript
         }
       }
 
       setCurrentTranscript(interimTranscript)
+      if (interimTranscript) {
+        console.log("[YouTube Live] 중간 인식:", interimTranscript)
+      }
 
       if (finalTranscript.trim()) {
         addLiveUtterance(finalTranscript.trim())
@@ -327,17 +353,25 @@ function YouTubeTranslatePageContent() {
   const toggleLiveListening = () => {
     if (isListening) {
       // 중지
+      console.log("[YouTube Live] 음성 인식 중지")
       isListeningRef.current = false
       setIsListening(false)
       recognitionRef.current?.stop()
     } else {
       // 시작
+      console.log("[YouTube Live] 음성 인식 시작 시도")
       const recognition = initRecognition()
       if (recognition) {
         recognitionRef.current = recognition
         isListeningRef.current = true
         setIsListening(true)
-        recognition.start()
+        try {
+          recognition.start()
+          console.log("[YouTube Live] 음성 인식 시작됨")
+        } catch (err) {
+          console.error("[YouTube Live] 음성 인식 시작 오류:", err)
+          setError("음성 인식을 시작할 수 없습니다. 마이크 권한을 확인해주세요.")
+        }
       }
     }
   }
@@ -392,15 +426,15 @@ function YouTubeTranslatePageContent() {
     setIsTranslating(false)
   }
 
-  // 요약 생성 (Gemini 사용)
+  // 요약 생성 (서버 API 라우트 사용)
   const generateSummary = async () => {
-    if (!result?.text || utterances.length === 0) return
+    if (utterances.length === 0) {
+      setError("요약할 내용이 없습니다.")
+      return
+    }
     
     setIsSummarizing(true)
     try {
-      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY
-      if (!apiKey) throw new Error("API 키가 설정되지 않았습니다.")
-      
       // 전체 텍스트 또는 번역된 텍스트 사용
       const textToSummarize = utterances
         .map(u => u.translated || u.text)
@@ -409,37 +443,23 @@ function YouTubeTranslatePageContent() {
       const summaryLang = targetLanguage === "none" 
         ? (sourceLanguage === "auto" ? "ko" : sourceLanguage) 
         : targetLanguage
-      
-      const langName = LANGUAGES.find(l => l.code === summaryLang)?.name || "한국어"
-      
-      const prompt = `다음은 YouTube 동영상의 자막입니다. ${langName}로 핵심 내용을 요약해주세요.
 
-자막 내용:
-${textToSummarize}
-
-요약 (${langName}):`
-
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.3,
-              maxOutputTokens: 2048,
-            },
-          }),
-        }
-      )
+      const response = await fetch("/api/gemini/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: textToSummarize,
+          targetLanguage: summaryLang,
+        }),
+      })
       
-      if (!response.ok) throw new Error("요약 생성 실패")
+      const result = await response.json()
       
-      const data = await response.json()
-      const summaryText = data.candidates?.[0]?.content?.parts?.[0]?.text || "요약을 생성할 수 없습니다."
+      if (!result.success) {
+        throw new Error(result.error || "요약 생성 실패")
+      }
       
-      setSummary(summaryText)
+      setSummary(result.summary)
       setShowSummary(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : "요약 생성 중 오류 발생")
@@ -711,13 +731,32 @@ ${textToSummarize}
               )}
 
               {/* 실시간 번역 결과 */}
-              {utterances.length > 0 && (
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                  {utterances.map((utterance, index) => (
+              <div 
+                ref={liveResultsRef}
+                className="space-y-3 max-h-[400px] overflow-y-auto min-h-[100px] bg-slate-50 dark:bg-slate-900/50 rounded-lg p-3"
+              >
+                {utterances.length === 0 ? (
+                  <div className="text-center text-slate-400 py-8">
+                    {isListening ? (
+                      <p>🎤 음성을 기다리는 중...</p>
+                    ) : (
+                      <p>마이크 버튼을 눌러 음성 인식을 시작하세요</p>
+                    )}
+                  </div>
+                ) : (
+                  utterances.map((utterance, index) => (
                     <div
                       key={index}
-                      className="p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700"
+                      className="p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm"
                     >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-slate-500">
+                          #{index + 1}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          {new Date(utterance.start).toLocaleTimeString("ko-KR")}
+                        </span>
+                      </div>
                       <p className="text-slate-700 dark:text-slate-300">
                         {utterance.text}
                       </p>
@@ -727,9 +766,9 @@ ${textToSummarize}
                         </p>
                       )}
                     </div>
-                  ))}
-                </div>
-              )}
+                  ))
+                )}
+              </div>
 
               {/* 액션 버튼 */}
               {utterances.length > 0 && (

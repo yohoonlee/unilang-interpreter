@@ -234,3 +234,7 @@ export default function PrivacyPage() {
   )
 }
 
+
+
+
+
