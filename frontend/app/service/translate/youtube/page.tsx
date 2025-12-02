@@ -256,23 +256,19 @@ function YouTubeTranslatePageContent() {
     setResult(null)
   }
 
-  // 원클릭 실시간 통역 시작 (시스템 오디오 캡처)
+  // 원클릭 실시간 통역 시작 - 새 탭에서 전용 페이지 열기
   const startOneClickLiveMode = async () => {
     if (!videoId) {
       setError("YouTube URL을 먼저 입력해주세요")
       return
     }
 
-    // 1. 실시간 모드 시작
+    // 새 탭에서 전용 실시간 통역 페이지 열기
+    const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}`
+    window.open(liveUrl, "_blank")
+    
+    // 안내 메시지
     setError(null)
-    setIsLiveMode(true)
-    setNoSubtitleError(false)
-    setUtterances([])
-    setResult(null)
-    setShowOverlayButton(true)
-
-    // 2. 시스템 오디오 캡처 시작
-    await startSystemAudioCapture()
   }
 
   // 자막 오버레이 창 열기
