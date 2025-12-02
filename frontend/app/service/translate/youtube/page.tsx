@@ -256,19 +256,16 @@ function YouTubeTranslatePageContent() {
     setResult(null)
   }
 
-  // 원클릭 실시간 통역 시작 - 새 탭에서 전용 페이지 열기
+  // 원클릭 실시간 통역 시작 - 현재 페이지에서 전체화면 모드로 전환
   const startOneClickLiveMode = async () => {
     if (!videoId) {
       setError("YouTube URL을 먼저 입력해주세요")
       return
     }
 
-    // 새 탭에서 전용 실시간 통역 페이지 열기
+    // 전용 실시간 통역 페이지로 이동 (새 탭이 아닌 현재 탭에서)
     const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}`
-    window.open(liveUrl, "_blank")
-    
-    // 안내 메시지
-    setError(null)
+    window.location.href = liveUrl
   }
 
   // 자막 오버레이 창 열기
