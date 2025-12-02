@@ -191,6 +191,11 @@ function MicTranslatePageContent() {
   const lastProcessedTextRef = useRef<string>("") // 중복 처리 방지용
   const processingRef = useRef<boolean>(false) // 처리 중 플래그
   const sessionIdRef = useRef<string | null>(null) // 세션 ID ref (비동기 문제 해결용)
+  
+  // 문장 버퍼링 관련 ref (맥락 통역 개선)
+  const sentenceBufferRef = useRef<string>("") // 문장 버퍼
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null) // 침묵 타이머
+  const SILENCE_THRESHOLD = 1500 // 1.5초 침묵 후 번역 실행
 
   // 사용자 정보 가져오기
   useEffect(() => {
@@ -235,6 +240,16 @@ function MicTranslatePageContent() {
   useEffect(() => {
     return () => {
       isListeningRef.current = false
+      
+      // 타이머 정리
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current)
+        silenceTimerRef.current = null
+      }
+      
+      // 버퍼 정리
+      sentenceBufferRef.current = ""
+      
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop()
@@ -1086,6 +1101,50 @@ ${combinedText}
     }
   }
 
+  // 문장 종결 감지 (마침표, 물음표, 느낌표 등)
+  const isSentenceComplete = (text: string): boolean => {
+    const trimmed = text.trim()
+    // 문장 종결 부호 확인
+    const endings = [".", "?", "!", "。", "？", "！", "~", "…"]
+    return endings.some(e => trimmed.endsWith(e))
+  }
+
+  // 버퍼의 내용을 번역 (맥락 통역)
+  const flushSentenceBuffer = async () => {
+    const bufferedText = sentenceBufferRef.current.trim()
+    if (!bufferedText) return
+    
+    console.log("🔄 버퍼 플러시 (문장 완성):", bufferedText)
+    
+    // 버퍼 초기화
+    sentenceBufferRef.current = ""
+    
+    // 타이머 클리어
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current)
+      silenceTimerRef.current = null
+    }
+    
+    // 번역 실행
+    await translateAndAdd(bufferedText)
+  }
+
+  // 침묵 타이머 리셋 (발화 감지 시 호출)
+  const resetSilenceTimer = () => {
+    // 기존 타이머 클리어
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current)
+    }
+    
+    // 새 타이머 설정 (1.5초 후 버퍼 플러시)
+    silenceTimerRef.current = setTimeout(() => {
+      if (sentenceBufferRef.current.trim()) {
+        console.log("⏱️ 침묵 감지 - 버퍼 플러시")
+        flushSentenceBuffer()
+      }
+    }, SILENCE_THRESHOLD)
+  }
+
   // 번역 후 목록에 추가
   const translateAndAdd = async (text: string) => {
     if (!text.trim()) return
@@ -1175,33 +1234,45 @@ ${combinedText}
         }
       }
 
-      // 실시간 텍스트 업데이트
-      setCurrentTranscript(interimTranscript)
+      // 실시간 텍스트 업데이트 (버퍼 + 현재 입력)
+      const displayText = sentenceBufferRef.current + (interimTranscript || finalTranscript)
+      setCurrentTranscript(displayText)
 
       if (finalTranscript) {
-        // 중복 처리 방지: 같은 텍스트가 연속으로 처리되지 않도록
         const trimmedText = finalTranscript.trim()
+        
+        // 중복 처리 방지
         if (trimmedText === lastProcessedTextRef.current) {
           console.log("중복 텍스트 스킵:", trimmedText)
-          setCurrentTranscript("")
           return
         }
-        
-        // 처리 중이면 스킵
-        if (processingRef.current) {
-          console.log("이전 처리 진행 중, 스킵")
-          return
-        }
-        
-        processingRef.current = true
         lastProcessedTextRef.current = trimmedText
         
-        try {
-          await translateAndAdd(finalTranscript)
-        } finally {
-          processingRef.current = false
+        // 버퍼에 추가 (공백으로 구분)
+        if (sentenceBufferRef.current) {
+          sentenceBufferRef.current += " " + trimmedText
+        } else {
+          sentenceBufferRef.current = trimmedText
         }
-        setCurrentTranscript("")
+        
+        console.log("📝 버퍼 누적:", sentenceBufferRef.current)
+        
+        // 문장 종결 감지 - 즉시 번역
+        if (isSentenceComplete(trimmedText)) {
+          console.log("✅ 문장 종결 감지 - 즉시 번역")
+          if (!processingRef.current) {
+            processingRef.current = true
+            try {
+              await flushSentenceBuffer()
+            } finally {
+              processingRef.current = false
+            }
+          }
+          setCurrentTranscript("")
+        } else {
+          // 문장이 아직 완성되지 않음 - 침묵 타이머 리셋
+          resetSilenceTimer()
+        }
       }
     }
 
@@ -1250,11 +1321,25 @@ ${combinedText}
     if (isListening) {
       // 중지
       isListeningRef.current = false
+      
+      // 타이머 클리어
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current)
+        silenceTimerRef.current = null
+      }
+      
+      // 버퍼에 남은 내용 처리
+      if (sentenceBufferRef.current.trim()) {
+        console.log("🛑 마이크 중지 - 버퍼 플러시")
+        await flushSentenceBuffer()
+      }
+      
       if (recognitionRef.current) {
         recognitionRef.current.stop()
       }
       setIsListening(false)
       setCurrentTranscript("")
+      
       // 세션 종료
       if (sessionId) {
         await endSession()
