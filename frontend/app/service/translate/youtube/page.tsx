@@ -130,17 +130,16 @@ function YouTubeTranslatePageContent() {
     setProgressText("전사 요청 중...")
 
     try {
-      // AssemblyAI는 YouTube URL을 직접 지원
+      // YouTube 자막 API 사용
       setProgress(20)
-      setProgressText("YouTube 오디오 추출 중...")
+      setProgressText("YouTube 자막 추출 중...")
       
-      const response = await fetch("/api/assemblyai/transcribe", {
+      const response = await fetch("/api/youtube/transcript", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          audioUrl: youtubeUrl,
-          languageCode: sourceLanguage === "auto" ? undefined : sourceLanguage,
-          speakerLabels: true,
+          youtubeUrl,
+          targetLanguage: targetLanguage !== "none" ? targetLanguage : null,
         }),
       })
 
@@ -153,15 +152,16 @@ function YouTubeTranslatePageContent() {
         throw new Error(data.error || "전사 실패")
       }
 
-      setResult(data)
+      setResult({
+        transcriptId: data.videoId,
+        text: data.text,
+        language: data.language,
+        duration: data.duration,
+        utterances: data.utterances,
+        speakerStats: data.speakerStats,
+      })
+      setUtterances(data.utterances || [])
       setProgress(100)
-      
-      // 번역 실행
-      if (targetLanguage !== "none" && data.utterances?.length > 0) {
-        await translateUtterances(data.utterances)
-      } else {
-        setUtterances(data.utterances || [])
-      }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : "전사 중 오류 발생")
@@ -212,31 +212,57 @@ function YouTubeTranslatePageContent() {
     setIsTranslating(false)
   }
 
-  // 요약 생성
+  // 요약 생성 (Gemini 사용)
   const generateSummary = async () => {
-    if (!result?.transcriptId) return
+    if (!result?.text || utterances.length === 0) return
     
     setIsSummarizing(true)
     try {
-      const response = await fetch("/api/assemblyai/summarize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transcriptId: result.transcriptId,
-          summaryType: "general",
-          language: targetLanguage === "none" ? sourceLanguage : targetLanguage,
-        }),
-      })
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY
+      if (!apiKey) throw new Error("API 키가 설정되지 않았습니다.")
+      
+      // 전체 텍스트 또는 번역된 텍스트 사용
+      const textToSummarize = utterances
+        .map(u => u.translated || u.text)
+        .join("\n")
+      
+      const summaryLang = targetLanguage === "none" 
+        ? (sourceLanguage === "auto" ? "ko" : sourceLanguage) 
+        : targetLanguage
+      
+      const langName = LANGUAGES.find(l => l.code === summaryLang)?.name || "한국어"
+      
+      const prompt = `다음은 YouTube 동영상의 자막입니다. ${langName}로 핵심 내용을 요약해주세요.
+
+자막 내용:
+${textToSummarize}
+
+요약 (${langName}):`
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.3,
+              maxOutputTokens: 2048,
+            },
+          }),
+        }
+      )
+      
+      if (!response.ok) throw new Error("요약 생성 실패")
       
       const data = await response.json()
-      if (data.success) {
-        setSummary(data.summary)
-        setShowSummary(true)
-      } else {
-        setError(data.error || "요약 생성 실패")
-      }
+      const summaryText = data.candidates?.[0]?.content?.parts?.[0]?.text || "요약을 생성할 수 없습니다."
+      
+      setSummary(summaryText)
+      setShowSummary(true)
     } catch (err) {
-      setError("요약 생성 중 오류 발생")
+      setError(err instanceof Error ? err.message : "요약 생성 중 오류 발생")
     } finally {
       setIsSummarizing(false)
     }
