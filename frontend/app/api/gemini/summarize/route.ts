@@ -35,10 +35,10 @@ ${text}
 
     // Gemini API 호출 - 여러 모델과 API 버전 시도
     const modelConfigs = [
-      { model: "gemini-1.5-flash", version: "v1" },
-      { model: "gemini-1.5-flash-latest", version: "v1beta" },
-      { model: "gemini-1.5-pro", version: "v1" },
-      { model: "gemini-pro", version: "v1" },
+      { model: "gemini-2.0-flash-exp", version: "v1beta" },
+      { model: "gemini-1.5-flash", version: "v1beta" },
+      { model: "gemini-1.5-pro", version: "v1beta" },
+      { model: "gemini-pro", version: "v1beta" },
     ]
 
     let lastError = null
