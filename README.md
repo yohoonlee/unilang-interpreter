@@ -23,6 +23,13 @@
 - 참여자별 언어로 요약 제공
 - **기록 보관 기간 요금제별 차등**
 
+### 4. 🤖 AI 재정리 기능 ✨ NEW
+- **끊어진 문장 자동 병합**: 실시간 STT로 인해 끊어진 문장들을 AI가 자연스럽게 합침
+- **원문 언어 유지**: 한국어 원문은 한국어로, 영어 원문은 영어로 유지
+- **순서 보존**: 입력 순서대로 결과 출력
+- **재번역 자동 실행**: 재정리된 원문을 다시 번역하여 표시
+- Google Gemini 2.0/2.5 Flash 모델 사용
+
 ### 4. 다중 플랫폼 지원
 
 #### 화상회의 📹
@@ -140,6 +147,13 @@ transcript.utterances.forEach(utterance => {
 | `/api/assemblyai/summarize` | POST | LeMUR AI 요약 |
 | `/api/assemblyai/realtime` | POST | 실시간 전사 토큰 발급 |
 | `/api/assemblyai/speakers` | GET/POST | 화자 매칭 관리 |
+
+### Gemini (AI 재정리, 요약) ✨ NEW
+
+| 엔드포인트 | 메서드 | 설명 |
+|------------|--------|------|
+| `/api/gemini/reorganize` | POST | AI 문장 재정리 (끊어진 문장 병합) |
+| `/api/gemini/summarize` | POST | AI 요약 생성 |
 
 ### YouTube (YouTube 통역)
 
@@ -399,6 +413,90 @@ AI 재정리 및 요약 기능에 **필수**입니다.
 1. [Webex Developer](https://developer.webex.com/)에서 앱 생성
 2. OAuth 통합 설정
 3. 필요한 스코프 권한 요청
+
+## 🤖 AI 재정리 설정 (Gemini API)
+
+AI 재정리 기능은 **Google Gemini API**를 사용합니다. 다음 설정이 필요합니다.
+
+### 1. API 키 발급
+
+**방법 A: Google AI Studio (권장)** ⭐
+1. [Google AI Studio](https://aistudio.google.com/app/apikey) 접속
+2. **"Create API key"** 클릭
+3. 프로젝트 선택 또는 새로 생성
+4. API 키 복사
+
+**방법 B: Google Cloud Console**
+1. [Google Cloud Console](https://console.cloud.google.com/) 접속
+2. 프로젝트 선택
+3. **API 및 서비스** > **사용자 인증 정보** > **API 키 만들기**
+
+### 2. API 키 설정 (중요 ⚠️)
+
+서버 사이드 API 호출을 위해 **애플리케이션 제한을 "없음"으로** 설정해야 합니다:
+
+1. [Google Cloud Console - 사용자 인증 정보](https://console.cloud.google.com/apis/credentials) 접속
+2. 해당 API 키 클릭
+3. **애플리케이션 제한사항**: **"없음"** 선택
+4. **API 제한사항**: **"키 제한 안함"** 또는 다음 API 선택:
+   - Generative Language API
+   - Cloud Translation API
+5. **저장**
+
+> ⚠️ **주의**: HTTP 리퍼러 제한이 설정되어 있으면 서버 사이드에서 403 에러가 발생합니다.
+
+### 3. Vercel 환경변수 등록
+
+```env
+GOOGLE_API_KEY=AIzaSy...your-api-key
+NEXT_PUBLIC_GOOGLE_API_KEY=AIzaSy...your-api-key
+```
+
+### 4. 사용 가능한 Gemini 모델
+
+현재 지원되는 모델 (v1beta API):
+
+| 모델 | 설명 | 우선순위 |
+|------|------|----------|
+| `gemini-2.0-flash` | 빠르고 다용도 | 1순위 ⭐ |
+| `gemini-2.5-flash` | 최신 Flash 모델 | 2순위 |
+| `gemini-2.0-flash-lite` | 경량 버전 | 3순위 |
+
+> 📝 **참고**: `gemini-1.5-flash`, `gemini-1.5-pro`, `gemini-pro`는 더 이상 지원되지 않습니다.
+
+### 5. API 라우트 구조
+
+```
+frontend/app/api/gemini/
+├── reorganize/route.ts   # AI 재정리 (문장 병합)
+└── summarize/route.ts    # AI 요약
+```
+
+### 6. 문제 해결
+
+#### 404 에러 (Model not found)
+```
+"models/gemini-pro is not found for API version v1beta"
+```
+**해결**: 사용 가능한 모델 확인
+```bash
+# 브라우저에서 접속하여 모델 목록 확인
+https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_API_KEY
+```
+
+#### 403 에러 (Referrer blocked)
+```
+"Requests from referer <empty> are blocked"
+```
+**해결**: API 키의 애플리케이션 제한을 "없음"으로 변경
+
+#### 400 에러 (Invalid API key)
+```
+"API key not valid. Please pass a valid API key."
+```
+**해결**: 
+1. API 키가 올바른지 확인
+2. Vercel 환경변수 업데이트 후 **Redeploy** 필수
 
 ## 🌍 지원 언어
 
