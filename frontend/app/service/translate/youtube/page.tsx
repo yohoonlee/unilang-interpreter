@@ -641,13 +641,14 @@ function YouTubeTranslatePageContent() {
       // 시스템 오디오를 스피커로 출력하고 마이크로 다시 캡처하는 방식 사용
       // 또는 MediaRecorder로 녹음 후 AssemblyAI로 전송
       
-      // 방법 1: 오디오 컨텍스트로 스피커 출력 (사용자가 들을 수 있게)
+      // 오디오 컨텍스트로 스피커 출력 (마이크가 캡처할 수 있게)
       const audioContext = new AudioContext()
       audioContextRef.current = audioContext
       const source = audioContext.createMediaStreamSource(new MediaStream(audioTracks))
       
-      // 스피커로 출력 (사용자가 소리를 들을 수 있게)
-      // source.connect(audioContext.destination)
+      // 스피커로 출력 - 이렇게 해야 마이크가 소리를 캡처할 수 있음
+      source.connect(audioContext.destination)
+      console.log("[System Audio] 스피커로 오디오 출력 시작")
       
       // 스트림 종료 감지
       audioTracks[0].onended = () => {
@@ -656,15 +657,18 @@ function YouTubeTranslatePageContent() {
       }
       
       // Web Speech API 시작 (마이크 모드)
-      // 시스템 오디오가 스피커로 나오면 마이크가 캡처
+      // 스피커에서 나오는 소리를 마이크가 캡처
       const recognition = initRecognition()
       if (recognition) {
         recognitionRef.current = recognition
         isListeningRef.current = true
         setIsListening(true)
         recognition.start()
-        console.log("[System Audio] 음성 인식 시작됨")
+        console.log("[System Audio] 음성 인식 시작됨 (마이크로 스피커 소리 캡처)")
       }
+      
+      // 안내 메시지
+      setError("🔊 스피커 볼륨을 높여주세요! 마이크가 스피커 소리를 캡처합니다.")
       
     } catch (err) {
       console.error("[System Audio] 캡처 오류:", err)
