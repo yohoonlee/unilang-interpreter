@@ -138,6 +138,11 @@ function MicTranslatePageContent() {
   const [hasExistingSummary, setHasExistingSummary] = useState(false)
   const [previewSummary, setPreviewSummary] = useState<{sessionId: string, text: string} | null>(null) // 목록 말풍선 요약
   
+  // 문장 재정리 관련
+  const [isReorganizing, setIsReorganizing] = useState(false) // AI 재정리 중
+  const [selectedForMerge, setSelectedForMerge] = useState<Set<string>>(new Set()) // 수동 병합용 선택된 항목
+  const [mergeMode, setMergeMode] = useState(false) // 수동 병합 모드
+  
   const supabase = createClient()
   
   // 오디오 설정 (로컬 스토리지에서 불러오기)
@@ -836,6 +841,248 @@ function MicTranslatePageContent() {
     const data = await response.json()
     return data.data.detections[0][0].language
   }
+
+  // ==================== 문장 재정리 기능 ====================
+
+  // AI 자동 재정리 - 끊어진 문장을 맥락에 맞게 합침
+  const reorganizeSentences = async () => {
+    if (transcripts.length === 0) {
+      setError("재정리할 문장이 없습니다.")
+      return
+    }
+
+    setIsReorganizing(true)
+    setError(null)
+
+    try {
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY
+      if (!apiKey) throw new Error("API 키가 설정되지 않았습니다.")
+
+      // 원본 텍스트 목록 생성
+      const originalTexts = transcripts.map((t, i) => `[${i + 1}] ${t.original}`).join("\n")
+
+      const prompt = `다음은 실시간 음성인식으로 생성된 텍스트입니다. 문장이 중간에 끊어져 있거나 불완전한 경우가 많습니다.
+
+각 문장을 맥락을 고려하여 자연스러운 완전한 문장으로 재구성해주세요.
+- 연속된 문장이 같은 의미를 가지면 하나로 합쳐주세요
+- 문법적으로 불완전한 문장은 완성해주세요
+- 원래 의미를 최대한 보존해주세요
+- 응답은 반드시 JSON 배열 형식으로만 반환해주세요
+
+입력 텍스트:
+${originalTexts}
+
+응답 형식 (JSON 배열만):
+[
+  {"merged_from": [1, 2], "text": "합쳐진 완전한 문장"},
+  {"merged_from": [3], "text": "단독 문장"},
+  ...
+]`
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.3,
+              maxOutputTokens: 4096,
+            },
+          }),
+        }
+      )
+
+      if (!response.ok) throw new Error("AI 재정리 요청 실패")
+
+      const data = await response.json()
+      const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
+      
+      // JSON 추출 (```json ... ``` 형식 처리)
+      let jsonStr = responseText
+      const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/)
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1]
+      } else {
+        // JSON 배열 직접 추출
+        const arrayMatch = responseText.match(/\[[\s\S]*\]/)
+        if (arrayMatch) {
+          jsonStr = arrayMatch[0]
+        }
+      }
+
+      const reorganized = JSON.parse(jsonStr) as { merged_from: number[]; text: string }[]
+      
+      if (!Array.isArray(reorganized) || reorganized.length === 0) {
+        throw new Error("AI 응답 형식이 올바르지 않습니다.")
+      }
+
+      // 새로운 transcript 목록 생성 및 번역
+      const newTranscripts: TranscriptItem[] = []
+      
+      for (const item of reorganized) {
+        // 번역 실행
+        let translated = item.text
+        if (targetLanguage !== "none" && sourceLanguage !== targetLanguage) {
+          translated = await translateText(item.text, sourceLanguage, targetLanguage)
+        }
+
+        const newId = `reorg_${Date.now()}_${Math.random().toString(36).slice(2)}`
+        newTranscripts.push({
+          id: newId,
+          original: item.text,
+          translated: targetLanguage === "none" ? "" : translated,
+          sourceLanguage,
+          targetLanguage,
+          timestamp: new Date(),
+        })
+      }
+
+      // 기존 DB 데이터 삭제 (세션이 있는 경우)
+      if (sessionId && saveToDb) {
+        await supabase
+          .from("utterances")
+          .delete()
+          .eq("session_id", sessionId)
+      }
+
+      // 새 데이터 저장
+      for (const item of newTranscripts) {
+        if (sessionId && saveToDb) {
+          const { utteranceId, translationId } = await saveUtterance(
+            sessionId,
+            item.original,
+            sourceLanguage,
+            item.translated,
+            targetLanguage
+          )
+          item.utteranceId = utteranceId
+          item.translationId = translationId
+        }
+      }
+
+      setTranscripts(newTranscripts)
+      setError(null)
+      
+      // TTS 자동 재생 (선택적)
+      if (audioSettingsRef.current.autoPlayTTS && newTranscripts.length > 0) {
+        const lastItem = newTranscripts[newTranscripts.length - 1]
+        if (lastItem.translated) {
+          speakText(lastItem.translated, targetLanguage)
+        }
+      }
+
+    } catch (err) {
+      console.error("문장 재정리 오류:", err)
+      setError(err instanceof Error ? err.message : "문장 재정리 중 오류가 발생했습니다.")
+    } finally {
+      setIsReorganizing(false)
+    }
+  }
+
+  // 수동 병합 - 선택된 문장들을 하나로 합침
+  const mergeSelectedSentences = async () => {
+    if (selectedForMerge.size < 2) {
+      setError("2개 이상의 문장을 선택해주세요.")
+      return
+    }
+
+    // 선택된 항목들을 시간순으로 정렬
+    const selectedItems = transcripts
+      .filter(t => selectedForMerge.has(t.id))
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+
+    // 원본 텍스트 합치기
+    const mergedOriginal = selectedItems.map(t => t.original).join(" ")
+    
+    setIsReTranslating(true)
+
+    try {
+      // 합친 텍스트 번역
+      let mergedTranslated = mergedOriginal
+      if (targetLanguage !== "none" && sourceLanguage !== targetLanguage) {
+        mergedTranslated = await translateText(mergedOriginal, sourceLanguage, targetLanguage)
+      }
+
+      // 새 항목 생성
+      const newId = `merged_${Date.now()}`
+      const newItem: TranscriptItem = {
+        id: newId,
+        original: mergedOriginal,
+        translated: targetLanguage === "none" ? "" : mergedTranslated,
+        sourceLanguage,
+        targetLanguage,
+        timestamp: selectedItems[0].timestamp, // 가장 빠른 시간 사용
+      }
+
+      // DB에서 기존 항목 삭제
+      if (saveToDb) {
+        for (const item of selectedItems) {
+          if (item.utteranceId) {
+            await supabase
+              .from("utterances")
+              .delete()
+              .eq("id", item.utteranceId)
+          }
+        }
+      }
+
+      // DB에 새 항목 저장
+      if (sessionId && saveToDb) {
+        const { utteranceId, translationId } = await saveUtterance(
+          sessionId,
+          newItem.original,
+          sourceLanguage,
+          newItem.translated,
+          targetLanguage
+        )
+        newItem.utteranceId = utteranceId
+        newItem.translationId = translationId
+      }
+
+      // 로컬 상태 업데이트
+      const selectedIds = new Set(selectedForMerge)
+      setTranscripts(prev => {
+        // 선택된 항목 제거하고, 첫 번째 위치에 새 항목 삽입
+        const filtered = prev.filter(t => !selectedIds.has(t.id))
+        const insertIndex = prev.findIndex(t => selectedIds.has(t.id))
+        filtered.splice(insertIndex >= 0 ? insertIndex : 0, 0, newItem)
+        return filtered
+      })
+
+      // 선택 초기화
+      setSelectedForMerge(new Set())
+      setMergeMode(false)
+
+    } catch (err) {
+      console.error("수동 병합 오류:", err)
+      setError("문장 병합 중 오류가 발생했습니다.")
+    } finally {
+      setIsReTranslating(false)
+    }
+  }
+
+  // 병합할 항목 선택/해제 토글
+  const toggleSelectForMerge = (id: string) => {
+    setSelectedForMerge(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+
+  // 병합 모드 취소
+  const cancelMergeMode = () => {
+    setMergeMode(false)
+    setSelectedForMerge(new Set())
+  }
+
+  // ==================== 요약 기능 ====================
 
   // Gemini API로 요약 생성
   const generateSummary = async (texts: string[], language: string): Promise<string> => {
@@ -2290,6 +2537,64 @@ ${combinedText}
                     종료
                   </Button>
                 )}
+                
+                {/* 문장 재정리 버튼들 (내용이 있을 때만 표시) */}
+                {transcripts.length >= 2 && !isListening && (
+                  <>
+                    <Button
+                      onClick={reorganizeSentences}
+                      disabled={isReorganizing}
+                      size="sm"
+                      variant="outline"
+                      className="h-10 px-3 rounded-full border-2 border-purple-400 text-purple-600 hover:bg-purple-100 hover:border-purple-500 hover:text-purple-700 dark:hover:bg-purple-900/30"
+                      title="AI가 끊어진 문장을 자동으로 합쳐서 재번역합니다"
+                    >
+                      {isReorganizing ? (
+                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4 mr-1" />
+                      )}
+                      AI 재정리
+                    </Button>
+                    
+                    {!mergeMode ? (
+                      <Button
+                        onClick={() => setMergeMode(true)}
+                        size="sm"
+                        variant="outline"
+                        className="h-10 px-3 rounded-full border-2 border-blue-400 text-blue-600 hover:bg-blue-100 hover:border-blue-500 hover:text-blue-700 dark:hover:bg-blue-900/30"
+                        title="문장을 직접 선택하여 합칩니다"
+                      >
+                        <Edit3 className="h-4 w-4 mr-1" />
+                        수동 병합
+                      </Button>
+                    ) : (
+                      <>
+                        <Button
+                          onClick={mergeSelectedSentences}
+                          disabled={selectedForMerge.size < 2 || isReTranslating}
+                          size="sm"
+                          className="h-10 px-3 rounded-full bg-blue-500 text-white hover:bg-blue-600"
+                        >
+                          {isReTranslating ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <Check className="h-4 w-4 mr-1" />
+                          )}
+                          합치기 ({selectedForMerge.size})
+                        </Button>
+                        <Button
+                          onClick={cancelMergeMode}
+                          size="sm"
+                          variant="outline"
+                          className="h-10 px-3 rounded-full"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
               
               {/* 오른쪽: TTS 표시 + 목록 버튼 */}
@@ -2336,6 +2641,26 @@ ${combinedText}
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {/* 병합 모드 안내 */}
+            {mergeMode && (
+              <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800">
+                <p className="text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                  <Edit3 className="h-4 w-4" />
+                  <strong>수동 병합 모드</strong>: 합칠 문장을 클릭하여 선택하세요 (2개 이상)
+                </p>
+              </div>
+            )}
+
+            {/* AI 재정리 중 안내 */}
+            {isReorganizing && (
+              <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-900/30 rounded-lg border border-purple-200 dark:border-purple-800">
+                <p className="text-sm text-purple-700 dark:text-purple-300 flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  AI가 끊어진 문장을 분석하고 재구성 중입니다...
+                </p>
+              </div>
+            )}
+
             <div
               ref={transcriptContainerRef}
               className="h-[400px] overflow-y-auto space-y-4 p-2"
@@ -2375,10 +2700,27 @@ ${combinedText}
               {transcripts.map((item) => (
                 <div
                   key={item.id}
-                  className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 space-y-2"
+                  className={`bg-slate-50 dark:bg-slate-800 rounded-lg p-4 space-y-2 transition-all ${
+                    mergeMode && selectedForMerge.has(item.id)
+                      ? "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/30"
+                      : ""
+                  } ${mergeMode ? "cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" : ""}`}
+                  onClick={() => mergeMode && toggleSelectForMerge(item.id)}
                 >
                   {/* 원문 영역 */}
                   <div className="flex items-start gap-2">
+                    {/* 병합 모드 체크박스 */}
+                    {mergeMode && (
+                      <div className="flex-shrink-0 mt-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedForMerge.has(item.id)}
+                          onChange={() => toggleSelectForMerge(item.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-5 h-5 rounded border-blue-400 text-blue-500 focus:ring-blue-500"
+                        />
+                      </div>
+                    )}
                     <span className="text-lg">{getLanguageInfo(item.sourceLanguage).flag}</span>
                     
                     {editingId === item.id ? (
