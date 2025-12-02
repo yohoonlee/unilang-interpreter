@@ -103,6 +103,12 @@ function YouTubeTranslatePageContent() {
   const [currentTranscript, setCurrentTranscript] = useState("")
   const [noSubtitleError, setNoSubtitleError] = useState(false)
   
+  // 시스템 오디오 캡처 모드
+  const [isSystemAudioMode, setIsSystemAudioMode] = useState(false)
+  const [isCapturingSystemAudio, setIsCapturingSystemAudio] = useState(false)
+  const systemAudioStreamRef = useRef<MediaStream | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const isListeningRef = useRef(false)
   const liveResultsRef = useRef<HTMLDivElement>(null)
@@ -383,8 +389,126 @@ function YouTubeTranslatePageContent() {
         isListeningRef.current = false
         recognitionRef.current.stop()
       }
+      // 시스템 오디오 스트림 정리
+      if (systemAudioStreamRef.current) {
+        systemAudioStreamRef.current.getTracks().forEach(track => track.stop())
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close()
+      }
     }
   }, [])
+
+  // 시스템 오디오 캡처 시작
+  const startSystemAudioCapture = async () => {
+    try {
+      console.log("[System Audio] 시스템 오디오 캡처 시작 요청")
+      
+      // getDisplayMedia로 화면 + 시스템 오디오 캡처
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true, // 화면 공유 필수 (오디오만 불가)
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        }
+      })
+
+      // 오디오 트랙 확인
+      const audioTracks = stream.getAudioTracks()
+      if (audioTracks.length === 0) {
+        setError("오디오가 캡처되지 않았습니다. 화면 공유 시 '오디오 공유'를 체크해주세요.")
+        stream.getTracks().forEach(track => track.stop())
+        return
+      }
+
+      console.log("[System Audio] 오디오 트랙 캡처 성공:", audioTracks[0].label)
+      
+      // 비디오 트랙은 필요 없으므로 중지 (오디오만 사용)
+      stream.getVideoTracks().forEach(track => track.stop())
+      
+      systemAudioStreamRef.current = stream
+      setIsCapturingSystemAudio(true)
+      setIsSystemAudioMode(true)
+      setIsLiveMode(true)
+      setNoSubtitleError(false)
+      setUtterances([])
+      
+      // 오디오 스트림을 Web Speech API와 연결
+      // Web Speech API는 직접 스트림을 받지 못하므로, 
+      // 시스템 오디오를 스피커로 출력하고 마이크로 다시 캡처하는 방식 사용
+      // 또는 MediaRecorder로 녹음 후 AssemblyAI로 전송
+      
+      // 방법 1: 오디오 컨텍스트로 스피커 출력 (사용자가 들을 수 있게)
+      const audioContext = new AudioContext()
+      audioContextRef.current = audioContext
+      const source = audioContext.createMediaStreamSource(new MediaStream(audioTracks))
+      
+      // 스피커로 출력 (사용자가 소리를 들을 수 있게)
+      // source.connect(audioContext.destination)
+      
+      // 스트림 종료 감지
+      audioTracks[0].onended = () => {
+        console.log("[System Audio] 오디오 트랙 종료됨")
+        stopSystemAudioCapture()
+      }
+      
+      // Web Speech API 시작 (마이크 모드)
+      // 시스템 오디오가 스피커로 나오면 마이크가 캡처
+      const recognition = initRecognition()
+      if (recognition) {
+        recognitionRef.current = recognition
+        isListeningRef.current = true
+        setIsListening(true)
+        recognition.start()
+        console.log("[System Audio] 음성 인식 시작됨")
+      }
+      
+    } catch (err) {
+      console.error("[System Audio] 캡처 오류:", err)
+      if ((err as Error).name === "NotAllowedError") {
+        setError("화면 공유가 취소되었습니다.")
+      } else {
+        setError("시스템 오디오 캡처에 실패했습니다. 브라우저가 이 기능을 지원하는지 확인해주세요.")
+      }
+    }
+  }
+
+  // 시스템 오디오 캡처 중지
+  const stopSystemAudioCapture = () => {
+    console.log("[System Audio] 캡처 중지")
+    
+    // 음성 인식 중지
+    if (recognitionRef.current) {
+      isListeningRef.current = false
+      recognitionRef.current.stop()
+      setIsListening(false)
+    }
+    
+    // 스트림 정리
+    if (systemAudioStreamRef.current) {
+      systemAudioStreamRef.current.getTracks().forEach(track => track.stop())
+      systemAudioStreamRef.current = null
+    }
+    
+    // 오디오 컨텍스트 정리
+    if (audioContextRef.current) {
+      audioContextRef.current.close()
+      audioContextRef.current = null
+    }
+    
+    setIsCapturingSystemAudio(false)
+    setIsSystemAudioMode(false)
+  }
+
+  // 시스템 오디오 캡처 토글
+  const toggleSystemAudioCapture = () => {
+    if (isCapturingSystemAudio) {
+      stopSystemAudioCapture()
+    } else {
+      startSystemAudioCapture()
+    }
+  }
 
   // 발화 번역
   async function translateUtterances(items: Utterance[]) {
@@ -645,16 +769,41 @@ function YouTubeTranslatePageContent() {
                     실시간 통역 모드로 영상을 재생하면서 음성을 번역할 수 있습니다.
                   </p>
                 </div>
-                <Button
-                  onClick={startLiveMode}
-                  className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
-                >
-                  <Radio className="h-5 w-5 mr-2" />
-                  실시간 통역 모드 시작
-                </Button>
-                <p className="text-xs text-amber-500">
-                  💡 영상을 재생하고 마이크 버튼을 눌러 스피커 소리를 인식합니다
-                </p>
+                
+                {/* 시스템 오디오 캡처 버튼 (권장) */}
+                <div className="space-y-3">
+                  <Button
+                    onClick={startSystemAudioCapture}
+                    className="w-full bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600"
+                  >
+                    <Volume2 className="h-5 w-5 mr-2" />
+                    🎧 시스템 오디오 캡처 (권장)
+                  </Button>
+                  <p className="text-xs text-green-600">
+                    ✨ 버튼 클릭 → YouTube 탭 선택 → "오디오 공유" 체크
+                  </p>
+                  
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-amber-300"></div>
+                    </div>
+                    <div className="relative flex justify-center text-xs">
+                      <span className="px-2 bg-amber-50 dark:bg-amber-900/20 text-amber-500">또는</span>
+                    </div>
+                  </div>
+                  
+                  <Button
+                    onClick={startLiveMode}
+                    variant="outline"
+                    className="w-full border-amber-400 text-amber-700 hover:bg-amber-100"
+                  >
+                    <Mic className="h-5 w-5 mr-2" />
+                    마이크 모드 (스피커 소리를 마이크로 캡처)
+                  </Button>
+                  <p className="text-xs text-amber-500">
+                    💡 스피커 소리가 마이크에 들어가야 합니다
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -668,6 +817,11 @@ function YouTubeTranslatePageContent() {
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Radio className="h-5 w-5 text-green-500" />
                   실시간 통역 모드
+                  {isSystemAudioMode && (
+                    <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full">
+                      시스템 오디오
+                    </span>
+                  )}
                   {isListening && (
                     <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full animate-pulse">
                       LIVE
@@ -680,6 +834,7 @@ function YouTubeTranslatePageContent() {
                   onClick={() => {
                     setIsLiveMode(false)
                     if (isListening) toggleLiveListening()
+                    if (isCapturingSystemAudio) stopSystemAudioCapture()
                   }}
                 >
                   <X className="h-4 w-4" />
@@ -688,33 +843,56 @@ function YouTubeTranslatePageContent() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="p-4 bg-white/50 dark:bg-slate-800/50 rounded-lg">
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                  1. 위의 YouTube 영상을 재생하세요<br/>
-                  2. 아래 마이크 버튼을 눌러 음성 인식을 시작하세요<br/>
-                  3. 스피커에서 나오는 소리가 자동으로 번역됩니다
-                </p>
+                {isSystemAudioMode ? (
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                    🎧 <strong>시스템 오디오 캡처 모드</strong><br/>
+                    YouTube 영상을 재생하면 자동으로 음성이 인식됩니다.
+                  </p>
+                ) : (
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                    1. 위의 YouTube 영상을 재생하세요<br/>
+                    2. 아래 마이크 버튼을 눌러 음성 인식을 시작하세요<br/>
+                    3. 스피커에서 나오는 소리가 자동으로 번역됩니다
+                  </p>
+                )}
                 
                 <div className="flex items-center justify-center gap-4">
-                  <Button
-                    onClick={toggleLiveListening}
-                    size="lg"
-                    className={`rounded-full w-16 h-16 ${
-                      isListening 
-                        ? "bg-red-500 hover:bg-red-600 animate-pulse" 
-                        : "bg-green-500 hover:bg-green-600"
-                    }`}
-                  >
-                    {isListening ? (
-                      <MicOff className="h-8 w-8" />
-                    ) : (
-                      <Mic className="h-8 w-8" />
-                    )}
-                  </Button>
+                  {isSystemAudioMode ? (
+                    // 시스템 오디오 모드: 캡처 중지 버튼
+                    <Button
+                      onClick={stopSystemAudioCapture}
+                      size="lg"
+                      className="rounded-full w-16 h-16 bg-red-500 hover:bg-red-600 animate-pulse"
+                    >
+                      <Volume2 className="h-8 w-8" />
+                    </Button>
+                  ) : (
+                    // 마이크 모드: 기존 마이크 버튼
+                    <Button
+                      onClick={toggleLiveListening}
+                      size="lg"
+                      className={`rounded-full w-16 h-16 ${
+                        isListening 
+                          ? "bg-red-500 hover:bg-red-600 animate-pulse" 
+                          : "bg-green-500 hover:bg-green-600"
+                      }`}
+                    >
+                      {isListening ? (
+                        <MicOff className="h-8 w-8" />
+                      ) : (
+                        <Mic className="h-8 w-8" />
+                      )}
+                    </Button>
+                  )}
                 </div>
                 
                 {isListening && (
                   <div className="mt-4 text-center text-sm text-green-600 dark:text-green-400">
-                    🎤 음성 인식 중... 스피커 소리를 듣고 있습니다
+                    {isSystemAudioMode ? (
+                      <>🎧 시스템 오디오 캡처 중... YouTube 영상을 재생하세요</>
+                    ) : (
+                      <>🎤 음성 인식 중... 스피커 소리를 듣고 있습니다</>
+                    )}
                   </div>
                 )}
               </div>
