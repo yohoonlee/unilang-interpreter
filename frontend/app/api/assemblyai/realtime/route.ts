@@ -5,6 +5,9 @@ export async function POST(request: NextRequest) {
     const { language_code } = await request.json()
     
     const apiKey = process.env.ASSEMBLYAI_API_KEY
+    console.log("[AssemblyAI] API Key exists:", !!apiKey)
+    console.log("[AssemblyAI] API Key length:", apiKey?.length)
+    
     if (!apiKey) {
       return NextResponse.json(
         { error: "AssemblyAI API 키가 설정되지 않았습니다." },
@@ -23,6 +26,8 @@ export async function POST(request: NextRequest) {
         expires_in: 3600, // 1시간
       }),
     })
+    
+    console.log("[AssemblyAI] Token response status:", response.status)
 
     if (!response.ok) {
       const errorText = await response.text()

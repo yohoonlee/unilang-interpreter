@@ -106,10 +106,16 @@ function YouTubeLivePageContent() {
       })
       
       const data = await response.json()
+      console.log("[AssemblyAI] Token API response:", data)
+      
       if (data.token) {
         return data.token
       }
-      throw new Error(data.error || "토큰 발급 실패")
+      
+      // 더 자세한 에러 메시지
+      const errorMsg = data.error || `토큰 발급 실패 (${response.status})`
+      setError(`AssemblyAI: ${errorMsg}`)
+      throw new Error(errorMsg)
     } catch (err) {
       console.error("AssemblyAI 토큰 오류:", err)
       return null
