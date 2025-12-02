@@ -387,3 +387,5 @@ async def update_display_settings(
         data=response.data[0] if response.data else {}
     )
 
+
+

@@ -275,3 +275,5 @@ class TranslationDisplaySettingsUpdate(BaseModel):
     show_speaker_name: Optional[bool] = None
     show_timestamp: Optional[bool] = None
 
+
+

@@ -341,3 +341,5 @@ CREATE POLICY "Users can access own preferences" ON user_translation_preferences
 ALTER PUBLICATION supabase_realtime ADD TABLE media_sessions;
 ALTER PUBLICATION supabase_realtime ADD TABLE usage_records;
 
+
+

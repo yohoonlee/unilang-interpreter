@@ -92,3 +92,5 @@ class RealtimeTranslation(BaseModel):
     translated_text: str
     timestamp: str
 
+
+

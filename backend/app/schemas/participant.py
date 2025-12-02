@@ -88,3 +88,5 @@ class ParticipantLanguageUpdate(BaseModel):
     """참여자 언어 설정 업데이트"""
     preferred_language: str = Field(..., min_length=2, max_length=10)
 
+
+

@@ -300,3 +300,5 @@ class MeetAdapter(BasePlatformAdapter):
             event_type=event_type
         )
 
+
+

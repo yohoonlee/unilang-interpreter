@@ -292,3 +292,5 @@ class TeamsAdapter(BasePlatformAdapter):
             # 통화 관련 이벤트
             self.logger.info("Teams call event received")
 
+
+

@@ -72,3 +72,5 @@ class MeetingTranscript(BaseModel):
     class Config:
         from_attributes = True
 
+
+

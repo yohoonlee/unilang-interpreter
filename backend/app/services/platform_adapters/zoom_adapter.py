@@ -333,3 +333,5 @@ class ZoomAdapter(BasePlatformAdapter):
                 participant_name=participant.get("user_name")
             )
 
+
+

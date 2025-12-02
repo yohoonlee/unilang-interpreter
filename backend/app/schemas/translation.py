@@ -64,3 +64,5 @@ class BatchTranslationResult(BaseModel):
     source_language: str
     target_languages: list[str]
 
+
+

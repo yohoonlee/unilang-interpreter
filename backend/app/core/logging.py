@@ -58,3 +58,5 @@ def get_logger(name: str = __name__) -> Any:
     """로거 인스턴스 반환"""
     return structlog.get_logger(name)
 
+
+

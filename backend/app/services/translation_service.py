@@ -305,3 +305,5 @@ class RealtimeTranslationPipeline:
         """캐시 초기화"""
         self._cache.clear()
 
+
+

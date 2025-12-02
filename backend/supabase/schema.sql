@@ -305,3 +305,5 @@ ALTER PUBLICATION supabase_realtime ADD TABLE utterances;
 ALTER PUBLICATION supabase_realtime ADD TABLE translations;
 ALTER PUBLICATION supabase_realtime ADD TABLE participants;
 
+
+

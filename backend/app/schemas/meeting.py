@@ -124,3 +124,5 @@ class MeetingEndRequest(BaseModel):
     generate_summary: bool = True
     summary_languages: list[str] = Field(default_factory=lambda: ["ko", "en"])
 
+
+

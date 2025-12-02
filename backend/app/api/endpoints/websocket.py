@@ -277,3 +277,5 @@ async def get_websocket_participants(meeting_id: str):
     participants = manager.get_meeting_participants(meeting_id)
     return {"participants": participants, "count": len(participants)}
 
+
+
