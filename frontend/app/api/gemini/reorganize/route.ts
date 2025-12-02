@@ -53,21 +53,22 @@ ${utteranceText}
   ...
 ]`
 
-    // Gemini API 호출 - 여러 모델 시도
-    const models = [
-      "gemini-1.5-flash-latest",
-      "gemini-1.5-flash",
-      "gemini-pro",
+    // Gemini API 호출 - 여러 모델과 API 버전 시도
+    const modelConfigs = [
+      { model: "gemini-1.5-flash", version: "v1" },
+      { model: "gemini-1.5-flash-latest", version: "v1beta" },
+      { model: "gemini-1.5-pro", version: "v1" },
+      { model: "gemini-pro", version: "v1" },
     ]
 
     let lastError = null
     
-    for (const model of models) {
+    for (const { model, version } of modelConfigs) {
       try {
-        console.log(`[Gemini] Trying model: ${model}`)
+        console.log(`[Gemini] Trying model: ${model} with API ${version}`)
         
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${apiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
