@@ -641,34 +641,17 @@ function YouTubeTranslatePageContent() {
       // 시스템 오디오를 스피커로 출력하고 마이크로 다시 캡처하는 방식 사용
       // 또는 MediaRecorder로 녹음 후 AssemblyAI로 전송
       
-      // 오디오 컨텍스트로 스피커 출력 (마이크가 캡처할 수 있게)
-      const audioContext = new AudioContext()
-      audioContextRef.current = audioContext
-      const source = audioContext.createMediaStreamSource(new MediaStream(audioTracks))
-      
-      // 스피커로 출력 - 이렇게 해야 마이크가 소리를 캡처할 수 있음
-      source.connect(audioContext.destination)
-      console.log("[System Audio] 스피커로 오디오 출력 시작")
-      
       // 스트림 종료 감지
       audioTracks[0].onended = () => {
         console.log("[System Audio] 오디오 트랙 종료됨")
         stopSystemAudioCapture()
       }
       
-      // Web Speech API 시작 (마이크 모드)
-      // 스피커에서 나오는 소리를 마이크가 캡처
-      const recognition = initRecognition()
-      if (recognition) {
-        recognitionRef.current = recognition
-        isListeningRef.current = true
-        setIsListening(true)
-        recognition.start()
-        console.log("[System Audio] 음성 인식 시작됨 (마이크로 스피커 소리 캡처)")
-      }
+      // 안내 메시지 - AssemblyAI 연결 대기
+      setError("⏳ AssemblyAI 연결 중... 잠시만 기다려주세요.")
       
-      // 안내 메시지
-      setError("🔊 스피커 볼륨을 높여주세요! 마이크가 스피커 소리를 캡처합니다.")
+      // AssemblyAI로 오디오 전송 시작
+      await startAssemblyAIStream(new MediaStream(audioTracks))
       
     } catch (err) {
       console.error("[System Audio] 캡처 오류:", err)
@@ -680,9 +663,111 @@ function YouTubeTranslatePageContent() {
     }
   }
 
+  // AssemblyAI WebSocket 참조
+  const assemblyWSRef = useRef<WebSocket | null>(null)
+
+  // AssemblyAI 스트리밍 시작
+  const startAssemblyAIStream = async (audioStream: MediaStream) => {
+    try {
+      console.log("[AssemblyAI] 스트리밍 시작")
+      
+      // 1. 토큰 발급
+      const tokenResponse = await fetch("/api/assemblyai/realtime", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language_code: sourceLanguage === "auto" ? "en" : sourceLanguage }),
+      })
+      
+      const tokenData = await tokenResponse.json()
+      
+      if (!tokenData.token) {
+        setError(`AssemblyAI 연결 실패: ${tokenData.error || "토큰 발급 실패"}`)
+        stopSystemAudioCapture()
+        return
+      }
+      
+      console.log("[AssemblyAI] 토큰 발급 성공")
+      
+      // 2. WebSocket 연결
+      const ws = new WebSocket(
+        `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${tokenData.token}`
+      )
+      
+      assemblyWSRef.current = ws
+      
+      ws.onopen = () => {
+        console.log("[AssemblyAI] WebSocket 연결됨")
+        setError(null)
+        setIsListening(true)
+        
+        // 3. 오디오 데이터 전송
+        const audioContext = new AudioContext({ sampleRate: 16000 })
+        audioContextRef.current = audioContext
+        const source = audioContext.createMediaStreamSource(audioStream)
+        const processor = audioContext.createScriptProcessor(4096, 1, 1)
+        
+        source.connect(processor)
+        processor.connect(audioContext.destination)
+        
+        processor.onaudioprocess = (e) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            const inputData = e.inputBuffer.getChannelData(0)
+            // Float32 to Int16 변환
+            const int16Array = new Int16Array(inputData.length)
+            for (let i = 0; i < inputData.length; i++) {
+              const s = Math.max(-1, Math.min(1, inputData[i]))
+              int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
+            }
+            // Base64 인코딩
+            const bytes = new Uint8Array(int16Array.buffer)
+            let binary = ""
+            for (let i = 0; i < bytes.byteLength; i++) {
+              binary += String.fromCharCode(bytes[i])
+            }
+            const base64Audio = btoa(binary)
+            ws.send(JSON.stringify({ audio_data: base64Audio }))
+          }
+        }
+      }
+      
+      ws.onmessage = async (event) => {
+        const data = JSON.parse(event.data)
+        
+        if (data.message_type === "PartialTranscript" && data.text) {
+          setCurrentTranscript(data.text)
+        } else if (data.message_type === "FinalTranscript" && data.text?.trim()) {
+          console.log("[AssemblyAI] 최종 인식:", data.text)
+          setCurrentTranscript("")
+          await addLiveUtterance(data.text.trim())
+        }
+      }
+      
+      ws.onerror = (err) => {
+        console.error("[AssemblyAI] WebSocket 오류:", err)
+        setError("AssemblyAI 연결 오류")
+      }
+      
+      ws.onclose = () => {
+        console.log("[AssemblyAI] WebSocket 종료")
+        setIsListening(false)
+      }
+      
+    } catch (err) {
+      console.error("[AssemblyAI] 스트리밍 오류:", err)
+      setError("AssemblyAI 스트리밍 실패")
+      stopSystemAudioCapture()
+    }
+  }
+
   // 시스템 오디오 캡처 중지
   const stopSystemAudioCapture = () => {
     console.log("[System Audio] 캡처 중지")
+    
+    // AssemblyAI WebSocket 종료
+    if (assemblyWSRef.current) {
+      assemblyWSRef.current.close()
+      assemblyWSRef.current = null
+    }
     
     // 음성 인식 중지
     if (recognitionRef.current) {
