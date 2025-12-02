@@ -109,6 +109,10 @@ function YouTubeTranslatePageContent() {
   const systemAudioStreamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   
+  // 자막 오버레이 창
+  const [overlayWindow, setOverlayWindow] = useState<Window | null>(null)
+  const [showOverlayButton, setShowOverlayButton] = useState(false)
+  
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const isListeningRef = useRef(false)
   const liveResultsRef = useRef<HTMLDivElement>(null)
@@ -252,6 +256,156 @@ function YouTubeTranslatePageContent() {
     setResult(null)
   }
 
+  // 원클릭 실시간 통역 시작 (YouTube 새 창 + 시스템 오디오 캡처)
+  const startOneClickLiveMode = async () => {
+    if (!videoId) {
+      setError("YouTube URL을 먼저 입력해주세요")
+      return
+    }
+
+    // 1. YouTube를 새 탭에서 열기
+    const youtubeWindow = window.open(
+      `https://www.youtube.com/watch?v=${videoId}`,
+      "_blank",
+      "noopener,noreferrer"
+    )
+
+    if (!youtubeWindow) {
+      setError("팝업이 차단되었습니다. 팝업 차단을 해제해주세요.")
+      return
+    }
+
+    // 2. 안내 메시지
+    setError(null)
+    setIsLiveMode(true)
+    setNoSubtitleError(false)
+    setUtterances([])
+    setResult(null)
+    setShowOverlayButton(true)
+
+    // 3. 시스템 오디오 캡처 시작 (약간의 딜레이 후)
+    setTimeout(() => {
+      startSystemAudioCapture()
+    }, 1000)
+  }
+
+  // 자막 오버레이 창 열기
+  const openOverlayWindow = () => {
+    // 기존 창이 있으면 닫기
+    if (overlayWindow && !overlayWindow.closed) {
+      overlayWindow.close()
+    }
+
+    // 작은 오버레이 창 열기
+    const width = 500
+    const height = 200
+    const left = window.screen.width - width - 20
+    const top = window.screen.height - height - 100
+
+    const newWindow = window.open(
+      "",
+      "subtitle_overlay",
+      `width=${width},height=${height},left=${left},top=${top},alwaysOnTop=yes,toolbar=no,menubar=no,scrollbars=no,resizable=yes`
+    )
+
+    if (newWindow) {
+      newWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>UniLang 자막</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+              background: rgba(0, 0, 0, 0.85);
+              color: white;
+              padding: 12px;
+              overflow: hidden;
+              height: 100vh;
+              display: flex;
+              flex-direction: column;
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 8px;
+              font-size: 11px;
+              color: #888;
+            }
+            .live-badge {
+              background: #ef4444;
+              color: white;
+              padding: 2px 8px;
+              border-radius: 10px;
+              font-size: 10px;
+              animation: pulse 1.5s infinite;
+            }
+            @keyframes pulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0.5; }
+            }
+            .content {
+              flex: 1;
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+            }
+            .original {
+              font-size: 16px;
+              color: #fff;
+              margin-bottom: 6px;
+              text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+            }
+            .translated {
+              font-size: 18px;
+              color: #4ade80;
+              font-weight: 500;
+              text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+            }
+            .waiting {
+              color: #666;
+              font-style: italic;
+              text-align: center;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <span>🌐 UniLang 실시간 자막</span>
+            <span class="live-badge">LIVE</span>
+          </div>
+          <div class="content">
+            <div id="original" class="original"></div>
+            <div id="translated" class="translated"></div>
+            <div id="waiting" class="waiting">🎤 음성을 기다리는 중...</div>
+          </div>
+        </body>
+        </html>
+      `)
+      newWindow.document.close()
+      setOverlayWindow(newWindow)
+    }
+  }
+
+  // 오버레이 창 업데이트
+  const updateOverlayWindow = (original: string, translated: string) => {
+    if (overlayWindow && !overlayWindow.closed) {
+      try {
+        const originalEl = overlayWindow.document.getElementById("original")
+        const translatedEl = overlayWindow.document.getElementById("translated")
+        const waitingEl = overlayWindow.document.getElementById("waiting")
+        
+        if (originalEl) originalEl.textContent = original
+        if (translatedEl) translatedEl.textContent = translated ? `🌐 ${translated}` : ""
+        if (waitingEl) waitingEl.style.display = original ? "none" : "block"
+      } catch {
+        // 창이 닫혔거나 접근 불가
+      }
+    }
+  }
+
   // 실시간 통역에서 번역 추가
   const addLiveUtterance = async (text: string) => {
     console.log("[YouTube Live] 새 발화 추가:", text)
@@ -276,6 +430,9 @@ function YouTubeTranslatePageContent() {
       end: Date.now(),
       translated,
     }
+    
+    // 오버레이 창 업데이트
+    updateOverlayWindow(text, translated)
     
     setUtterances(prev => {
       // 최신 결과를 맨 위에 추가 (DESC 순서)
@@ -702,24 +859,52 @@ function YouTubeTranslatePageContent() {
                     value={youtubeUrl}
                     onChange={(e) => setYoutubeUrl(e.target.value)}
                     placeholder="https://www.youtube.com/watch?v=..."
-                    disabled={isProcessing}
+                    disabled={isProcessing || isLiveMode}
                     className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                   />
                 </div>
-                <Button
-                  onClick={startTranscription}
-                  disabled={!youtubeUrl.trim() || isProcessing}
-                  className="bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 px-6"
-                >
-                  {isProcessing ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : (
-                    <>
-                      <Play className="h-5 w-5 mr-2" />
-                      전사 시작
-                    </>
-                  )}
-                </Button>
+                {!isLiveMode ? (
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={startTranscription}
+                      disabled={!youtubeUrl.trim() || isProcessing}
+                      className="bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 px-4"
+                      title="자막이 있는 영상 전사"
+                    >
+                      {isProcessing ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : (
+                        <>
+                          <Play className="h-5 w-5 mr-1" />
+                          자막 추출
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      onClick={startOneClickLiveMode}
+                      disabled={!videoId || isProcessing}
+                      className="bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 px-4"
+                      title="실시간 통역 (자막 없는 영상)"
+                    >
+                      <Volume2 className="h-5 w-5 mr-1" />
+                      실시간 통역
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      setIsLiveMode(false)
+                      if (isListening) toggleLiveListening()
+                      if (isCapturingSystemAudio) stopSystemAudioCapture()
+                      setShowOverlayButton(false)
+                    }}
+                    variant="outline"
+                    className="border-red-400 text-red-600 hover:bg-red-50"
+                  >
+                    <X className="h-5 w-5 mr-1" />
+                    중지
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -884,10 +1069,34 @@ function YouTubeTranslatePageContent() {
             <CardContent className="space-y-4">
               <div className="p-4 bg-white/50 dark:bg-slate-800/50 rounded-lg">
                 {isSystemAudioMode ? (
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                    🎧 <strong>시스템 오디오 캡처 모드</strong><br/>
-                    YouTube 영상을 재생하면 자동으로 음성이 인식됩니다.
-                  </p>
+                  <div className="space-y-3">
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      🎧 <strong>시스템 오디오 캡처 모드</strong><br/>
+                      새 탭에서 YouTube 영상을 재생하세요. 자동으로 음성이 인식됩니다.
+                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                      <Button
+                        onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, "_blank")}
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 border-red-300"
+                      >
+                        <ExternalLink className="h-4 w-4 mr-1" />
+                        YouTube 열기
+                      </Button>
+                      <Button
+                        onClick={openOverlayWindow}
+                        size="sm"
+                        className="bg-gradient-to-r from-purple-500 to-pink-500 text-white"
+                      >
+                        <Languages className="h-4 w-4 mr-1" />
+                        자막 오버레이 창
+                      </Button>
+                    </div>
+                    <p className="text-xs text-center text-slate-500">
+                      💡 오버레이 창을 YouTube 전체화면 위에 배치하세요
+                    </p>
+                  </div>
                 ) : (
                   <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
                     1. 위의 YouTube 영상을 재생하세요<br/>
