@@ -19,14 +19,19 @@ import {
   FileText,
   BarChart3,
   LogOut,
-  User
+  User,
+  Youtube,
+  Users,
+  FileAudio
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
 const menuItems = [
   { id: "home", label: "홈", icon: Home },
-  { id: "translate", label: "통역", icon: Languages },
-  { id: "meeting", label: "회의", icon: Video },
+  { id: "translate", label: "실시간 통역", icon: Mic },
+  { id: "record", label: "녹음 통역", icon: FileAudio },
+  { id: "youtube", label: "YouTube", icon: Youtube },
+  { id: "meeting", label: "회의 기록", icon: Video },
   { id: "pricing", label: "요금제", icon: CreditCard },
   { id: "settings", label: "설정", icon: Settings },
 ]
@@ -70,6 +75,10 @@ export default function ServicePage() {
         return <HomeContent onStartTranslation={startTranslation} />
       case "translate":
         return <TranslateContent />
+      case "record":
+        return <RecordContent />
+      case "youtube":
+        return <YouTubeContent />
       case "meeting":
         return <MeetingContent />
       case "pricing":
@@ -189,18 +198,26 @@ function HomeContent({ onStartTranslation }: { onStartTranslation: () => void })
           <CardTitle>빠른 시작</CardTitle>
           <CardDescription>자주 사용하는 기능을 바로 시작하세요</CardDescription>
         </CardHeader>
-        <CardContent className="grid md:grid-cols-3 gap-4">
+        <CardContent className="grid md:grid-cols-4 gap-4">
           <Button 
             className="h-24 flex-col gap-2 bg-gradient-to-br from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600"
             onClick={onStartTranslation}
           >
             <Mic className="h-6 w-6" />
-            <span>실시간 통역 시작</span>
+            <span>실시간 통역</span>
           </Button>
-          <Button variant="outline" className="h-24 flex-col gap-2">
-            <Video className="h-6 w-6" />
-            <span>화상회의 연결</span>
-          </Button>
+          <Link href="/service/translate/record" className="w-full">
+            <Button variant="outline" className="h-24 flex-col gap-2 w-full border-purple-200 hover:bg-purple-50">
+              <Users className="h-6 w-6 text-purple-500" />
+              <span className="text-purple-700">녹음 통역 (화자 구분)</span>
+            </Button>
+          </Link>
+          <Link href="/service/translate/youtube" className="w-full">
+            <Button variant="outline" className="h-24 flex-col gap-2 w-full border-red-200 hover:bg-red-50">
+              <Youtube className="h-6 w-6 text-red-500" />
+              <span className="text-red-700">YouTube 통역</span>
+            </Button>
+          </Link>
           <Link href="/service/history" className="w-full">
             <Button variant="outline" className="h-24 flex-col gap-2 w-full">
               <FileText className="h-6 w-6" />
@@ -213,7 +230,7 @@ function HomeContent({ onStartTranslation }: { onStartTranslation: () => void })
   )
 }
 
-// 통역 서비스 - iframe으로 기존 통역 페이지 로드 (embedded 모드)
+// 실시간 통역 서비스 - iframe으로 기존 통역 페이지 로드 (embedded 모드)
 function TranslateContent() {
   return (
     <div className="h-[calc(100vh-8rem)]">
@@ -221,6 +238,32 @@ function TranslateContent() {
         src="/service/translate/mic?embedded=true" 
         className="w-full h-full border-0"
         title="실시간 통역"
+      />
+    </div>
+  )
+}
+
+// 녹음 통역 서비스 (화자 구분 지원)
+function RecordContent() {
+  return (
+    <div className="h-[calc(100vh-8rem)]">
+      <iframe 
+        src="/service/translate/record?embedded=true" 
+        className="w-full h-full border-0"
+        title="녹음 통역"
+      />
+    </div>
+  )
+}
+
+// YouTube 통역 서비스
+function YouTubeContent() {
+  return (
+    <div className="h-[calc(100vh-8rem)]">
+      <iframe 
+        src="/service/translate/youtube?embedded=true" 
+        className="w-full h-full border-0"
+        title="YouTube 통역"
       />
     </div>
   )
