@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, Suspense } from "react"
+import { useState, useEffect, useRef, Suspense, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
 
 // 지원 언어 목록
@@ -13,6 +13,18 @@ const LANGUAGES: Record<string, string> = {
   "fr": "Français",
   "de": "Deutsch",
   "auto": "자동 감지",
+}
+
+// AssemblyAI 언어 코드 매핑
+const ASSEMBLYAI_LANGUAGES: Record<string, string> = {
+  "ko": "ko",
+  "en": "en",
+  "ja": "ja",
+  "zh": "zh",
+  "es": "es",
+  "fr": "fr",
+  "de": "de",
+  "auto": "en", // 자동 감지는 영어로 기본 설정
 }
 
 export default function YouTubeLivePage() {
@@ -34,27 +46,14 @@ function YouTubeLivePageContent() {
   const [lastUtterance, setLastUtterance] = useState<{ original: string; translated: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isReady, setIsReady] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<string>("대기 중")
   
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
-  const isListeningRef = useRef(false)
-
-  // 언어 코드 변환
-  const getLanguageCode = (code: string): string => {
-    const langMap: Record<string, string> = {
-      "ko": "ko-KR",
-      "en": "en-US",
-      "ja": "ja-JP",
-      "zh": "zh-CN",
-      "es": "es-ES",
-      "fr": "fr-FR",
-      "de": "de-DE",
-      "auto": "en-US",
-    }
-    return langMap[code] || "en-US"
-  }
+  const websocketRef = useRef<WebSocket | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
   // 번역 함수
-  const translateText = async (text: string, from: string, to: string): Promise<string> => {
+  const translateText = useCallback(async (text: string, from: string, to: string): Promise<string> => {
     if (from === to || to === "none") return text
     
     try {
@@ -77,100 +76,10 @@ function YouTubeLivePageContent() {
     } catch {
       return text
     }
-  }
-
-  // 음성 인식 초기화
-  const initRecognition = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      setError("이 브라우저는 음성 인식을 지원하지 않습니다.")
-      return null
-    }
-
-    const recognition = new SpeechRecognition()
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.lang = getLanguageCode(sourceLang)
-    recognition.maxAlternatives = 3
-
-    let sentenceBuffer = ""
-    let silenceTimer: NodeJS.Timeout | null = null
-    const SILENCE_THRESHOLD = 1500
-
-    recognition.onresult = async (event) => {
-      let interimTranscript = ""
-      let finalTranscript = ""
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i]
-        const transcript = result[0].transcript
-        const confidence = result[0].confidence
-        
-        if (result.isFinal) {
-          if (confidence === undefined || confidence >= 0.5) {
-            finalTranscript += transcript
-          }
-        } else {
-          interimTranscript += transcript
-        }
-      }
-
-      setCurrentTranscript(interimTranscript)
-
-      if (finalTranscript.trim()) {
-        sentenceBuffer += (sentenceBuffer ? " " : "") + finalTranscript.trim()
-        
-        if (silenceTimer) clearTimeout(silenceTimer)
-        
-        if (/[.!?。！？]$/.test(sentenceBuffer.trim())) {
-          await processUtterance(sentenceBuffer.trim())
-          sentenceBuffer = ""
-          setCurrentTranscript("")
-        } else {
-          silenceTimer = setTimeout(async () => {
-            if (sentenceBuffer.trim()) {
-              await processUtterance(sentenceBuffer.trim())
-              sentenceBuffer = ""
-              setCurrentTranscript("")
-            }
-          }, SILENCE_THRESHOLD)
-        }
-      }
-    }
-
-    recognition.onerror = (event) => {
-      console.error("음성 인식 오류:", event.error)
-      if ((event.error === "no-speech" || event.error === "audio-capture") && isListeningRef.current) {
-        try {
-          recognition.stop()
-          setTimeout(() => {
-            if (isListeningRef.current) {
-              recognition.start()
-            }
-          }, 100)
-        } catch {}
-      }
-    }
-
-    recognition.onend = () => {
-      if (sentenceBuffer.trim()) {
-        processUtterance(sentenceBuffer.trim())
-        sentenceBuffer = ""
-      }
-      if (silenceTimer) clearTimeout(silenceTimer)
-      
-      if (isListeningRef.current) {
-        try {
-          recognition.start()
-        } catch {}
-      }
-    }
-
-    return recognition
-  }
+  }, [])
 
   // 발화 처리 (번역 포함)
-  const processUtterance = async (text: string) => {
+  const processUtterance = useCallback(async (text: string) => {
     const srcLang = sourceLang === "auto" ? "en" : sourceLang
     let translated = ""
     
@@ -183,75 +92,200 @@ function YouTubeLivePageContent() {
     }
     
     setLastUtterance({ original: text, translated })
+  }, [sourceLang, targetLang, translateText])
+
+  // AssemblyAI 실시간 토큰 가져오기
+  const getRealtimeToken = async (): Promise<string | null> => {
+    try {
+      const response = await fetch("/api/assemblyai/realtime", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language_code: ASSEMBLYAI_LANGUAGES[sourceLang] || "en",
+        }),
+      })
+      
+      const data = await response.json()
+      if (data.token) {
+        return data.token
+      }
+      throw new Error(data.error || "토큰 발급 실패")
+    } catch (err) {
+      console.error("AssemblyAI 토큰 오류:", err)
+      return null
+    }
   }
 
-  // 시스템 오디오 캡처 + 음성 인식 시작
+  // AssemblyAI WebSocket 연결 및 시스템 오디오 캡처
   const startCapture = async () => {
     try {
       setError(null)
+      setConnectionStatus("연결 중...")
       
-      // 화면 공유로 시스템 오디오 캡처
+      // 1. 시스템 오디오 캡처 (화면 공유)
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
+          sampleRate: 16000,
         }
       })
 
       const audioTracks = stream.getAudioTracks()
       if (audioTracks.length === 0) {
-        setError("오디오 공유를 체크해주세요!")
+        setError("⚠️ 오디오 공유를 체크해주세요!\n\n화면 공유 시 '탭 오디오도 공유'를 켜주세요.")
         stream.getTracks().forEach(track => track.stop())
+        setConnectionStatus("대기 중")
         return
       }
 
-      // 비디오 트랙 중지
+      // 비디오 트랙 중지 (오디오만 필요)
       stream.getVideoTracks().forEach(track => track.stop())
+      streamRef.current = new MediaStream(audioTracks)
       
-      // 음성 인식 시작
-      const recognition = initRecognition()
-      if (recognition) {
-        recognitionRef.current = recognition
-        isListeningRef.current = true
-        setIsListening(true)
-        recognition.start()
+      console.log("[AssemblyAI] 오디오 트랙 캡처 성공:", audioTracks[0].label)
+      setConnectionStatus("토큰 발급 중...")
+
+      // 2. AssemblyAI 실시간 토큰 가져오기
+      const token = await getRealtimeToken()
+      if (!token) {
+        setError("AssemblyAI 연결 실패. API 키를 확인해주세요.")
+        stream.getTracks().forEach(track => track.stop())
+        setConnectionStatus("대기 중")
+        return
       }
+
+      console.log("[AssemblyAI] 토큰 발급 성공")
+      setConnectionStatus("WebSocket 연결 중...")
+
+      // 3. WebSocket 연결
+      const ws = new WebSocket(
+        `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${token}`
+      )
+
+      ws.onopen = () => {
+        console.log("[AssemblyAI] WebSocket 연결됨")
+        setConnectionStatus("연결됨")
+        setIsListening(true)
+        setIsReady(true)
+
+        // 4. MediaRecorder로 오디오 청크 전송
+        const audioContext = new AudioContext({ sampleRate: 16000 })
+        const source = audioContext.createMediaStreamSource(streamRef.current!)
+        const processor = audioContext.createScriptProcessor(4096, 1, 1)
+
+        source.connect(processor)
+        processor.connect(audioContext.destination)
+
+        processor.onaudioprocess = (e) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            const inputData = e.inputBuffer.getChannelData(0)
+            const pcmData = convertFloat32ToInt16(inputData)
+            const base64Audio = arrayBufferToBase64(pcmData.buffer)
+            ws.send(JSON.stringify({ audio_data: base64Audio }))
+          }
+        }
+      }
+
+      ws.onmessage = async (event) => {
+        const data = JSON.parse(event.data)
+        
+        if (data.message_type === "PartialTranscript") {
+          setCurrentTranscript(data.text || "")
+        } else if (data.message_type === "FinalTranscript") {
+          const text = data.text?.trim()
+          if (text) {
+            console.log("[AssemblyAI] 최종 인식:", text)
+            setCurrentTranscript("")
+            await processUtterance(text)
+          }
+        } else if (data.message_type === "SessionBegins") {
+          console.log("[AssemblyAI] 세션 시작:", data.session_id)
+        }
+      }
+
+      ws.onerror = (err) => {
+        console.error("[AssemblyAI] WebSocket 오류:", err)
+        setError("AssemblyAI 연결 오류")
+        setConnectionStatus("오류")
+      }
+
+      ws.onclose = (event) => {
+        console.log("[AssemblyAI] WebSocket 종료:", event.code, event.reason)
+        setIsListening(false)
+        setConnectionStatus("연결 종료")
+      }
+
+      websocketRef.current = ws
 
       // 스트림 종료 감지
       audioTracks[0].onended = () => {
+        console.log("[AssemblyAI] 오디오 트랙 종료")
         stopCapture()
       }
 
-      setIsReady(true)
-      
     } catch (err) {
+      console.error("[AssemblyAI] 캡처 오류:", err)
       if ((err as Error).name === "NotAllowedError") {
         setError("화면 공유가 취소되었습니다.")
       } else {
-        setError("시스템 오디오 캡처 실패")
+        setError("시스템 오디오 캡처 실패: " + (err as Error).message)
       }
+      setConnectionStatus("대기 중")
     }
+  }
+
+  // Float32 to Int16 변환 (AssemblyAI PCM 형식)
+  const convertFloat32ToInt16 = (float32Array: Float32Array): Int16Array => {
+    const int16Array = new Int16Array(float32Array.length)
+    for (let i = 0; i < float32Array.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32Array[i]))
+      int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
+    }
+    return int16Array
+  }
+
+  // ArrayBuffer to Base64
+  const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+    const bytes = new Uint8Array(buffer)
+    let binary = ""
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    return btoa(binary)
   }
 
   // 캡처 중지
   const stopCapture = () => {
-    if (recognitionRef.current) {
-      isListeningRef.current = false
-      recognitionRef.current.stop()
-      setIsListening(false)
+    // WebSocket 종료
+    if (websocketRef.current) {
+      websocketRef.current.close()
+      websocketRef.current = null
     }
+    
+    // MediaRecorder 중지
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop()
+      mediaRecorderRef.current = null
+    }
+    
+    // 스트림 중지
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+    }
+    
+    setIsListening(false)
     setIsReady(false)
+    setConnectionStatus("대기 중")
   }
 
   // 컴포넌트 언마운트 시 정리
   useEffect(() => {
     return () => {
-      if (recognitionRef.current) {
-        isListeningRef.current = false
-        recognitionRef.current.stop()
-      }
+      stopCapture()
     }
   }, [])
 
@@ -261,9 +295,10 @@ function YouTubeLivePageContent() {
       // 약간의 딜레이 후 자동 시작
       const timer = setTimeout(() => {
         startCapture()
-      }, 1000)
+      }, 500)
       return () => clearTimeout(timer)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId])
 
   if (!videoId) {
@@ -295,10 +330,10 @@ function YouTubeLivePageContent() {
             {isListening ? (
               <span className="flex items-center gap-1 text-green-400 text-xs">
                 <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                실시간 통역 중
+                실시간 통역 중 (AssemblyAI)
               </span>
             ) : (
-              <span className="text-yellow-400 text-xs">대기 중</span>
+              <span className="text-yellow-400 text-xs">{connectionStatus}</span>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -308,15 +343,15 @@ function YouTubeLivePageContent() {
             {!isReady && (
               <button
                 onClick={startCapture}
-                className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-full"
+                className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded-full transition-colors"
               >
-                시작
+                🎧 시스템 오디오 캡처
               </button>
             )}
             {isReady && (
               <button
                 onClick={stopCapture}
-                className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-full"
+                className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-full transition-colors"
               >
                 중지
               </button>
@@ -350,8 +385,12 @@ function YouTubeLivePageContent() {
                   )}
                 </div>
               ) : (
-                <p className="text-slate-500 text-center text-sm">
-                  {isListening ? "🎤 음성을 기다리는 중..." : "시작 버튼을 눌러주세요"}
+                <p className="text-slate-400 text-center text-sm">
+                  {isListening 
+                    ? "🎧 시스템 오디오 인식 중... YouTube 영상을 재생해주세요" 
+                    : connectionStatus === "대기 중" 
+                      ? "위 버튼을 클릭하여 시스템 오디오 캡처를 시작하세요"
+                      : connectionStatus}
                 </p>
               )}
             </>
