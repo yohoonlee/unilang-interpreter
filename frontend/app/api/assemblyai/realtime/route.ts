@@ -7,10 +7,11 @@ export async function POST(request: NextRequest) {
     const apiKey = process.env.ASSEMBLYAI_API_KEY
     console.log("[AssemblyAI] API Key exists:", !!apiKey)
     console.log("[AssemblyAI] API Key length:", apiKey?.length)
+    console.log("[AssemblyAI] API Key prefix:", apiKey?.substring(0, 8))
     
     if (!apiKey) {
       return NextResponse.json(
-        { error: "AssemblyAI API 키가 설정되지 않았습니다." },
+        { error: "AssemblyAI API 키가 설정되지 않았습니다. Vercel 환경변수를 확인하세요." },
         { status: 500 }
       )
     }
@@ -32,8 +33,19 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       const errorText = await response.text()
       console.error("[AssemblyAI] 토큰 발급 실패:", response.status, errorText)
+      
+      // 상세 에러 메시지
+      let errorMsg = `토큰 발급 실패 (${response.status})`
+      if (response.status === 401) {
+        errorMsg = "API 키가 유효하지 않습니다. AssemblyAI 대시보드에서 키를 확인하세요."
+      } else if (response.status === 403) {
+        errorMsg = "API 접근 권한이 없습니다. 계정 상태를 확인하세요."
+      } else if (response.status === 402) {
+        errorMsg = "크레딧이 부족합니다. AssemblyAI 계정을 확인하세요."
+      }
+      
       return NextResponse.json(
-        { error: `토큰 발급 실패: ${response.status}` },
+        { error: errorMsg, details: errorText },
         { status: response.status }
       )
     }
