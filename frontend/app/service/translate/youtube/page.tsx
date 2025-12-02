@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, Suspense } from "react"
+import { useState, useEffect, useRef, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -19,6 +19,10 @@ import {
   Download,
   Copy,
   Check,
+  Mic,
+  MicOff,
+  Volume2,
+  Radio,
 } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -93,6 +97,15 @@ function YouTubeTranslatePageContent() {
   const [showSummary, setShowSummary] = useState(false)
   const [isSummarizing, setIsSummarizing] = useState(false)
   
+  // 실시간 통역 모드
+  const [isLiveMode, setIsLiveMode] = useState(false)
+  const [isListening, setIsListening] = useState(false)
+  const [currentTranscript, setCurrentTranscript] = useState("")
+  const [noSubtitleError, setNoSubtitleError] = useState(false)
+  
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const isListeningRef = useRef(false)
+  
   const supabase = createClient()
 
   // YouTube URL에서 비디오 ID 추출
@@ -125,6 +138,7 @@ function YouTubeTranslatePageContent() {
     setError(null)
     setResult(null)
     setUtterances([])
+    setNoSubtitleError(false)
     setIsProcessing(true)
     setProgress(0)
     setProgressText("전사 요청 중...")
@@ -149,7 +163,14 @@ function YouTubeTranslatePageContent() {
       const data = await response.json()
       
       if (!data.success) {
-        throw new Error(data.error || "전사 실패")
+        // 자막이 없는 경우 실시간 모드 제안
+        if (data.error?.includes("자막이 없") || data.error?.includes("자막을 찾을 수 없") || data.error?.includes("자막을 가져올 수 없")) {
+          setNoSubtitleError(true)
+          setError(null)
+        } else {
+          throw new Error(data.error || "전사 실패")
+        }
+        return
       }
 
       setResult({
@@ -171,6 +192,165 @@ function YouTubeTranslatePageContent() {
       setProgressText("")
     }
   }
+
+  // ===== 실시간 통역 모드 =====
+  
+  // 언어 코드 변환
+  const getLanguageCode = (code: string): string => {
+    const langMap: Record<string, string> = {
+      ko: "ko-KR",
+      en: "en-US",
+      ja: "ja-JP",
+      zh: "zh-CN",
+      es: "es-ES",
+      fr: "fr-FR",
+      de: "de-DE",
+      auto: "en-US",
+    }
+    return langMap[code] || "en-US"
+  }
+
+  // 번역 함수
+  const translateText = async (text: string, source: string, target: string): Promise<string> => {
+    if (!text.trim() || target === "none" || source === target) return text
+    
+    try {
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY
+      const response = await fetch(
+        `https://translation.googleapis.com/language/translate/v2?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            q: text,
+            source: source === "auto" ? undefined : source,
+            target: target,
+            format: "text",
+          }),
+        }
+      )
+      
+      const data = await response.json()
+      return data.data?.translations?.[0]?.translatedText || text
+    } catch {
+      return text
+    }
+  }
+
+  // 실시간 통역 시작
+  const startLiveMode = () => {
+    setIsLiveMode(true)
+    setNoSubtitleError(false)
+    setUtterances([])
+    setResult(null)
+  }
+
+  // 실시간 통역에서 번역 추가
+  const addLiveUtterance = async (text: string) => {
+    const srcLang = sourceLanguage === "auto" ? "en" : sourceLanguage
+    const translated = targetLanguage !== "none" 
+      ? await translateText(text, srcLang, targetLanguage)
+      : ""
+    
+    const newUtterance: Utterance = {
+      speaker: "A",
+      text: text,
+      start: Date.now(),
+      end: Date.now(),
+      translated,
+    }
+    
+    setUtterances(prev => [...prev, newUtterance])
+  }
+
+  // 음성 인식 초기화
+  const initRecognition = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      setError("이 브라우저는 음성 인식을 지원하지 않습니다.")
+      return null
+    }
+
+    const recognition = new SpeechRecognition()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = getLanguageCode(sourceLanguage)
+
+    recognition.onresult = (event) => {
+      let interimTranscript = ""
+      let finalTranscript = ""
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript
+        } else {
+          interimTranscript += transcript
+        }
+      }
+
+      setCurrentTranscript(interimTranscript)
+
+      if (finalTranscript.trim()) {
+        addLiveUtterance(finalTranscript.trim())
+        setCurrentTranscript("")
+      }
+    }
+
+    recognition.onerror = (event) => {
+      console.error("음성 인식 오류:", event.error)
+      if (event.error === "no-speech" && isListeningRef.current) {
+        // 자동 재시작
+        try {
+          recognition.stop()
+          setTimeout(() => {
+            if (isListeningRef.current) {
+              recognition.start()
+            }
+          }, 100)
+        } catch {}
+      }
+    }
+
+    recognition.onend = () => {
+      if (isListeningRef.current) {
+        try {
+          recognition.start()
+        } catch {}
+      }
+    }
+
+    return recognition
+  }
+
+  // 실시간 통역 토글
+  const toggleLiveListening = () => {
+    if (isListening) {
+      // 중지
+      isListeningRef.current = false
+      setIsListening(false)
+      recognitionRef.current?.stop()
+    } else {
+      // 시작
+      const recognition = initRecognition()
+      if (recognition) {
+        recognitionRef.current = recognition
+        isListeningRef.current = true
+        setIsListening(true)
+        recognition.start()
+      }
+    }
+  }
+
+  // 컴포넌트 언마운트 시 정리
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        isListeningRef.current = false
+        recognitionRef.current.stop()
+      }
+    }
+  }, [])
 
   // 발화 번역
   async function translateUtterances(items: Utterance[]) {
@@ -429,8 +609,147 @@ ${textToSummarize}
           </div>
         )}
 
+        {/* 자막이 없는 경우 - 실시간 모드 제안 */}
+        {noSubtitleError && !isLiveMode && (
+          <Card className="border-amber-300 dark:border-amber-700 bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20">
+            <CardContent className="p-6">
+              <div className="text-center space-y-4">
+                <div className="w-16 h-16 mx-auto bg-amber-100 dark:bg-amber-900/50 rounded-full flex items-center justify-center">
+                  <Volume2 className="h-8 w-8 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-amber-800 dark:text-amber-200">
+                    자막이 없는 영상입니다
+                  </h3>
+                  <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+                    실시간 통역 모드로 영상을 재생하면서 음성을 번역할 수 있습니다.
+                  </p>
+                </div>
+                <Button
+                  onClick={startLiveMode}
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                >
+                  <Radio className="h-5 w-5 mr-2" />
+                  실시간 통역 모드 시작
+                </Button>
+                <p className="text-xs text-amber-500">
+                  💡 영상을 재생하고 마이크 버튼을 눌러 스피커 소리를 인식합니다
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 실시간 통역 모드 */}
+        {isLiveMode && (
+          <Card className="border-green-300 dark:border-green-700 bg-gradient-to-br from-green-50 to-teal-50 dark:from-green-900/20 dark:to-teal-900/20">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Radio className="h-5 w-5 text-green-500" />
+                  실시간 통역 모드
+                  {isListening && (
+                    <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full animate-pulse">
+                      LIVE
+                    </span>
+                  )}
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setIsLiveMode(false)
+                    if (isListening) toggleLiveListening()
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 bg-white/50 dark:bg-slate-800/50 rounded-lg">
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                  1. 위의 YouTube 영상을 재생하세요<br/>
+                  2. 아래 마이크 버튼을 눌러 음성 인식을 시작하세요<br/>
+                  3. 스피커에서 나오는 소리가 자동으로 번역됩니다
+                </p>
+                
+                <div className="flex items-center justify-center gap-4">
+                  <Button
+                    onClick={toggleLiveListening}
+                    size="lg"
+                    className={`rounded-full w-16 h-16 ${
+                      isListening 
+                        ? "bg-red-500 hover:bg-red-600 animate-pulse" 
+                        : "bg-green-500 hover:bg-green-600"
+                    }`}
+                  >
+                    {isListening ? (
+                      <MicOff className="h-8 w-8" />
+                    ) : (
+                      <Mic className="h-8 w-8" />
+                    )}
+                  </Button>
+                </div>
+                
+                {isListening && (
+                  <div className="mt-4 text-center text-sm text-green-600 dark:text-green-400">
+                    🎤 음성 인식 중... 스피커 소리를 듣고 있습니다
+                  </div>
+                )}
+              </div>
+
+              {/* 현재 인식 중인 텍스트 */}
+              {currentTranscript && (
+                <div className="p-3 bg-teal-50 dark:bg-teal-900/30 rounded-lg border border-teal-200 dark:border-teal-700">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-xs font-medium text-teal-700 dark:text-teal-300">실시간 인식 중...</span>
+                  </div>
+                  <p className="text-slate-700 dark:text-slate-300">{currentTranscript}</p>
+                </div>
+              )}
+
+              {/* 실시간 번역 결과 */}
+              {utterances.length > 0 && (
+                <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                  {utterances.map((utterance, index) => (
+                    <div
+                      key={index}
+                      className="p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700"
+                    >
+                      <p className="text-slate-700 dark:text-slate-300">
+                        {utterance.text}
+                      </p>
+                      {utterance.translated && (
+                        <p className="mt-2 text-sm text-green-600 dark:text-green-400 border-t pt-2 border-slate-200 dark:border-slate-700">
+                          🌐 {utterance.translated}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 액션 버튼 */}
+              {utterances.length > 0 && (
+                <div className="flex gap-2">
+                  <Button onClick={copyTranscript} size="sm" variant="outline">
+                    {copied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
+                    {copied ? "복사됨!" : "복사"}
+                  </Button>
+                  <Button onClick={generateSummary} size="sm" variant="outline" disabled={isSummarizing}>
+                    {isSummarizing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                    AI 요약
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* 결과 */}
-        {result && (
+        {result && !isLiveMode && (
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
