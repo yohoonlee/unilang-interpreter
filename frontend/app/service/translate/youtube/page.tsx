@@ -263,31 +263,28 @@ function YouTubeTranslatePageContent() {
       return
     }
 
-    // 1. YouTube를 팝업 창으로 열기
-    const width = 800
-    const height = 500
+    // YouTube + 자막 오버레이 페이지를 새 창으로 열기
+    const width = 900
+    const height = 700
     const left = (window.screen.width - width) / 2
     const top = (window.screen.height - height) / 2
     
-    const youtubePopup = window.open(
-      `https://www.youtube.com/watch?v=${videoId}`,
-      "youtube_popup",
+    const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}`
+    
+    const liveWindow = window.open(
+      liveUrl,
+      "unilang_live",
       `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=no,resizable=yes`
     )
     
-    if (!youtubePopup) {
-      setError("팝업이 차단되었습니다. 팝업 차단을 해제해주세요.")
-      return
+    if (!liveWindow) {
+      // 팝업이 차단된 경우 새 탭으로 열기
+      window.open(liveUrl, "_blank")
     }
-
-    // 2. 실시간 모드 시작
-    setError(null)
-    setIsLiveMode(true)
-    setNoSubtitleError(false)
-    setUtterances([])
-    setResult(null)
     
-    // 3. 안내 메시지 표시
+    return // 메인 페이지에서는 아무것도 안 함 - 새 창에서 모든 것 처리
+    
+    // 아래 코드는 더 이상 실행되지 않음 (return 이후)
     alert("1. 화면 공유 팝업에서 '창' 탭을 선택하세요\n2. YouTube 팝업 창을 선택하세요\n3. '오디오 공유'를 체크하세요\n4. '공유'를 클릭하세요")
     
     // 4. 시스템 오디오 캡처 시작
