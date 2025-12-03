@@ -864,13 +864,13 @@ function YouTubeLivePageContent() {
               )}
             </div>
             
-            {/* 전체화면 종료 버튼 (마우스 오버 시 표시) */}
-            <div className="absolute top-4 right-4 opacity-0 hover:opacity-100 transition-opacity pointer-events-auto">
+            {/* 전체화면 종료 버튼 - 항상 표시 */}
+            <div className="absolute top-4 right-4 pointer-events-auto">
               <button
                 onClick={exitFullscreen}
-                className="px-4 py-2 bg-black/70 hover:bg-black/90 text-white rounded-lg text-sm"
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold shadow-lg"
               >
-                ✕ 전체화면 종료
+                ⛶ 창 모드로 전환
               </button>
             </div>
             
@@ -887,8 +887,8 @@ function YouTubeLivePageContent() {
         
         {/* 전체화면 컨트롤 (전체화면 상태에서만 상단에 표시) */}
         {isFullscreen && (
-          <div className="absolute top-0 left-0 right-0 z-50 opacity-0 hover:opacity-100 transition-opacity">
-            <div className="bg-gradient-to-b from-black/80 to-transparent p-4 flex items-center justify-between">
+          <div className="absolute top-0 left-0 right-0 z-50">
+            <div className="bg-gradient-to-b from-black/90 to-transparent p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <span className="text-white font-bold">🌐 UniLang</span>
                 {isListening && (
@@ -897,10 +897,16 @@ function YouTubeLivePageContent() {
                     실시간 통역 중
                   </span>
                 )}
+                <span className="text-white/70 text-sm truncate max-w-md">
+                  📺 {youtubeTitle}
+                </span>
               </div>
-              <div className="text-white text-sm truncate max-w-md">
-                📺 {youtubeTitle}
-              </div>
+              <button
+                onClick={exitFullscreen}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium"
+              >
+                ⛶ 창 모드
+              </button>
             </div>
           </div>
         )}

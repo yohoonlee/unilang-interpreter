@@ -1261,6 +1261,7 @@ function YouTubeTranslatePageContent() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* 에러 */}
         {error && (
@@ -1600,7 +1601,6 @@ function YouTubeTranslatePageContent() {
               </div>
             </CardContent>
           </Card>
-        )}
         )}
 
         {/* 요약 모달 */}
