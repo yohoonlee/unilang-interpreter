@@ -101,6 +101,10 @@ function YouTubeLivePageContent() {
   const utterancesEndRef = useRef<HTMLDivElement>(null)
   const hasAutoStarted = useRef(false)
   const replayIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // 전체화면 모드
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const fullscreenContainerRef = useRef<HTMLDivElement>(null)
 
   // 저장된 데이터 키
   const getStorageKey = () => `unilang_youtube_${videoId}_${sourceLang}_${targetLang}`
@@ -720,6 +724,51 @@ function YouTubeLivePageContent() {
     }
   }
 
+  // 전체화면 진입
+  const enterFullscreen = async () => {
+    if (fullscreenContainerRef.current) {
+      try {
+        await fullscreenContainerRef.current.requestFullscreen()
+        setIsFullscreen(true)
+      } catch (err) {
+        console.error("전체화면 진입 실패:", err)
+      }
+    }
+  }
+
+  // 전체화면 종료
+  const exitFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen()
+      }
+      setIsFullscreen(false)
+    } catch (err) {
+      console.error("전체화면 종료 실패:", err)
+    }
+  }
+
+  // 전체화면 토글
+  const toggleFullscreen = () => {
+    if (isFullscreen) {
+      exitFullscreen()
+    } else {
+      enterFullscreen()
+    }
+  }
+
+  // 전체화면 상태 감지
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    
+    document.addEventListener("fullscreenchange", handleFullscreenChange)
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange)
+    }
+  }, [])
+
   // 컴포넌트 언마운트 시 정리
   useEffect(() => {
     return () => {
@@ -780,19 +829,85 @@ function YouTubeLivePageContent() {
     ? utterances.slice(-2) 
     : utterances
 
+  // 최신 완성된 자막 (원어 + 번역)
+  const latestUtterance = utterances.length > 0 ? utterances[utterances.length - 1] : null
+
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
-      {/* YouTube 영상 영역 */}
-      <div className="relative" style={{ height: isLargeView ? "50vh" : "55vh" }}>
+      {/* 전체화면 컨테이너 (YouTube + 자막 오버레이) */}
+      <div 
+        ref={fullscreenContainerRef}
+        className={`relative ${isFullscreen ? 'bg-black' : ''}`}
+        style={{ height: isFullscreen ? "100vh" : (isLargeView ? "50vh" : "55vh") }}
+      >
+        {/* YouTube 영상 */}
         <iframe
           src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&enablejsapi=1`}
           className="absolute inset-0 w-full h-full"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
         />
+        
+        {/* 전체화면 하단 자막 오버레이 */}
+        {isFullscreen && latestUtterance && (
+          <div className="absolute bottom-0 left-0 right-0 z-50 pointer-events-none">
+            <div className="bg-gradient-to-t from-black/90 via-black/70 to-transparent pt-16 pb-8 px-8">
+              {/* 원어 */}
+              <p className="text-white text-xl md:text-2xl text-center mb-2 drop-shadow-lg">
+                {latestUtterance.original}
+              </p>
+              {/* 번역어 */}
+              {latestUtterance.translated && (
+                <p className="text-green-400 text-2xl md:text-3xl font-bold text-center drop-shadow-lg">
+                  {latestUtterance.translated}
+                </p>
+              )}
+            </div>
+            
+            {/* 전체화면 종료 버튼 (마우스 오버 시 표시) */}
+            <div className="absolute top-4 right-4 opacity-0 hover:opacity-100 transition-opacity pointer-events-auto">
+              <button
+                onClick={exitFullscreen}
+                className="px-4 py-2 bg-black/70 hover:bg-black/90 text-white rounded-lg text-sm"
+              >
+                ✕ 전체화면 종료
+              </button>
+            </div>
+            
+            {/* 실시간 인식 중 표시 */}
+            {currentTranscript && (
+              <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2">
+                <p className="text-yellow-300/80 text-lg italic drop-shadow-lg">
+                  {currentTranscript}...
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* 전체화면 컨트롤 (전체화면 상태에서만 상단에 표시) */}
+        {isFullscreen && (
+          <div className="absolute top-0 left-0 right-0 z-50 opacity-0 hover:opacity-100 transition-opacity">
+            <div className="bg-gradient-to-b from-black/80 to-transparent p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-white font-bold">🌐 UniLang</span>
+                {isListening && (
+                  <span className="flex items-center gap-1 text-green-400 text-sm">
+                    <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                    실시간 통역 중
+                  </span>
+                )}
+              </div>
+              <div className="text-white text-sm truncate max-w-md">
+                📺 {youtubeTitle}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* 컨트롤 바 (YouTube 제목 포함) */}
+      {/* 컨트롤 바 (YouTube 제목 포함) - 전체화면 아닐 때만 */}
+      {!isFullscreen && (
       <div className="bg-slate-800 border-b border-slate-700">
         {/* 상단: YouTube 제목 */}
         <div className="px-4 py-1 bg-gradient-to-r from-red-900/60 to-orange-900/60 border-b border-slate-700">
@@ -823,6 +938,15 @@ function YouTubeLivePageContent() {
             <span className="text-slate-400 text-xs">
               {LANGUAGES[sourceLang] || sourceLang} → {LANGUAGES[targetLang] || targetLang}
             </span>
+            
+            {/* 전체화면 버튼 */}
+            <button
+              onClick={toggleFullscreen}
+              className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded transition-colors"
+              title="전체화면 (자막 오버레이)"
+            >
+              {isFullscreen ? "⛶ 창모드" : "⛶ 전체화면"}
+            </button>
             
             {/* 크게보기/작게보기 토글 */}
             <button
@@ -864,9 +988,10 @@ function YouTubeLivePageContent() {
           </div>
         </div>
       </div>
+      )}
 
-      {/* 안내 메시지 (처음에만) */}
-      {showInstructions && !isReady && !isReplayMode && (
+      {/* 안내 메시지 (처음에만) - 전체화면 아닐 때만 */}
+      {!isFullscreen && showInstructions && !isReady && !isReplayMode && (
         <div className="px-4 py-3 bg-blue-900/50 border-b border-blue-700">
           <p className="text-blue-200 text-sm">
             📌 <strong>사용법:</strong> &quot;시작하기&quot; 클릭 → 화면 공유 창에서 <strong>이 탭</strong> 선택 → <strong>&quot;탭 오디오도 공유&quot;</strong> 체크 ✓ → 공유
@@ -874,14 +999,15 @@ function YouTubeLivePageContent() {
         </div>
       )}
 
-      {/* 에러 메시지 */}
-      {error && (
+      {/* 에러 메시지 - 전체화면 아닐 때만 */}
+      {!isFullscreen && error && (
         <div className="px-4 py-2 bg-red-900/50 border-b border-red-700">
           <p className="text-red-300 text-sm whitespace-pre-line">{error}</p>
         </div>
       )}
 
-      {/* 자막 히스토리 영역 */}
+      {/* 자막 히스토리 영역 - 전체화면 아닐 때만 */}
+      {!isFullscreen && (
       <div 
         className={`flex-1 overflow-y-auto px-4 py-3 space-y-3 ${isLargeView ? 'flex flex-col justify-center' : ''}`}
         style={{ maxHeight: isLargeView ? "40vh" : "30vh" }}
@@ -937,8 +1063,10 @@ function YouTubeLivePageContent() {
           </div>
         )}
       </div>
+      )}
 
-      {/* 하단 액션 바 */}
+      {/* 하단 액션 바 - 전체화면 아닐 때만 */}
+      {!isFullscreen && (
       <div className="px-4 py-4 bg-slate-800 border-t border-slate-700">
         <div className="flex items-center justify-between">
           <span className="text-slate-400 text-sm">
@@ -993,6 +1121,7 @@ function YouTubeLivePageContent() {
           </div>
         </div>
       </div>
+      )}
 
       {/* 요약 모달 */}
       {showSummary && (
