@@ -131,23 +131,21 @@ function YouTubeLivePageContent() {
     init()
   }, [videoId, supabase.auth])
 
-  // 저장된 데이터 확인
+  // 저장된 데이터 확인 - autostart여도 저장된 데이터 있으면 선택 모달 표시
   useEffect(() => {
     if (videoId) {
       const saved = localStorage.getItem(getStorageKey())
       if (saved) {
         setHasSavedData(true)
-        // autostart가 아니면 선택 모달 표시
-        if (!autostart) {
-          setShowReplayChoice(true)
-        }
+        // 저장된 데이터가 있으면 항상 선택 모달 표시
+        setShowReplayChoice(true)
       }
     }
   }, [videoId, sourceLang, targetLang])
 
-  // 자동 시작 (autostart 파라미터가 있을 때)
+  // 자동 시작 (autostart 파라미터가 있고 저장된 데이터가 없을 때만)
   useEffect(() => {
-    if (autostart && videoId && !hasAutoStarted.current && !showReplayChoice) {
+    if (autostart && videoId && !hasAutoStarted.current && !showReplayChoice && !hasSavedData) {
       hasAutoStarted.current = true
       // 약간의 딜레이 후 시작 (페이지 로드 완료 후)
       const timer = setTimeout(() => {
@@ -795,6 +793,13 @@ function YouTubeLivePageContent() {
       <div className="flex items-center justify-between px-4 py-2 bg-slate-800 border-b border-slate-700">
         <div className="flex items-center gap-3">
           <span className="text-white text-sm font-bold">🌐 UniLang</span>
+          <a 
+            href="/service/history" 
+            target="_blank"
+            className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded transition-colors"
+          >
+            📋 기록
+          </a>
           {isListening ? (
             <span className="flex items-center gap-1 text-green-400 text-xs">
               <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
@@ -853,6 +858,13 @@ function YouTubeLivePageContent() {
             </button>
           )}
         </div>
+      </div>
+
+      {/* YouTube 제목 표시 */}
+      <div className="px-4 py-2 bg-gradient-to-r from-red-900/80 to-orange-900/80 border-b border-red-700">
+        <p className="text-white font-medium truncate">
+          📺 {youtubeTitle || "YouTube 영상 로딩 중..."}
+        </p>
       </div>
 
       {/* 안내 메시지 (처음에만) */}
