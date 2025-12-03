@@ -647,11 +647,11 @@ function YouTubeTranslatePageContent() {
         stopSystemAudioCapture()
       }
       
-      // 안내 메시지 - AssemblyAI 연결 대기
-      setError("⏳ AssemblyAI 연결 중... 잠시만 기다려주세요.")
+      // 안내 메시지 - Deepgram 연결 대기
+      setError("⏳ Deepgram 연결 중... 잠시만 기다려주세요.")
       
-      // AssemblyAI로 오디오 전송 시작
-      await startAssemblyAIStream(new MediaStream(audioTracks))
+      // Deepgram으로 오디오 전송 시작
+      await startDeepgramStream(new MediaStream(audioTracks))
       
     } catch (err) {
       console.error("[System Audio] 캡처 오류:", err)
@@ -663,98 +663,106 @@ function YouTubeTranslatePageContent() {
     }
   }
 
-  // AssemblyAI WebSocket 참조
-  const assemblyWSRef = useRef<WebSocket | null>(null)
+  // Deepgram WebSocket 참조
+  const deepgramWSRef = useRef<WebSocket | null>(null)
 
-  // AssemblyAI 스트리밍 시작
-  const startAssemblyAIStream = async (audioStream: MediaStream) => {
+  // Deepgram 스트리밍 시작
+  const startDeepgramStream = async (audioStream: MediaStream) => {
     try {
-      console.log("[AssemblyAI] 스트리밍 시작")
+      console.log("[Deepgram] 스트리밍 시작")
       
-      // 1. 토큰 발급
-      const tokenResponse = await fetch("/api/assemblyai/realtime", {
+      // 1. API 키 가져오기
+      const tokenResponse = await fetch("/api/deepgram/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language_code: sourceLanguage === "auto" ? "en" : sourceLanguage }),
       })
       
       const tokenData = await tokenResponse.json()
       
-      if (!tokenData.token) {
-        setError(`AssemblyAI 연결 실패: ${tokenData.error || "토큰 발급 실패"}`)
+      if (!tokenData.apiKey) {
+        setError(`Deepgram 연결 실패: ${tokenData.error || "API 키 가져오기 실패"}`)
         stopSystemAudioCapture()
         return
       }
       
-      console.log("[AssemblyAI] 토큰 발급 성공")
+      console.log("[Deepgram] API 키 가져오기 성공")
       
-      // 2. WebSocket 연결
+      // 2. 언어 코드 설정
+      const langCode = sourceLanguage === "auto" ? "en" : sourceLanguage
+      const deepgramLang = langCode === "ko" ? "ko" : langCode === "ja" ? "ja" : langCode === "zh" ? "zh" : langCode === "es" ? "es" : langCode === "fr" ? "fr" : langCode === "de" ? "de" : "en"
+      
+      // 3. WebSocket 연결
       const ws = new WebSocket(
-        `wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000&token=${tokenData.token}`
+        `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-2&language=${deepgramLang}&punctuate=true&interim_results=true`,
+        ["token", tokenData.apiKey]
       )
       
-      assemblyWSRef.current = ws
+      deepgramWSRef.current = ws
       
       ws.onopen = () => {
-        console.log("[AssemblyAI] WebSocket 연결됨")
+        console.log("[Deepgram] WebSocket 연결됨")
         setError(null)
         setIsListening(true)
         
-        // 3. 오디오 데이터 전송
+        // 4. 오디오 데이터 전송
         const audioContext = new AudioContext({ sampleRate: 16000 })
         audioContextRef.current = audioContext
         const source = audioContext.createMediaStreamSource(audioStream)
         const processor = audioContext.createScriptProcessor(4096, 1, 1)
         
         source.connect(processor)
-        processor.connect(audioContext.destination)
+        // destination에 연결하지 않음 (하울링 방지)
+        // processor.connect(audioContext.destination)
         
         processor.onaudioprocess = (e) => {
           if (ws.readyState === WebSocket.OPEN) {
             const inputData = e.inputBuffer.getChannelData(0)
-            // Float32 to Int16 변환
+            // Float32 to Int16 변환 (PCM 16-bit)
             const int16Array = new Int16Array(inputData.length)
             for (let i = 0; i < inputData.length; i++) {
               const s = Math.max(-1, Math.min(1, inputData[i]))
               int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
             }
-            // Base64 인코딩
-            const bytes = new Uint8Array(int16Array.buffer)
-            let binary = ""
-            for (let i = 0; i < bytes.byteLength; i++) {
-              binary += String.fromCharCode(bytes[i])
-            }
-            const base64Audio = btoa(binary)
-            ws.send(JSON.stringify({ audio_data: base64Audio }))
+            // 바이너리로 전송 (Deepgram은 바이너리 PCM 사용)
+            ws.send(int16Array.buffer)
           }
         }
       }
       
       ws.onmessage = async (event) => {
-        const data = JSON.parse(event.data)
-        
-        if (data.message_type === "PartialTranscript" && data.text) {
-          setCurrentTranscript(data.text)
-        } else if (data.message_type === "FinalTranscript" && data.text?.trim()) {
-          console.log("[AssemblyAI] 최종 인식:", data.text)
-          setCurrentTranscript("")
-          await addLiveUtterance(data.text.trim())
+        try {
+          const data = JSON.parse(event.data)
+          
+          // Deepgram 응답 형식 처리
+          if (data.type === "Results" && data.channel?.alternatives?.[0]) {
+            const transcript = data.channel.alternatives[0].transcript
+            
+            if (data.is_final && transcript?.trim()) {
+              console.log("[Deepgram] 최종 인식:", transcript)
+              setCurrentTranscript("")
+              await addLiveUtterance(transcript.trim())
+            } else if (transcript) {
+              setCurrentTranscript(transcript)
+            }
+          }
+        } catch (err) {
+          console.error("[Deepgram] 메시지 파싱 오류:", err)
         }
       }
       
       ws.onerror = (err) => {
-        console.error("[AssemblyAI] WebSocket 오류:", err)
-        setError("AssemblyAI 연결 오류")
+        console.error("[Deepgram] WebSocket 오류:", err)
+        setError("Deepgram 연결 오류가 발생했습니다.")
       }
       
-      ws.onclose = () => {
-        console.log("[AssemblyAI] WebSocket 종료")
+      ws.onclose = (event) => {
+        console.log("[Deepgram] WebSocket 종료:", event.code, event.reason)
         setIsListening(false)
       }
       
     } catch (err) {
-      console.error("[AssemblyAI] 스트리밍 오류:", err)
-      setError("AssemblyAI 스트리밍 실패")
+      console.error("[Deepgram] 스트리밍 오류:", err)
+      setError("Deepgram 스트리밍 실패")
       stopSystemAudioCapture()
     }
   }
@@ -763,10 +771,10 @@ function YouTubeTranslatePageContent() {
   const stopSystemAudioCapture = () => {
     console.log("[System Audio] 캡처 중지")
     
-    // AssemblyAI WebSocket 종료
-    if (assemblyWSRef.current) {
-      assemblyWSRef.current.close()
-      assemblyWSRef.current = null
+    // Deepgram WebSocket 종료
+    if (deepgramWSRef.current) {
+      deepgramWSRef.current.close()
+      deepgramWSRef.current = null
     }
     
     // 음성 인식 중지
