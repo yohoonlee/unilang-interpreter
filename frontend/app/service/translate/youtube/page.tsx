@@ -23,6 +23,9 @@ import {
   MicOff,
   Volume2,
   Radio,
+  List,
+  Trash2,
+  Calendar,
 } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -67,6 +70,18 @@ interface TranscriptResult {
   duration: number
   utterances: Utterance[]
   speakerStats: Record<string, { count: number; duration: number }>
+}
+
+// YouTube 통역 기록 인터페이스
+interface YouTubeSession {
+  id: string
+  title: string
+  youtube_video_id: string
+  youtube_title: string
+  source_language: string
+  target_languages: string[]
+  started_at: string
+  total_utterances: number
 }
 
 export default function YouTubeTranslatePage() {
@@ -117,6 +132,11 @@ function YouTubeTranslatePageContent() {
   const isListeningRef = useRef(false)
   const liveResultsRef = useRef<HTMLDivElement>(null)
   
+  // 기록 목록 상태
+  const [showHistory, setShowHistory] = useState(false)
+  const [youtubeSessions, setYoutubeSessions] = useState<YouTubeSession[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  
   const supabase = createClient()
 
   // YouTube URL에서 비디오 ID 추출
@@ -138,6 +158,80 @@ function YouTubeTranslatePageContent() {
     const id = extractVideoId(youtubeUrl)
     setVideoId(id)
   }, [youtubeUrl])
+
+  // YouTube 통역 기록 불러오기
+  const loadYoutubeHistory = async () => {
+    setIsLoadingHistory(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setIsLoadingHistory(false)
+        return
+      }
+
+      const { data, error } = await supabase
+        .from("translation_sessions")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("session_type", "youtube")
+        .order("started_at", { ascending: false })
+        .limit(20)
+
+      if (error) {
+        console.error("YouTube 기록 로드 실패:", error)
+      } else {
+        setYoutubeSessions(data || [])
+      }
+    } catch (err) {
+      console.error("오류:", err)
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }
+
+  // 기록 삭제
+  const deleteSession = async (sessionId: string) => {
+    if (!confirm("이 통역 기록을 삭제하시겠습니까?")) return
+
+    try {
+      const { error } = await supabase
+        .from("translation_sessions")
+        .delete()
+        .eq("id", sessionId)
+
+      if (error) {
+        console.error("삭제 실패:", error)
+        alert("삭제에 실패했습니다.")
+      } else {
+        setYoutubeSessions(prev => prev.filter(s => s.id !== sessionId))
+      }
+    } catch (err) {
+      console.error("오류:", err)
+    }
+  }
+
+  // 기록에서 다시보기
+  const playFromHistory = (session: YouTubeSession) => {
+    const liveUrl = `/service/translate/youtube/live?v=${session.youtube_video_id}&source=${session.source_language}&target=${session.target_languages[0] || "ko"}`
+    
+    const width = Math.floor(window.screen.width * 0.9)
+    const height = Math.floor(window.screen.height * 0.9)
+    const left = Math.floor((window.screen.width - width) / 2)
+    const top = Math.floor((window.screen.height - height) / 2)
+    
+    window.open(
+      liveUrl,
+      "unilang_live",
+      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+    )
+  }
+
+  // 기록 토글 시 데이터 로드
+  useEffect(() => {
+    if (showHistory) {
+      loadYoutubeHistory()
+    }
+  }, [showHistory])
 
   // 전사 시작
   const startTranscription = async () => {
@@ -933,17 +1027,114 @@ function YouTubeTranslatePageContent() {
                 📺 YouTube 통역
               </h1>
             </div>
-            <Link href="/service/history">
-              <Button variant="outline" size="sm" className="border-red-300 text-red-600 hover:bg-red-50">
-                📋 통역 기록
-              </Button>
-            </Link>
+            <Button 
+              variant="outline" 
+              size="icon"
+              onClick={() => setShowHistory(!showHistory)}
+              className={`border-red-300 text-red-600 hover:bg-red-50 ${showHistory ? 'bg-red-100' : ''}`}
+              title="통역 기록"
+            >
+              <List className="h-5 w-5" />
+            </Button>
           </div>
         </header>
       )}
 
       <main className="max-w-5xl mx-auto p-4 space-y-4">
-        {/* URL 입력 */}
+        {/* 기록 목록 */}
+        {showHistory ? (
+          <Card className="border-purple-200 dark:border-purple-800">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <List className="h-5 w-5 text-purple-500" />
+                  YouTube 통역 기록
+                </CardTitle>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => setShowHistory(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingHistory ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="h-6 w-6 animate-spin text-purple-500" />
+                </div>
+              ) : youtubeSessions.length === 0 ? (
+                <div className="text-center py-10 text-slate-500">
+                  <Youtube className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                  <p>저장된 YouTube 통역 기록이 없습니다.</p>
+                  <p className="text-sm mt-1">실시간 통역 후 저장하면 여기에 표시됩니다.</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+                  {youtubeSessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                    >
+                      {/* 썸네일 */}
+                      <div className="relative w-24 h-16 rounded-lg overflow-hidden shrink-0 bg-slate-200">
+                        <img 
+                          src={`https://img.youtube.com/vi/${session.youtube_video_id}/mqdefault.jpg`}
+                          alt="썸네일"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
+                          onClick={() => playFromHistory(session)}
+                        >
+                          <Play className="h-6 w-6 text-white" />
+                        </div>
+                      </div>
+                      
+                      {/* 정보 */}
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-sm truncate">{session.youtube_title || session.title}</h4>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {new Date(session.started_at).toLocaleDateString("ko-KR")}
+                          </span>
+                          <span>{session.total_utterances || 0}개 문장</span>
+                          <span>
+                            {LANGUAGES.find(l => l.code === session.source_language)?.flag || "🌐"} →{" "}
+                            {LANGUAGES.find(l => l.code === session.target_languages?.[0])?.flag || "🇰🇷"}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* 액션 */}
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => playFromHistory(session)}
+                          className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                        >
+                          <Play className="h-4 w-4 mr-1" />
+                          다시보기
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteSession(session.id)}
+                          className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+        /* URL 입력 */
         <Card className="border-red-200 dark:border-red-800 bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20">
           <CardContent className="p-4 space-y-4">
             {/* URL 입력 */}
@@ -1409,6 +1600,7 @@ function YouTubeTranslatePageContent() {
               </div>
             </CardContent>
           </Card>
+        )}
         )}
 
         {/* 요약 모달 */}

@@ -772,10 +772,13 @@ function YouTubeLivePageContent() {
     )
   }
 
-  // 크게보기 모드에서 표시할 utterances (최근 2개만)
+  // 표시할 utterances
+  // - 크게보기: 최근 2개만
+  // - 저장된 내용 보기 (replayMode): 전체 표시
+  // - 일반 모드: 전체 표시
   const displayUtterances = isLargeView 
     ? utterances.slice(-2) 
-    : (isReplayMode ? utterances.slice(0, replayIndex + 1) : utterances)
+    : utterances
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
@@ -789,82 +792,77 @@ function YouTubeLivePageContent() {
         />
       </div>
 
-      {/* 컨트롤 바 */}
-      <div className="flex items-center justify-between px-4 py-2 bg-slate-800 border-b border-slate-700">
-        <div className="flex items-center gap-3">
-          <span className="text-white text-sm font-bold">🌐 UniLang</span>
-          <a 
-            href="/service/history" 
-            target="_blank"
-            className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded transition-colors"
-          >
-            📋 기록
-          </a>
-          {isListening ? (
-            <span className="flex items-center gap-1 text-green-400 text-xs">
-              <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-              실시간 통역 중 (Deepgram)
-            </span>
-          ) : isReplayMode ? (
-            <span className="flex items-center gap-1 text-blue-400 text-xs">
-              <span className="w-2 h-2 bg-blue-400 rounded-full" />
-              저장된 내용 보기
-            </span>
-          ) : (
-            <span className="text-yellow-400 text-xs">{connectionStatus}</span>
-          )}
+      {/* 컨트롤 바 (YouTube 제목 포함) */}
+      <div className="bg-slate-800 border-b border-slate-700">
+        {/* 상단: YouTube 제목 */}
+        <div className="px-4 py-1 bg-gradient-to-r from-red-900/60 to-orange-900/60 border-b border-slate-700">
+          <p className="text-white text-sm font-medium truncate">
+            📺 {youtubeTitle || "YouTube 영상 로딩 중..."}
+          </p>
         </div>
-        
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400 text-xs">
-            {LANGUAGES[sourceLang] || sourceLang} → {LANGUAGES[targetLang] || targetLang}
-          </span>
-          
-          {/* 크게보기/작게보기 토글 */}
-          <button
-            onClick={() => setIsLargeView(!isLargeView)}
-            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            {isLargeView ? "📄 작게보기" : "📰 크게보기"}
-          </button>
-          
-          {!isReplayMode && (
-            !isReady ? (
-              <button
-                onClick={startCapture}
-                className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-bold rounded-lg transition-colors"
-              >
-                🎧 시작하기
-              </button>
+        {/* 하단: 컨트롤 */}
+        <div className="flex items-center justify-between px-4 py-2">
+          <div className="flex items-center gap-2">
+            <span className="text-white text-xs font-bold">🌐 UniLang</span>
+            {isListening ? (
+              <span className="flex items-center gap-1 text-green-400 text-xs">
+                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                통역 중
+              </span>
+            ) : isReplayMode ? (
+              <span className="flex items-center gap-1 text-blue-400 text-xs">
+                <span className="w-2 h-2 bg-blue-400 rounded-full" />
+                저장된 내용
+              </span>
             ) : (
-              <button
-                onClick={stopCapture}
-                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded-lg transition-colors"
-              >
-                ⏹ 공유 중지
-              </button>
-            )
-          )}
+              <span className="text-yellow-400 text-xs">{connectionStatus}</span>
+            )}
+          </div>
           
-          {isReplayMode && (
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400 text-xs">
+              {LANGUAGES[sourceLang] || sourceLang} → {LANGUAGES[targetLang] || targetLang}
+            </span>
+            
+            {/* 크게보기/작게보기 토글 */}
             <button
-              onClick={() => {
-                setIsReplayMode(false)
-                setUtterances([])
-              }}
-              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-bold rounded-lg transition-colors"
+              onClick={() => setIsLargeView(!isLargeView)}
+              className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white text-xs font-medium rounded transition-colors"
             >
-              🎤 새로 통역
+              {isLargeView ? "작게보기" : "크게보기"}
             </button>
-          )}
+            
+            {!isReplayMode && (
+              !isReady ? (
+                <button
+                  onClick={startCapture}
+                  className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded transition-colors"
+                >
+                  🎧 새로 통역
+                </button>
+              ) : (
+                <button
+                  onClick={stopCapture}
+                  className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded transition-colors"
+                >
+                  공유 중지
+                </button>
+              )
+            )}
+            
+            {isReplayMode && (
+              <button
+                onClick={() => {
+                  setIsReplayMode(false)
+                  setUtterances([])
+                }}
+                className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded transition-colors"
+              >
+                🎤 새로 통역
+              </button>
+            )}
+          </div>
         </div>
-      </div>
-
-      {/* YouTube 제목 표시 */}
-      <div className="px-4 py-2 bg-gradient-to-r from-red-900/80 to-orange-900/80 border-b border-red-700">
-        <p className="text-white font-medium truncate">
-          📺 {youtubeTitle || "YouTube 영상 로딩 중..."}
-        </p>
       </div>
 
       {/* 안내 메시지 (처음에만) */}
