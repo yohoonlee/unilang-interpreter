@@ -33,6 +33,16 @@ interface Utterance {
   original: string
   translated: string
   timestamp: Date
+  startTime: number // 시작 시간 (ms)
+}
+
+interface SavedSession {
+  videoId: string
+  sourceLang: string
+  targetLang: string
+  utterances: Utterance[]
+  savedAt: string
+  summary?: string
 }
 
 export default function YouTubeLivePage() {
@@ -49,6 +59,7 @@ function YouTubeLivePageContent() {
   const videoId = searchParams.get("v")
   const sourceLang = searchParams.get("source") || "auto"
   const targetLang = searchParams.get("target") || "ko"
+  const autostart = searchParams.get("autostart") === "true"
   
   const [isListening, setIsListening] = useState(false)
   const [currentTranscript, setCurrentTranscript] = useState("")
@@ -64,23 +75,94 @@ function YouTubeLivePageContent() {
   const [summary, setSummary] = useState("")
   const [showSummary, setShowSummary] = useState(false)
   
-  // DB 저장 상태
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  // 저장 상태
   const [isSaving, setIsSaving] = useState(false)
+  const [hasSavedData, setHasSavedData] = useState(false)
+  const [showReplayChoice, setShowReplayChoice] = useState(false)
+  
+  // YouTube 정보
+  const [youtubeTitle, setYoutubeTitle] = useState<string>("")
+  const [dbSessionId, setDbSessionId] = useState<string | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
+  
+  const supabase = createClient()
+  
+  // 크게보기/작게보기 토글
+  const [isLargeView, setIsLargeView] = useState(false)
+  
+  // 타임싱크 재생 모드
+  const [isReplayMode, setIsReplayMode] = useState(false)
+  const [replayIndex, setReplayIndex] = useState(0)
+  const [sessionStartTime, setSessionStartTime] = useState<number>(0)
   
   const websocketRef = useRef<WebSocket | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const utterancesEndRef = useRef<HTMLDivElement>(null)
-  
-  const supabase = createClient()
+  const hasAutoStarted = useRef(false)
+  const replayIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  // 저장된 데이터 키
+  const getStorageKey = () => `unilang_youtube_${videoId}_${sourceLang}_${targetLang}`
+
+  // 사용자 정보 및 YouTube 제목 가져오기
+  useEffect(() => {
+    const init = async () => {
+      // 사용자 정보
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setUserId(user.id)
+      }
+      
+      // YouTube 제목 가져오기
+      if (videoId) {
+        try {
+          const response = await fetch(`/api/youtube/info?v=${videoId}`)
+          const data = await response.json()
+          if (data.success) {
+            setYoutubeTitle(data.title)
+          }
+        } catch (err) {
+          console.error("YouTube 제목 가져오기 실패:", err)
+        }
+      }
+    }
+    
+    init()
+  }, [videoId, supabase.auth])
+
+  // 저장된 데이터 확인
+  useEffect(() => {
+    if (videoId) {
+      const saved = localStorage.getItem(getStorageKey())
+      if (saved) {
+        setHasSavedData(true)
+        // autostart가 아니면 선택 모달 표시
+        if (!autostart) {
+          setShowReplayChoice(true)
+        }
+      }
+    }
+  }, [videoId, sourceLang, targetLang])
+
+  // 자동 시작 (autostart 파라미터가 있을 때)
+  useEffect(() => {
+    if (autostart && videoId && !hasAutoStarted.current && !showReplayChoice) {
+      hasAutoStarted.current = true
+      // 약간의 딜레이 후 시작 (페이지 로드 완료 후)
+      const timer = setTimeout(() => {
+        startCapture()
+      }, 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [autostart, videoId, showReplayChoice])
 
   // 자동 스크롤
   useEffect(() => {
-    if (utterancesEndRef.current) {
+    if (utterancesEndRef.current && !isLargeView) {
       utterancesEndRef.current.scrollIntoView({ behavior: "smooth" })
     }
-  }, [utterances])
+  }, [utterances, isLargeView])
 
   // 번역 함수
   const translateText = useCallback(async (text: string, from: string, to: string): Promise<string> => {
@@ -121,15 +203,17 @@ function YouTubeLivePageContent() {
       console.error("번역 실패:", err)
     }
     
+    const now = Date.now()
     const newUtterance: Utterance = {
-      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      id: `${now}_${Math.random().toString(36).slice(2)}`,
       original: text,
       translated,
       timestamp: new Date(),
+      startTime: sessionStartTime > 0 ? now - sessionStartTime : 0,
     }
     
     setUtterances(prev => [...prev, newUtterance])
-  }, [sourceLang, targetLang, translateText])
+  }, [sourceLang, targetLang, translateText, sessionStartTime])
 
   // Deepgram API 키 가져오기
   const getDeepgramApiKey = async (): Promise<string | null> => {
@@ -140,7 +224,6 @@ function YouTubeLivePageContent() {
       })
       
       const data = await response.json()
-      console.log("[Deepgram] Token API response:", data)
       
       if (data.apiKey) {
         return data.apiKey
@@ -161,6 +244,7 @@ function YouTubeLivePageContent() {
       setError(null)
       setConnectionStatus("연결 중...")
       setShowInstructions(false)
+      setSessionStartTime(Date.now())
       
       // 1. 시스템 오디오 캡처 (화면 공유) - 현재 탭 우선
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -187,7 +271,6 @@ function YouTubeLivePageContent() {
       stream.getVideoTracks().forEach(track => track.stop())
       streamRef.current = new MediaStream(audioTracks)
       
-      console.log("[Deepgram] 오디오 트랙 캡처 성공:", audioTracks[0].label)
       setConnectionStatus("API 연결 중...")
 
       // 2. Deepgram API 키 가져오기
@@ -199,7 +282,6 @@ function YouTubeLivePageContent() {
         return
       }
 
-      console.log("[Deepgram] API 키 가져오기 성공")
       setConnectionStatus("음성 인식 연결 중...")
 
       // 3. 언어 코드 설정
@@ -212,7 +294,6 @@ function YouTubeLivePageContent() {
       )
 
       ws.onopen = () => {
-        console.log("[Deepgram] WebSocket 연결됨")
         setConnectionStatus("연결됨 ✓")
         setIsListening(true)
         setIsReady(true)
@@ -247,7 +328,6 @@ function YouTubeLivePageContent() {
             const transcript = data.channel.alternatives[0].transcript
             
             if (data.is_final && transcript?.trim()) {
-              console.log("[Deepgram] 최종 인식:", transcript)
               setCurrentTranscript("")
               await processUtterance(transcript.trim())
             } else if (transcript) {
@@ -259,23 +339,25 @@ function YouTubeLivePageContent() {
         }
       }
 
-      ws.onerror = (err) => {
-        console.error("[Deepgram] WebSocket 오류:", err)
+      ws.onerror = () => {
         setError("음성 인식 연결 오류")
         setConnectionStatus("오류")
       }
 
-      ws.onclose = (event) => {
-        console.log("[Deepgram] WebSocket 종료:", event.code, event.reason)
+      ws.onclose = async () => {
         setIsListening(false)
         setConnectionStatus("연결 종료")
+        // 공유 중지 시 자동 저장 (로컬 + DB)
+        if (utterances.length > 0) {
+          autoSaveToStorage()
+          await saveToDatabase()
+        }
       }
 
       websocketRef.current = ws
 
-      // 스트림 종료 감지
+      // 스트림 종료 감지 (공유 중지)
       audioTracks[0].onended = () => {
-        console.log("[Deepgram] 오디오 트랙 종료")
         stopCapture()
       }
 
@@ -301,7 +383,7 @@ function YouTubeLivePageContent() {
   }
 
   // 캡처 중지
-  const stopCapture = () => {
+  const stopCapture = useCallback(() => {
     if (websocketRef.current) {
       websocketRef.current.close()
       websocketRef.current = null
@@ -320,6 +402,99 @@ function YouTubeLivePageContent() {
     setIsListening(false)
     setIsReady(false)
     setConnectionStatus("대기 중")
+  }, [])
+
+  // 로컬 스토리지에 자동 저장
+  const autoSaveToStorage = useCallback(() => {
+    if (!videoId || utterances.length === 0) return
+    
+    try {
+      const sessionData: SavedSession = {
+        videoId,
+        sourceLang,
+        targetLang,
+        utterances,
+        savedAt: new Date().toISOString(),
+        summary: summary || undefined,
+      }
+      
+      localStorage.setItem(getStorageKey(), JSON.stringify(sessionData))
+      setHasSavedData(true)
+      console.log("[저장] 자동 저장 완료:", utterances.length, "개 문장")
+    } catch (err) {
+      console.error("[저장] 자동 저장 실패:", err)
+    }
+  }, [videoId, sourceLang, targetLang, utterances, summary])
+
+  // 저장된 데이터 불러오기
+  const loadSavedData = () => {
+    const saved = localStorage.getItem(getStorageKey())
+    if (saved) {
+      try {
+        const data: SavedSession = JSON.parse(saved)
+        setUtterances(data.utterances.map(u => ({
+          ...u,
+          timestamp: new Date(u.timestamp),
+        })))
+        if (data.summary) {
+          setSummary(data.summary)
+        }
+        setShowReplayChoice(false)
+        setIsReplayMode(true)
+      } catch (err) {
+        console.error("[불러오기] 실패:", err)
+        setError("저장된 데이터를 불러올 수 없습니다.")
+      }
+    }
+  }
+
+  // 새로 통역 시작
+  const startNewSession = () => {
+    setShowReplayChoice(false)
+    setUtterances([])
+    setSummary("")
+    setIsReplayMode(false)
+    if (autostart) {
+      startCapture()
+    }
+  }
+
+  // 타임싱크 재생 시작
+  const startTimeSyncReplay = () => {
+    if (utterances.length === 0) return
+    
+    setReplayIndex(0)
+    
+    // YouTube iframe 시작
+    const iframe = document.querySelector('iframe') as HTMLIFrameElement
+    if (iframe) {
+      iframe.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*')
+    }
+    
+    // 타이머 시작
+    const startTime = Date.now()
+    replayIntervalRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime
+      
+      // 현재 시간에 맞는 utterance 찾기
+      let newIndex = 0
+      for (let i = 0; i < utterances.length; i++) {
+        if (utterances[i].startTime <= elapsed) {
+          newIndex = i
+        } else {
+          break
+        }
+      }
+      setReplayIndex(newIndex)
+    }, 100)
+  }
+
+  // 타임싱크 재생 중지
+  const stopTimeSyncReplay = () => {
+    if (replayIntervalRef.current) {
+      clearInterval(replayIntervalRef.current)
+      replayIntervalRef.current = null
+    }
   }
 
   // AI 재정리
@@ -374,10 +549,13 @@ function YouTubeLivePageContent() {
           original: item.text,
           translated: targetLang === "none" ? "" : translated,
           timestamp: new Date(),
+          startTime: 0,
         })
       }
       
       setUtterances(newUtterances)
+      // 재정리 후 자동 저장
+      setTimeout(() => autoSaveToStorage(), 500)
       
     } catch (err) {
       console.error("AI 재정리 오류:", err)
@@ -417,6 +595,8 @@ function YouTubeLivePageContent() {
       
       setSummary(result.summary)
       setShowSummary(true)
+      // 요약 후 자동 저장
+      setTimeout(() => autoSaveToStorage(), 500)
       
     } catch (err) {
       console.error("요약 생성 오류:", err)
@@ -426,74 +606,114 @@ function YouTubeLivePageContent() {
     }
   }
 
-  // DB에 저장
+  // DB에 저장 (translation_sessions 테이블)
   const saveToDatabase = async () => {
-    if (utterances.length === 0 || !videoId) {
-      setError("저장할 내용이 없습니다.")
-      return
-    }
-    
-    setIsSaving(true)
-    setError(null)
+    if (!videoId || utterances.length === 0) return false
     
     try {
-      // 1. 세션 생성
-      const { data: session, error: sessionError } = await supabase
-        .from("sessions")
-        .insert({
-          source_type: "youtube",
-          source_language: sourceLang === "auto" ? "en" : sourceLang,
-          target_language: targetLang,
-          status: "completed",
-          youtube_video_id: videoId,
-        })
-        .select()
-        .single()
-      
-      if (sessionError) throw sessionError
-      
-      setSessionId(session.id)
-      
-      // 2. 발화 저장
-      for (const utterance of utterances) {
-        const { data: utt, error: uttError } = await supabase
-          .from("utterances")
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        console.log("[DB 저장] 로그인되지 않음 - 로컬 저장만 수행")
+        return false
+      }
+
+      const title = youtubeTitle 
+        ? `${youtubeTitle} (${LANGUAGES[sourceLang] || sourceLang} → ${LANGUAGES[targetLang] || targetLang})`
+        : `YouTube 통역 - ${new Date().toLocaleString("ko-KR")}`
+
+      // 기존 세션 업데이트 또는 새 세션 생성
+      if (dbSessionId) {
+        // 기존 세션 업데이트
+        const { error: updateError } = await supabase
+          .from("translation_sessions")
+          .update({
+            title,
+            ended_at: new Date().toISOString(),
+            total_utterances: utterances.length,
+            status: "completed",
+          })
+          .eq("id", dbSessionId)
+        
+        if (updateError) throw updateError
+      } else {
+        // 새 세션 생성
+        const { data: session, error: sessionError } = await supabase
+          .from("translation_sessions")
           .insert({
-            session_id: session.id,
-            text: utterance.original,
+            user_id: user.id,
+            title,
+            session_type: "youtube",
             source_language: sourceLang === "auto" ? "en" : sourceLang,
+            target_languages: [targetLang],
+            youtube_video_id: videoId,
+            youtube_title: youtubeTitle,
+            status: "completed",
+            total_utterances: utterances.length,
+            started_at: new Date(sessionStartTime || Date.now()).toISOString(),
+            ended_at: new Date().toISOString(),
           })
           .select()
           .single()
         
-        if (uttError) throw uttError
-        
-        // 3. 번역 저장
-        if (utterance.translated) {
-          await supabase
-            .from("translations")
+        if (sessionError) throw sessionError
+        setDbSessionId(session.id)
+
+        // 발화 저장
+        for (const utt of utterances) {
+          const { data: uttData, error: uttError } = await supabase
+            .from("utterances")
             .insert({
-              utterance_id: utt.id,
-              text: utterance.translated,
-              target_language: targetLang,
+              session_id: session.id,
+              original_text: utt.original,
+              original_language: sourceLang === "auto" ? "en" : sourceLang,
+              created_at: utt.timestamp.toISOString(),
             })
+            .select()
+            .single()
+          
+          if (uttError) {
+            console.error("발화 저장 실패:", uttError)
+            continue
+          }
+
+          // 번역 저장
+          if (utt.translated) {
+            await supabase
+              .from("translations")
+              .insert({
+                utterance_id: uttData.id,
+                translated_text: utt.translated,
+                target_language: targetLang,
+              })
+          }
         }
       }
+
+      console.log("[DB 저장] 완료:", utterances.length, "개 문장")
+      return true
+    } catch (err) {
+      console.error("[DB 저장] 실패:", err)
+      return false
+    }
+  }
+
+  // 수동 저장 (로컬 + DB)
+  const manualSave = async () => {
+    setIsSaving(true)
+    setError(null)
+    
+    try {
+      // 로컬 저장
+      autoSaveToStorage()
       
-      // 4. 요약 저장 (있으면)
-      if (summary) {
-        await supabase
-          .from("summaries")
-          .insert({
-            session_id: session.id,
-            content: summary,
-            language: targetLang === "none" ? (sourceLang === "auto" ? "en" : sourceLang) : targetLang,
-          })
+      // DB 저장
+      const dbSaved = await saveToDatabase()
+      
+      if (dbSaved) {
+        alert("저장되었습니다! (로컬 + DB)")
+      } else {
+        alert("로컬에 저장되었습니다. (로그인 시 DB에도 저장됩니다)")
       }
-      
-      setError(null)
-      alert("저장되었습니다!")
-      
     } catch (err) {
       console.error("저장 오류:", err)
       setError("저장 중 오류가 발생했습니다.")
@@ -506,8 +726,16 @@ function YouTubeLivePageContent() {
   useEffect(() => {
     return () => {
       stopCapture()
+      stopTimeSyncReplay()
     }
-  }, [])
+  }, [stopCapture])
+
+  // utterances 변경 시 자동 저장 (10개 문장마다)
+  useEffect(() => {
+    if (utterances.length > 0 && utterances.length % 10 === 0) {
+      autoSaveToStorage()
+    }
+  }, [utterances.length, autoSaveToStorage])
 
   if (!videoId) {
     return (
@@ -517,12 +745,46 @@ function YouTubeLivePageContent() {
     )
   }
 
+  // 다시보기 선택 모달
+  if (showReplayChoice) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-slate-800 rounded-2xl p-8 max-w-md w-full shadow-2xl border border-slate-700">
+          <h2 className="text-2xl font-bold text-white mb-4 text-center">📺 이전 통역 내역 발견!</h2>
+          <p className="text-slate-400 text-center mb-6">
+            이 영상의 저장된 통역 내역이 있습니다.<br/>
+            어떻게 하시겠습니까?
+          </p>
+          <div className="space-y-3">
+            <button
+              onClick={loadSavedData}
+              className="w-full py-4 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold rounded-xl transition-all text-lg"
+            >
+              📖 저장된 내용 보기
+            </button>
+            <button
+              onClick={startNewSession}
+              className="w-full py-4 bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white font-bold rounded-xl transition-all text-lg"
+            >
+              🎤 새로 통역하기
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // 크게보기 모드에서 표시할 utterances (최근 2개만)
+  const displayUtterances = isLargeView 
+    ? utterances.slice(-2) 
+    : (isReplayMode ? utterances.slice(0, replayIndex + 1) : utterances)
+
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
       {/* YouTube 영상 영역 */}
-      <div className="relative" style={{ height: "55vh" }}>
+      <div className="relative" style={{ height: isLargeView ? "50vh" : "55vh" }}>
         <iframe
-          src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`}
+          src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&enablejsapi=1`}
           className="absolute inset-0 w-full h-full"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
@@ -538,6 +800,11 @@ function YouTubeLivePageContent() {
               <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
               실시간 통역 중 (Deepgram)
             </span>
+          ) : isReplayMode ? (
+            <span className="flex items-center gap-1 text-blue-400 text-xs">
+              <span className="w-2 h-2 bg-blue-400 rounded-full" />
+              저장된 내용 보기
+            </span>
           ) : (
             <span className="text-yellow-400 text-xs">{connectionStatus}</span>
           )}
@@ -548,26 +815,48 @@ function YouTubeLivePageContent() {
             {LANGUAGES[sourceLang] || sourceLang} → {LANGUAGES[targetLang] || targetLang}
           </span>
           
-          {!isReady ? (
+          {/* 크게보기/작게보기 토글 */}
+          <button
+            onClick={() => setIsLargeView(!isLargeView)}
+            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            {isLargeView ? "📄 작게보기" : "📰 크게보기"}
+          </button>
+          
+          {!isReplayMode && (
+            !isReady ? (
+              <button
+                onClick={startCapture}
+                className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-bold rounded-lg transition-colors"
+              >
+                🎧 시작하기
+              </button>
+            ) : (
+              <button
+                onClick={stopCapture}
+                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded-lg transition-colors"
+              >
+                ⏹ 공유 중지
+              </button>
+            )
+          )}
+          
+          {isReplayMode && (
             <button
-              onClick={startCapture}
-              className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+              onClick={() => {
+                setIsReplayMode(false)
+                setUtterances([])
+              }}
+              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-bold rounded-lg transition-colors"
             >
-              🎧 시작하기
-            </button>
-          ) : (
-            <button
-              onClick={stopCapture}
-              className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              ⏹ 중지
+              🎤 새로 통역
             </button>
           )}
         </div>
       </div>
 
       {/* 안내 메시지 (처음에만) */}
-      {showInstructions && !isReady && (
+      {showInstructions && !isReady && !isReplayMode && (
         <div className="px-4 py-3 bg-blue-900/50 border-b border-blue-700">
           <p className="text-blue-200 text-sm">
             📌 <strong>사용법:</strong> &quot;시작하기&quot; 클릭 → 화면 공유 창에서 <strong>이 탭</strong> 선택 → <strong>&quot;탭 오디오도 공유&quot;</strong> 체크 ✓ → 공유
@@ -583,23 +872,43 @@ function YouTubeLivePageContent() {
       )}
 
       {/* 자막 히스토리 영역 */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2" style={{ maxHeight: "30vh" }}>
-        {utterances.length === 0 ? (
+      <div 
+        className={`flex-1 overflow-y-auto px-4 py-3 space-y-3 ${isLargeView ? 'flex flex-col justify-center' : ''}`}
+        style={{ maxHeight: isLargeView ? "40vh" : "30vh" }}
+      >
+        {displayUtterances.length === 0 ? (
           <p className="text-slate-500 text-center text-sm py-4">
             {isListening 
               ? "🎧 음성 인식 중... YouTube 영상을 재생해주세요" 
-              : "위 버튼을 클릭하여 실시간 통역을 시작하세요"}
+              : isReplayMode
+                ? "저장된 내용이 없습니다."
+                : "위 버튼을 클릭하여 실시간 통역을 시작하세요"}
           </p>
         ) : (
           <>
-            {utterances.map((utt, idx) => (
-              <div key={utt.id} className="bg-slate-800/50 rounded-lg p-3 border border-slate-700">
-                <div className="flex items-start gap-2">
-                  <span className="text-slate-500 text-xs font-mono">#{idx + 1}</span>
+            {displayUtterances.map((utt, idx) => (
+              <div 
+                key={utt.id} 
+                className={`rounded-xl p-4 border transition-all ${
+                  isLargeView 
+                    ? 'bg-slate-800 border-slate-600' 
+                    : 'bg-slate-800/50 border-slate-700'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  {!isLargeView && (
+                    <span className="text-slate-500 text-xs font-mono bg-slate-700 px-2 py-1 rounded">
+                      #{(isReplayMode ? idx : utterances.indexOf(utt)) + 1}
+                    </span>
+                  )}
                   <div className="flex-1">
-                    <p className="text-white text-sm">{utt.original}</p>
+                    <p className={`text-white ${isLargeView ? 'text-xl leading-relaxed' : 'text-sm'}`}>
+                      {utt.original}
+                    </p>
                     {utt.translated && (
-                      <p className="text-green-400 text-sm mt-1">{utt.translated}</p>
+                      <p className={`text-green-400 mt-2 ${isLargeView ? 'text-2xl font-bold leading-relaxed' : 'text-sm'}`}>
+                        {utt.translated}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -611,64 +920,85 @@ function YouTubeLivePageContent() {
         
         {/* 현재 인식 중인 텍스트 */}
         {currentTranscript && (
-          <div className="bg-yellow-900/30 rounded-lg p-3 border border-yellow-700/50">
-            <p className="text-yellow-300 text-sm opacity-70">{currentTranscript}...</p>
+          <div className={`rounded-xl p-4 border border-yellow-700/50 bg-yellow-900/30 ${isLargeView ? '' : ''}`}>
+            <p className={`text-yellow-300 opacity-70 ${isLargeView ? 'text-xl' : 'text-sm'}`}>
+              {currentTranscript}...
+            </p>
           </div>
         )}
       </div>
 
       {/* 하단 액션 바 */}
-      {utterances.length > 0 && (
-        <div className="px-4 py-3 bg-slate-800 border-t border-slate-700">
-          <div className="flex items-center justify-between">
-            <span className="text-slate-400 text-xs">
-              총 {utterances.length}개 문장
-            </span>
+      <div className="px-4 py-4 bg-slate-800 border-t border-slate-700">
+        <div className="flex items-center justify-between">
+          <span className="text-slate-400 text-sm">
+            총 {utterances.length}개 문장 {hasSavedData && <span className="text-green-400">(저장됨)</span>}
+          </span>
+          
+          <div className="flex items-center gap-3">
+            <button
+              onClick={reorganizeWithAI}
+              disabled={isReorganizing || utterances.length === 0}
+              className="px-5 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2"
+            >
+              {isReorganizing ? (
+                <>
+                  <span className="animate-spin">⏳</span>
+                  처리 중...
+                </>
+              ) : (
+                <>✨ AI 재정리</>
+              )}
+            </button>
             
-            <div className="flex items-center gap-2">
-              <button
-                onClick={reorganizeWithAI}
-                disabled={isReorganizing}
-                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
-              >
-                {isReorganizing ? "처리 중..." : "✨ AI 재정리"}
-              </button>
-              
-              <button
-                onClick={generateSummary}
-                disabled={isSummarizing}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
-              >
-                {isSummarizing ? "생성 중..." : "📝 요약"}
-              </button>
-              
-              <button
-                onClick={saveToDatabase}
-                disabled={isSaving}
-                className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-800 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
-              >
-                {isSaving ? "저장 중..." : "💾 저장"}
-              </button>
-            </div>
+            <button
+              onClick={generateSummary}
+              disabled={isSummarizing || utterances.length === 0}
+              className="px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2"
+            >
+              {isSummarizing ? (
+                <>
+                  <span className="animate-spin">⏳</span>
+                  생성 중...
+                </>
+              ) : (
+                <>📝 요약</>
+              )}
+            </button>
+            
+            <button
+              onClick={manualSave}
+              disabled={isSaving || utterances.length === 0}
+              className="px-5 py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-800 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2"
+            >
+              {isSaving ? (
+                <>
+                  <span className="animate-spin">⏳</span>
+                  저장 중...
+                </>
+              ) : (
+                <>💾 저장</>
+              )}
+            </button>
           </div>
         </div>
-      )}
+      </div>
 
       {/* 요약 모달 */}
       {showSummary && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+          <div className="bg-slate-800 rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between p-4 border-b border-slate-700">
-              <h3 className="text-white font-bold">📝 요약</h3>
+              <h3 className="text-white font-bold text-xl">📝 요약</h3>
               <button
                 onClick={() => setShowSummary(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-white text-2xl"
               >
                 ✕
               </button>
             </div>
-            <div className="p-4">
-              <p className="text-slate-200 whitespace-pre-wrap">{summary}</p>
+            <div className="p-6">
+              <p className="text-slate-200 whitespace-pre-wrap text-lg leading-relaxed">{summary}</p>
             </div>
           </div>
         </div>

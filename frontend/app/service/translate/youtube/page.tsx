@@ -263,32 +263,24 @@ function YouTubeTranslatePageContent() {
       return
     }
 
-    // YouTube + 자막 오버레이 페이지를 새 창으로 열기
-    const width = 900
-    const height = 700
-    const left = (window.screen.width - width) / 2
-    const top = (window.screen.height - height) / 2
+    // YouTube + 자막 오버레이 페이지를 새 창으로 열기 (화면 90% 크기, 자동시작)
+    const width = Math.floor(window.screen.width * 0.9)
+    const height = Math.floor(window.screen.height * 0.9)
+    const left = Math.floor((window.screen.width - width) / 2)
+    const top = Math.floor((window.screen.height - height) / 2)
     
-    const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}`
+    const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true`
     
     const liveWindow = window.open(
       liveUrl,
       "unilang_live",
-      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=no,resizable=yes`
+      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
     )
     
     if (!liveWindow) {
       // 팝업이 차단된 경우 새 탭으로 열기
       window.open(liveUrl, "_blank")
     }
-    
-    return // 메인 페이지에서는 아무것도 안 함 - 새 창에서 모든 것 처리
-    
-    // 아래 코드는 더 이상 실행되지 않음 (return 이후)
-    alert("1. 화면 공유 팝업에서 '창' 탭을 선택하세요\n2. YouTube 팝업 창을 선택하세요\n3. '오디오 공유'를 체크하세요\n4. '공유'를 클릭하세요")
-    
-    // 4. 시스템 오디오 캡처 시작
-    await startSystemAudioCapture()
   }
 
   // 자막 오버레이 창 열기
@@ -941,6 +933,11 @@ function YouTubeTranslatePageContent() {
                 📺 YouTube 통역
               </h1>
             </div>
+            <Link href="/service/history">
+              <Button variant="outline" size="sm" className="border-red-300 text-red-600 hover:bg-red-50">
+                📋 통역 기록
+              </Button>
+            </Link>
           </div>
         </header>
       )}

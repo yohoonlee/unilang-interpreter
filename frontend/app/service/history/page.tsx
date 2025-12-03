@@ -61,6 +61,8 @@ interface Session {
   status: string
   total_utterances: number
   utterances?: Utterance[]
+  youtube_video_id?: string
+  youtube_title?: string
 }
 
 const SessionTypeIcon = ({ type }: { type: string }) => {
@@ -291,15 +293,29 @@ export default function HistoryPage() {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-lg ${
-                        session.session_type === "mic" ? "bg-teal-100 text-teal-600" :
-                        session.session_type === "youtube" ? "bg-red-100 text-red-600" :
-                        "bg-blue-100 text-blue-600"
-                      }`}>
-                        <SessionTypeIcon type={session.session_type} />
-                      </div>
+                      {/* YouTube 썸네일 또는 아이콘 */}
+                      {session.session_type === "youtube" && session.youtube_video_id ? (
+                        <div className="relative w-16 h-12 rounded-lg overflow-hidden shrink-0">
+                          <img 
+                            src={`https://img.youtube.com/vi/${session.youtube_video_id}/default.jpg`}
+                            alt="YouTube thumbnail"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                            <Youtube className="h-4 w-4 text-white" />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className={`p-2 rounded-lg ${
+                          session.session_type === "mic" ? "bg-teal-100 text-teal-600" :
+                          session.session_type === "youtube" ? "bg-red-100 text-red-600" :
+                          "bg-blue-100 text-blue-600"
+                        }`}>
+                          <SessionTypeIcon type={session.session_type} />
+                        </div>
+                      )}
                       <div>
-                        <CardTitle className="text-base">{session.title || "제목 없음"}</CardTitle>
+                        <CardTitle className="text-base">{session.title || session.youtube_title || "제목 없음"}</CardTitle>
                         <div className="flex items-center gap-4 mt-1 text-xs text-slate-500">
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
@@ -312,6 +328,18 @@ export default function HistoryPage() {
                           <span>
                             {formatDuration(session.started_at, session.ended_at)}
                           </span>
+                          {session.session_type === "youtube" && session.youtube_video_id && (
+                            <a 
+                              href={`https://www.youtube.com/watch?v=${session.youtube_video_id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-red-500 hover:text-red-600 flex items-center gap-1"
+                            >
+                              <Youtube className="h-3 w-3" />
+                              원본 보기
+                            </a>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -415,6 +443,9 @@ export default function HistoryPage() {
     </div>
   )
 }
+
+
+
 
 
 
