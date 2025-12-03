@@ -184,7 +184,12 @@ function YouTubeLivePageContent() {
         const processor = audioContext.createScriptProcessor(4096, 1, 1)
 
         source.connect(processor)
-        // destination에 연결하지 않음 (하울링 방지)
+        // ScriptProcessor는 destination에 연결해야 작동함
+        // 하울링 방지를 위해 GainNode를 0으로 설정
+        const gainNode = audioContext.createGain()
+        gainNode.gain.value = 0 // 소리 출력 안함 (하울링 방지)
+        processor.connect(gainNode)
+        gainNode.connect(audioContext.destination)
 
         processor.onaudioprocess = (e) => {
           if (ws.readyState === WebSocket.OPEN) {
