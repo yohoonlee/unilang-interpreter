@@ -332,6 +332,21 @@ function YouTubeLivePageContent() {
     }
   }
   
+  // 리플레이 모드 + utterances가 있으면 자동으로 동기화 타이머 시작
+  useEffect(() => {
+    if (isReplayMode && utterances.length > 0 && isPlayerReady) {
+      console.log(`[동기화] 자동 타이머 시작 - utterances: ${utterances.length}개`)
+      startSyncTimer()
+    }
+    
+    return () => {
+      // 컴포넌트 언마운트 시 타이머 정리
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current)
+      }
+    }
+  }, [isReplayMode, utterances.length, isPlayerReady, startSyncTimer])
+  
   // 자막 클릭 시 해당 시간으로 이동
   const seekToUtterance = (utt: Utterance) => {
     if (playerRef.current && isReplayMode && utt.startTime) {
