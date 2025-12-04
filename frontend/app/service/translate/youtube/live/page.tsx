@@ -823,23 +823,38 @@ function YouTubeLivePageContent() {
 
   // 자동 시작 (autostart 파라미터 처리)
   useEffect(() => {
-    if (autostart && videoId && !hasAutoStarted.current && !showReplayChoice) {
+    if (!autostart || !videoId || hasAutoStarted.current) return
+    
+    // loadSaved=true인 경우: 바로 저장된 데이터 로드 (선택 화면 건너뜀)
+    if (shouldLoadSavedSession) {
       hasAutoStarted.current = true
-      
-      if (shouldLoadSavedSession) {
-        // 저장된 데이터 로드 (98% 이상 완성된 경우)
-        const timer = setTimeout(() => {
-          loadSavedSession()
-        }, 500)
-        return () => clearTimeout(timer)
-      } else if (hasPreloadedSubtitles) {
-        // 자막이 있는 경우: 자막 처리 워크플로우 시작
+      console.log("🚀 자동 시작: 저장된 세션 로드")
+      const timer = setTimeout(() => {
+        loadSavedSession()
+      }, 300)
+      return () => clearTimeout(timer)
+    }
+    
+    // realtimeMode=true인 경우: 바로 실시간 통역 시작
+    if (realtimeMode) {
+      hasAutoStarted.current = true
+      console.log("🚀 자동 시작: 실시간 통역 모드")
+      const timer = setTimeout(() => {
+        startCapture()
+      }, 500)
+      return () => clearTimeout(timer)
+    }
+    
+    // 그 외: 선택 화면이 없으면 자동 시작
+    if (!showReplayChoice) {
+      if (hasPreloadedSubtitles) {
+        hasAutoStarted.current = true
         const timer = setTimeout(() => {
           processPreloadedSubtitles()
         }, 1000)
         return () => clearTimeout(timer)
-      } else if (realtimeMode || !hasSavedData) {
-        // 실시간 통역 모드 또는 저장된 데이터 없음
+      } else if (!hasSavedData) {
+        hasAutoStarted.current = true
         const timer = setTimeout(() => {
           startCapture()
         }, 1000)
