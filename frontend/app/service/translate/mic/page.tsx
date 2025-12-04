@@ -24,7 +24,9 @@ import {
   Calendar,
   FileText,
   Sparkles,
-  Languages
+  Languages,
+  Menu,
+  Play,
 } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -1710,9 +1712,15 @@ function MicTranslatePageContent() {
                 setShowSessionList(true)
                 loadSessions()
               }}
+              className="relative"
               title="통역 기록 목록"
             >
-              <List className="h-5 w-5" />
+              <Menu className="h-5 w-5" />
+              {sessions.length > 0 && (
+                <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">
+                  {sessions.length > 9 ? '9+' : sessions.length}
+                </span>
+              )}
             </Button>
             <Button 
               variant="ghost" 
