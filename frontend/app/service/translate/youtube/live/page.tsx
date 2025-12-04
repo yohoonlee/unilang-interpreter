@@ -98,6 +98,8 @@ function YouTubeLivePageContent() {
   const targetLang = searchParams.get("target") || "ko"
   const autostart = searchParams.get("autostart") === "true"
   const quickSummaryMode = searchParams.get("quickSummary") === "true"
+  const hasSubtitles = searchParams.get("hasSubtitles") === "true"
+  const realtimeMode = searchParams.get("realtimeMode") === "true"
   
   const [isListening, setIsListening] = useState(false)
   const [isQuickSummaryRunning, setIsQuickSummaryRunning] = useState(false)
@@ -107,6 +109,10 @@ function YouTubeLivePageContent() {
   const [isReady, setIsReady] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<string>("대기 중")
   const [showInstructions, setShowInstructions] = useState(true)
+  
+  // 자막 모드 상태
+  const [hasPreloadedSubtitles, setHasPreloadedSubtitles] = useState(hasSubtitles)
+  const [isProcessingSubtitles, setIsProcessingSubtitles] = useState(false)
   
   // AI 재처리 상태
   const [isReorganizing, setIsReorganizing] = useState(false)
@@ -521,17 +527,233 @@ function YouTubeLivePageContent() {
     checkSavedData()
   }, [videoId, sourceLang, targetLang])
 
-  // 자동 시작 (autostart 파라미터가 있고 저장된 데이터가 없을 때만)
+  // 자막 데이터 로드 및 처리 (통합 워크플로우)
+  const processPreloadedSubtitles = useCallback(async () => {
+    if (!hasPreloadedSubtitles || isProcessingSubtitles) return
+    
+    setIsProcessingSubtitles(true)
+    setConnectionStatus("자막 처리 중...")
+    
+    try {
+      // sessionStorage에서 자막 데이터 로드
+      const subtitleDataStr = sessionStorage.getItem('unilang_subtitle_data')
+      if (!subtitleDataStr) {
+        console.error("자막 데이터를 찾을 수 없습니다")
+        // 실시간 모드로 전환
+        setHasPreloadedSubtitles(false)
+        return
+      }
+      
+      const subtitleData = JSON.parse(subtitleDataStr)
+      console.log("자막 데이터 로드됨:", subtitleData)
+      
+      // sessionStorage에서 데이터 삭제 (일회성)
+      sessionStorage.removeItem('unilang_subtitle_data')
+      
+      // 1단계: 자막을 Utterance 형식으로 변환
+      setConnectionStatus("자막 변환 중...")
+      const convertedUtterances: Utterance[] = subtitleData.utterances.map((item: { start: number; text: string }, index: number) => ({
+        id: `subtitle-${index}`,
+        original: item.text,
+        translated: "",
+        timestamp: new Date(),
+        startTime: Math.floor(item.start * 1000), // 초 → ms
+      }))
+      
+      // 2단계: 번역 수행
+      if (targetLang !== "none" && targetLang !== sourceLang) {
+        setConnectionStatus("번역 중...")
+        let translatedCount = 0
+        
+        for (const utterance of convertedUtterances) {
+          try {
+            const translated = await translateText(utterance.original, subtitleData.language || sourceLang, targetLang)
+            utterance.translated = translated
+            translatedCount++
+            setConnectionStatus(`번역 중... (${translatedCount}/${convertedUtterances.length})`)
+          } catch (err) {
+            console.error("번역 오류:", err)
+            utterance.translated = utterance.original
+          }
+        }
+      }
+      
+      setUtterances(convertedUtterances)
+      setConnectionStatus("자막 처리 완료")
+      
+      // 3단계: AI 재처리
+      setConnectionStatus("AI 재정리 중...")
+      await handleReorganize(convertedUtterances)
+      
+      // 4단계: 요약 생성
+      setConnectionStatus("요약 생성 중...")
+      await handleSummarize(convertedUtterances)
+      
+      // 5단계: 저장
+      setConnectionStatus("저장 중...")
+      const sessionData: SavedSession = {
+        videoId: videoId || "",
+        sourceLang,
+        targetLang,
+        utterances: convertedUtterances,
+        savedAt: new Date().toISOString(),
+        summary: summary,
+        isReorganized: true,
+        videoDuration: subtitleData.duration ? subtitleData.duration * 1000 : 0,
+        lastTextTime: convertedUtterances.length > 0 
+          ? convertedUtterances[convertedUtterances.length - 1].startTime 
+          : 0,
+      }
+      
+      // LocalStorage에 저장
+      localStorage.setItem(getStorageKey(), JSON.stringify(sessionData))
+      setHasSavedData(true)
+      
+      // Supabase에도 저장 (백그라운드)
+      saveToSupabase(sessionData).catch(console.error)
+      
+      // 재생 모드로 전환
+      setIsReplayMode(true)
+      setConnectionStatus("준비 완료 - 영상을 재생하세요")
+      
+    } catch (err) {
+      console.error("자막 처리 오류:", err)
+      setError("자막 처리 중 오류가 발생했습니다. 실시간 통역으로 전환합니다.")
+      setHasPreloadedSubtitles(false)
+    } finally {
+      setIsProcessingSubtitles(false)
+    }
+  }, [hasPreloadedSubtitles, isProcessingSubtitles, videoId, sourceLang, targetLang, summary])
+  
+  // AI 재처리 함수 (내부용)
+  const handleReorganize = async (currentUtterances: Utterance[]) => {
+    if (currentUtterances.length === 0) return
+    
+    setIsReorganizing(true)
+    try {
+      const textToReorganize = currentUtterances
+        .map(u => u.translated || u.original)
+        .join("\n")
+      
+      const response = await fetch("/api/ai/reorganize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: textToReorganize, language: targetLang }),
+      })
+      
+      if (!response.ok) throw new Error("AI 재정리 실패")
+      
+      const data = await response.json()
+      if (data.reorganizedText) {
+        // 재정리된 텍스트를 utterances에 반영
+        const lines = data.reorganizedText.split("\n").filter((l: string) => l.trim())
+        const reorganizedUtterances = lines.map((line: string, index: number) => ({
+          ...currentUtterances[index] || {
+            id: `reorganized-${index}`,
+            original: "",
+            timestamp: new Date(),
+            startTime: 0,
+          },
+          translated: line,
+        }))
+        setUtterances(reorganizedUtterances)
+        setIsReorganized(true)
+      }
+    } catch (err) {
+      console.error("AI 재정리 오류:", err)
+    } finally {
+      setIsReorganizing(false)
+    }
+  }
+  
+  // 요약 생성 함수 (내부용)
+  const handleSummarize = async (currentUtterances: Utterance[]) => {
+    if (currentUtterances.length === 0) return
+    
+    setIsSummarizing(true)
+    try {
+      const textToSummarize = currentUtterances
+        .map(u => u.translated || u.original)
+        .join("\n")
+      
+      const response = await fetch("/api/ai/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: textToSummarize, language: targetLang }),
+      })
+      
+      if (!response.ok) throw new Error("요약 생성 실패")
+      
+      const data = await response.json()
+      if (data.summary) {
+        setSummary(data.summary)
+      }
+    } catch (err) {
+      console.error("요약 생성 오류:", err)
+    } finally {
+      setIsSummarizing(false)
+    }
+  }
+  
+  // Supabase 저장 함수 (내부용)
+  const saveToSupabase = async (sessionData: SavedSession) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      
+      const { data, error } = await supabase
+        .from('translation_sessions')
+        .upsert({
+          user_id: user.id,
+          video_id: sessionData.videoId,
+          source_lang: sessionData.sourceLang,
+          target_lang: sessionData.targetLang,
+          summary: sessionData.summary,
+          is_reorganized: sessionData.isReorganized,
+          video_duration: sessionData.videoDuration,
+          last_text_time: sessionData.lastTextTime,
+          utterances: JSON.stringify(sessionData.utterances),
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'user_id,video_id,source_lang,target_lang',
+        })
+      
+      if (error) {
+        console.error("Supabase 저장 오류:", error)
+      } else {
+        console.log("Supabase 저장 완료:", data)
+      }
+    } catch (err) {
+      console.error("Supabase 저장 실패:", err)
+    }
+  }
+
+  // 자동 시작 (autostart 파라미터 처리)
   useEffect(() => {
     if (autostart && videoId && !hasAutoStarted.current && !showReplayChoice && !hasSavedData) {
       hasAutoStarted.current = true
-      // 약간의 딜레이 후 시작 (페이지 로드 완료 후)
-      const timer = setTimeout(() => {
-        startCapture()
-      }, 1000)
-      return () => clearTimeout(timer)
+      
+      if (hasPreloadedSubtitles) {
+        // 자막이 있는 경우: 자막 처리 워크플로우 시작
+        const timer = setTimeout(() => {
+          processPreloadedSubtitles()
+        }, 1000)
+        return () => clearTimeout(timer)
+      } else if (realtimeMode) {
+        // 실시간 통역 모드
+        const timer = setTimeout(() => {
+          startCapture()
+        }, 1000)
+        return () => clearTimeout(timer)
+      } else {
+        // 기본: 실시간 캡처 시작
+        const timer = setTimeout(() => {
+          startCapture()
+        }, 1000)
+        return () => clearTimeout(timer)
+      }
     }
-  }, [autostart, videoId, showReplayChoice])
+  }, [autostart, videoId, showReplayChoice, hasPreloadedSubtitles, realtimeMode, processPreloadedSubtitles])
 
   // 자동 스크롤 (실시간 모드: 최신으로, 재생 모드: 현재 자막으로)
   useEffect(() => {

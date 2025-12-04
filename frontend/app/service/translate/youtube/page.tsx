@@ -427,7 +427,126 @@ function YouTubeTranslatePageContent() {
     setResult(null)
   }
 
-  // 원클릭 실시간 통역 시작 - YouTube를 팝업으로 열고 현재 페이지에서 자막 표시
+  // 통합 실시간 통역 시작 - 자막 있으면 추출 후 플레이, 없으면 실시간 통역
+  const startIntegratedLiveMode = async () => {
+    if (!videoId) {
+      setError("YouTube URL을 먼저 입력해주세요")
+      return
+    }
+
+    setError(null)
+    setIsProcessing(true)
+    setProgress(0)
+    setProgressText("자막 확인 중...")
+
+    try {
+      // 1단계: 자막 추출 시도
+      setProgress(10)
+      setProgressText("YouTube 자막 추출 시도 중...")
+      
+      const response = await fetch("/api/youtube/transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          youtubeUrl,
+          targetLanguage: targetLanguage !== "none" ? targetLanguage : null,
+        }),
+      })
+
+      const data = await response.json()
+      
+      // 팝업 창 설정
+      const width = Math.floor(window.screen.width * 0.9)
+      const height = Math.floor(window.screen.height * 0.9)
+      const left = Math.floor((window.screen.width - width) / 2)
+      const top = Math.floor((window.screen.height - height) / 2)
+      
+      if (data.success && data.utterances?.length > 0) {
+        // 자막이 있는 경우: 자막 데이터와 함께 플레이어 열기
+        setProgress(50)
+        setProgressText("자막 발견! 처리 중...")
+        
+        // 자막 데이터를 sessionStorage에 저장 (URL로 전달하기에는 너무 큼)
+        const subtitleData = {
+          videoId: data.videoId,
+          language: data.language,
+          utterances: data.utterances,
+          text: data.text,
+          duration: data.duration,
+          hasSubtitles: true,
+        }
+        sessionStorage.setItem('unilang_subtitle_data', JSON.stringify(subtitleData))
+        
+        setProgress(80)
+        setProgressText("플레이어 열기...")
+        
+        // 자막 있음 모드로 live 페이지 열기
+        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&hasSubtitles=true&autostart=true`
+        
+        const liveWindow = window.open(
+          liveUrl,
+          "unilang_live",
+          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+        )
+        
+        if (!liveWindow) {
+          window.open(liveUrl, "_blank")
+        }
+        
+        setProgress(100)
+        setProgressText("완료!")
+      } else {
+        // 자막이 없는 경우: 실시간 통역 모드로 전환
+        setProgress(50)
+        setProgressText("자막 없음 - 실시간 통역 모드로 전환...")
+        
+        // 실시간 통역 모드로 live 페이지 열기
+        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true&realtimeMode=true`
+        
+        const liveWindow = window.open(
+          liveUrl,
+          "unilang_live",
+          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+        )
+        
+        if (!liveWindow) {
+          window.open(liveUrl, "_blank")
+        }
+        
+        setProgress(100)
+        setProgressText("실시간 통역 시작!")
+      }
+    } catch (err) {
+      console.error("통합 워크플로우 오류:", err)
+      // 에러 발생 시에도 실시간 통역 모드로 전환
+      setProgressText("자막 추출 실패 - 실시간 통역 모드로 전환...")
+      
+      const width = Math.floor(window.screen.width * 0.9)
+      const height = Math.floor(window.screen.height * 0.9)
+      const left = Math.floor((window.screen.width - width) / 2)
+      const top = Math.floor((window.screen.height - height) / 2)
+      
+      const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true&realtimeMode=true`
+      
+      const liveWindow = window.open(
+        liveUrl,
+        "unilang_live",
+        `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+      )
+      
+      if (!liveWindow) {
+        window.open(liveUrl, "_blank")
+      }
+    } finally {
+      setTimeout(() => {
+        setIsProcessing(false)
+        setProgress(0)
+        setProgressText("")
+      }, 1000)
+    }
+  }
+
+  // 기존 원클릭 함수 (호환성 유지)
   const startOneClickLiveMode = async (quickSummary = false) => {
     if (!videoId) {
       setError("YouTube URL을 먼저 입력해주세요")
@@ -1261,41 +1380,24 @@ function YouTubeTranslatePageContent() {
                   />
                 </div>
                 {!isLiveMode ? (
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={startTranscription}
-                      disabled={!youtubeUrl.trim() || isProcessing}
-                      className="bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 px-4"
-                      title="자막이 있는 영상 전사"
-                    >
-                      {isProcessing ? (
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                      ) : (
-                        <>
-                          <Play className="h-5 w-5 mr-1" />
-                          자막 추출
-                        </>
-                      )}
-                    </Button>
-                    <Button
-                      onClick={() => startOneClickLiveMode(false)}
-                      disabled={!videoId || isProcessing}
-                      className="bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 px-4"
-                      title="실시간 통역 (자막 없는 영상)"
-                    >
-                      <Volume2 className="h-5 w-5 mr-1" />
-                      실시간 통역
-                    </Button>
-                    <Button
-                      onClick={() => startOneClickLiveMode(true)}
-                      disabled={!videoId || isProcessing}
-                      className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 px-4"
-                      title="빠른 요약 (영상 끝까지 추출 후 AI 재정리)"
-                    >
-                      <Sparkles className="h-5 w-5 mr-1" />
-                      빠른 요약
-                    </Button>
-                  </div>
+                  <Button
+                    onClick={startIntegratedLiveMode}
+                    disabled={!videoId || isProcessing}
+                    className="bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 px-6 py-3 text-lg font-bold shadow-lg"
+                    title="자막 있으면 자동 추출, 없으면 실시간 통역"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                        {progressText || "처리 중..."}
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-5 w-5 mr-2" />
+                        실시간 통역
+                      </>
+                    )}
+                  </Button>
                 ) : (
                   <Button
                     onClick={() => {
