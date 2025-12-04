@@ -97,3 +97,4 @@ COMMENT ON TABLE public.assemblyai_transcripts IS 'AssemblyAI 전사 결과 저�
 
 
 
+

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { YoutubeTranscript } from "youtube-transcript"
 
 // YouTube 비디오 ID 추출
 function extractVideoId(url: string): string | null {
@@ -13,6 +12,102 @@ function extractVideoId(url: string): string | null {
     if (match) return match[1]
   }
   return null
+}
+
+// YouTube 자막 직접 가져오기 (innertube API 사용)
+async function fetchYouTubeTranscript(videoId: string): Promise<{
+  transcript: Array<{ text: string; offset: number; duration: number; lang?: string }>;
+  availableLanguages: string[];
+} | null> {
+  try {
+    // 1. 먼저 영상 페이지에서 자막 정보 가져오기
+    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`
+    const response = await fetch(watchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+      }
+    })
+    
+    const html = await response.text()
+    
+    // ytInitialPlayerResponse에서 자막 정보 추출
+    const playerResponseMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/)
+    if (!playerResponseMatch) {
+      console.log("❌ ytInitialPlayerResponse를 찾을 수 없음")
+      return null
+    }
+    
+    let playerResponse
+    try {
+      playerResponse = JSON.parse(playerResponseMatch[1])
+    } catch (e) {
+      console.log("❌ playerResponse 파싱 실패")
+      return null
+    }
+    
+    const captionTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks
+    if (!captionTracks || captionTracks.length === 0) {
+      console.log("❌ 자막 트랙이 없음")
+      return null
+    }
+    
+    console.log(`📋 사용 가능한 자막: ${captionTracks.map((t: any) => t.languageCode).join(', ')}`)
+    
+    // 언어 우선순위
+    const languagePriority = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'de']
+    let selectedTrack = captionTracks[0] // 기본값: 첫 번째 자막
+    
+    // 우선순위에 따라 자막 선택
+    for (const lang of languagePriority) {
+      const track = captionTracks.find((t: any) => t.languageCode === lang)
+      if (track) {
+        selectedTrack = track
+        break
+      }
+    }
+    
+    console.log(`🎯 선택된 자막: ${selectedTrack.languageCode} (${selectedTrack.name?.simpleText || 'unknown'})`)
+    
+    // 자막 URL에서 실제 자막 데이터 가져오기
+    const captionUrl = selectedTrack.baseUrl
+    const captionResponse = await fetch(captionUrl)
+    const captionXml = await captionResponse.text()
+    
+    // XML 파싱
+    const textMatches = captionXml.matchAll(/<text start="([\d.]+)" dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g)
+    const transcript: Array<{ text: string; offset: number; duration: number; lang?: string }> = []
+    
+    for (const match of textMatches) {
+      const start = parseFloat(match[1]) * 1000 // 초 -> 밀리초
+      const dur = parseFloat(match[2]) * 1000
+      let text = match[3]
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/<[^>]+>/g, '') // HTML 태그 제거
+        .trim()
+      
+      if (text) {
+        transcript.push({
+          text,
+          offset: start,
+          duration: dur,
+          lang: selectedTrack.languageCode
+        })
+      }
+    }
+    
+    return {
+      transcript,
+      availableLanguages: captionTracks.map((t: any) => t.languageCode)
+    }
+  } catch (error) {
+    console.error("자막 가져오기 오류:", error)
+    return null
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -36,43 +131,20 @@ export async function POST(request: NextRequest) {
 
     console.log("🎬 YouTube 전사 시작:", videoId)
 
-    // YouTube 자막 가져오기 (여러 언어 시도)
-    let transcript
-    const languagesToTry = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'de', undefined] // undefined = 기본 자막
-    let lastError = null
+    // 직접 YouTube에서 자막 가져오기
+    const result = await fetchYouTubeTranscript(videoId)
     
-    for (const lang of languagesToTry) {
-      try {
-        console.log(`🔍 자막 시도: ${lang || '기본'}`)
-        if (lang) {
-          transcript = await YoutubeTranscript.fetchTranscript(videoId, { lang })
-        } else {
-          transcript = await YoutubeTranscript.fetchTranscript(videoId)
-        }
-        if (transcript && transcript.length > 0) {
-          console.log(`✅ 자막 발견: ${lang || '기본'} (${transcript.length}개)`)
-          break
-        }
-      } catch (err) {
-        lastError = err
-        console.log(`❌ ${lang || '기본'} 자막 없음`)
-      }
-    }
-    
-    if (!transcript || transcript.length === 0) {
-      console.error("YouTube 자막 가져오기 실패:", lastError)
+    if (!result || result.transcript.length === 0) {
+      console.error("YouTube 자막 가져오기 실패")
       return NextResponse.json({ 
         success: false, 
-        error: "이 동영상에는 자막이 없거나 자막을 가져올 수 없습니다. 자막이 활성화된 동영상을 시도해주세요." 
+        error: "이 동영상에는 자막이 없거나 자막을 가져올 수 없습니다. 자막이 활성화된 동영상을 시도해주세요.",
+        hint: "실시간 통역 모드로 영상을 재생하면서 음성을 번역할 수 있습니다."
       }, { status: 400 })
     }
-
-    if (!transcript || transcript.length === 0) {
-      return NextResponse.json({ 
-        success: false, 
-        error: "자막을 찾을 수 없습니다" 
-      }, { status: 404 })
-    }
+    
+    const transcript = result.transcript
+    console.log(`✅ 자막 ${transcript.length}개 로드됨 (사용 가능: ${result.availableLanguages.join(', ')})`)
 
     // 자막을 utterance 형태로 변환
     const utterances = transcript.map((item, index) => ({
