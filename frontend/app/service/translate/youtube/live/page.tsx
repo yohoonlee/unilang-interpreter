@@ -812,8 +812,8 @@ function YouTubeLivePageContent() {
     return int16Array
   }
 
-  // 캡처 중지 (자동 저장 + 백그라운드 AI 재정리)
-  const stopCapture = useCallback(async (shouldCloseWindow = false) => {
+  // 캡처 중지 (기본 리소스 정리만)
+  const stopCapture = useCallback(() => {
     if (websocketRef.current) {
       websocketRef.current.close()
       websocketRef.current = null
@@ -832,8 +832,14 @@ function YouTubeLivePageContent() {
     setIsListening(false)
     setIsReady(false)
     setConnectionStatus("대기 중")
+  }, [])
+  
+  // 통역 중단 + 자동 저장 + AI 재정리 + 창 닫기
+  const stopAndSave = useCallback(async (shouldCloseWindow = false) => {
+    // 1. 먼저 캡처 중지
+    stopCapture()
     
-    // 자동 저장 (utterances가 있을 때만)
+    // 2. 자동 저장 (utterances가 있을 때만)
     if (utterances.length > 0) {
       console.log("[통역 중단] 자동 저장 시작...")
       autoSaveToStorage()
@@ -842,20 +848,19 @@ function YouTubeLivePageContent() {
       // 백그라운드 AI 재정리 (재정리되지 않은 경우에만)
       if (!isReorganized && utterances.length >= 3) {
         console.log("[통역 중단] 백그라운드 AI 재정리 시작...")
-        // 비동기로 AI 재정리 수행 (창 닫기 전에 시작만 함)
         reorganizeWithAI().catch(err => {
           console.error("[AI 재정리] 백그라운드 처리 실패:", err)
         })
       }
     }
     
-    // 창 닫기 요청이 있으면 창 닫기
+    // 3. 창 닫기 요청이 있으면 창 닫기
     if (shouldCloseWindow) {
       setTimeout(() => {
         window.close()
-      }, 500) // 저장 완료를 위한 약간의 딜레이
+      }, 500)
     }
-  }, [utterances, autoSaveToStorage, saveToDatabase, isReorganized])
+  }, [stopCapture, utterances, autoSaveToStorage, saveToDatabase, isReorganized, reorganizeWithAI])
 
   // 로컬 스토리지에 자동 저장
   const autoSaveToStorage = useCallback(() => {
@@ -1783,7 +1788,7 @@ function YouTubeLivePageContent() {
                 </button>
               ) : (
                 <button
-                  onClick={() => stopCapture(true)}
+                  onClick={() => stopAndSave(true)}
                   className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded transition-colors"
                 >
                   ⏹ 통역 중단
