@@ -565,12 +565,13 @@ function YouTubeLivePageContent() {
       
       // 1단계: 자막을 Utterance 형식으로 변환
       setConnectionStatus("자막 변환 중...")
+      // start는 이미 밀리초 (route.ts에서 변환됨)
       const convertedUtterances: Utterance[] = subtitleData.utterances.map((item: { start: number; text: string }, index: number) => ({
         id: `subtitle-${index}`,
         original: item.text,
         translated: "",
         timestamp: new Date(),
-        startTime: Math.floor(item.start * 1000), // 초 → ms
+        startTime: Math.floor(item.start), // 이미 ms 단위
       }))
       
       // 2단계: 번역 수행
@@ -1384,23 +1385,37 @@ function YouTubeLivePageContent() {
     
     if (data) {
       // utterances 타입 변환 (loadSavedSession과 동일하게)
+      // startTime 보정: 너무 큰 값(10000 이상)이면 이미 ms, 작으면 초 단위로 가정
       const loadedUtterances: Utterance[] = data.utterances.map((u: {
         id: string
         original: string
         translated: string
         timestamp: string | Date
         startTime: number
-      }) => ({
-        id: u.id,
-        original: u.original,
-        translated: u.translated || u.original, // translated가 없으면 original 사용
-        timestamp: typeof u.timestamp === 'string' ? new Date(u.timestamp) : u.timestamp,
-        startTime: u.startTime || 0,
-      }))
+      }) => {
+        // startTime이 10000 이상이면 이미 밀리초로 저장된 것으로 가정
+        // 10000ms = 10초, 일반적으로 자막은 초 단위 0~3600 범위
+        let correctedStartTime = u.startTime || 0
+        if (correctedStartTime > 10000) {
+          // 이미 밀리초인데 또 *1000 되었을 가능성 체크
+          // 영상 길이보다 큰 경우 /1000 적용
+          if (data.videoDuration && correctedStartTime > data.videoDuration * 2) {
+            correctedStartTime = Math.floor(correctedStartTime / 1000)
+          }
+        }
+        
+        return {
+          id: u.id,
+          original: u.original,
+          translated: u.translated || u.original, // translated가 없으면 original 사용
+          timestamp: typeof u.timestamp === 'string' ? new Date(u.timestamp) : u.timestamp,
+          startTime: correctedStartTime,
+        }
+      })
       
       console.log("[불러오기] 변환된 utterances:", loadedUtterances.length, "개")
       console.log("[불러오기] 첫 번째 utterance:", loadedUtterances[0])
-      console.log("[불러오기] startTime 확인:", loadedUtterances.slice(0, 3).map(u => u.startTime))
+      console.log("[불러오기] startTime 확인 (ms):", loadedUtterances.slice(0, 5).map(u => `${u.startTime}ms = ${Math.floor(u.startTime/1000)}초`))
       
       setUtterances(loadedUtterances)
       
@@ -1607,7 +1622,9 @@ function YouTubeLivePageContent() {
         throw new Error(result.error || "요약 생성 실패")
       }
       
+      console.log("[요약] 생성 완료:", result.summary?.substring(0, 50))
       setSummary(result.summary)
+      console.log("[요약] setSummary 호출됨")
       setShowSummary(true)
       
       // 요약 후 로컬 + DB 저장
@@ -1615,6 +1632,7 @@ function YouTubeLivePageContent() {
         autoSaveToStorage()
         // DB에 요약 저장
         await saveSummaryToDatabase(result.summary)
+        console.log("[요약] 저장 완료")
       }, 500)
       
     } catch (err) {

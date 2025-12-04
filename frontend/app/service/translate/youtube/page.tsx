@@ -602,12 +602,13 @@ function YouTubeTranslatePageContent() {
         setProgress(20)
         setProgressText("자막 변환 중...")
         
+        // start는 이미 밀리초 (route.ts에서 변환됨)
         const convertedUtterances: SavedUtterance[] = data.utterances.map((item: { start: number; text: string }, index: number) => ({
           id: `subtitle-${index}`,
           original: item.text,
           translated: "",
           timestamp: new Date().toISOString(),
-          startTime: Math.floor(item.start * 1000), // 초 → ms
+          startTime: Math.floor(item.start), // 이미 ms 단위
         }))
         
         // 3단계: 번역 수행
