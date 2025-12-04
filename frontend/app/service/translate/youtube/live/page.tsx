@@ -454,7 +454,7 @@ function YouTubeLivePageContent() {
     }
   }, [])
 
-  // 발화 처리 (번역 포함) - 다국어 자동 감지 지원
+  // 발화 처리 (번역 포함) - YouTube 영상 시간 기반 정확한 타이밍
   const processUtterance = useCallback(async (text: string, detectedLang?: string) => {
     // 자동 감지 모드인 경우 감지된 언어 사용, 아니면 설정된 언어 사용
     const srcLang = sourceLang === "auto" 
@@ -471,13 +471,29 @@ function YouTubeLivePageContent() {
       console.error("번역 실패:", err)
     }
     
-    const now = Date.now()
+    // YouTube 영상의 현재 재생 시간을 정확하게 가져옴 (ms)
+    let accurateStartTime = 0
+    try {
+      if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+        accurateStartTime = Math.floor(playerRef.current.getCurrentTime() * 1000)
+        console.log(`[타이밍] YouTube 시간: ${formatTime(accurateStartTime)}`)
+      } else if (sessionStartTime > 0) {
+        // YouTube Player가 없으면 세션 시간 기준
+        accurateStartTime = Date.now() - sessionStartTime
+      }
+    } catch (err) {
+      console.error("[타이밍] YouTube 시간 가져오기 실패:", err)
+      if (sessionStartTime > 0) {
+        accurateStartTime = Date.now() - sessionStartTime
+      }
+    }
+    
     const newUtterance: Utterance = {
-      id: `${now}_${Math.random().toString(36).slice(2)}`,
+      id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
       original: text,
       translated,
       timestamp: new Date(),
-      startTime: sessionStartTime > 0 ? now - sessionStartTime : 0,
+      startTime: accurateStartTime,
     }
     
     // 다국어 감지 모드에서 감지된 언어 로깅
@@ -486,7 +502,7 @@ function YouTubeLivePageContent() {
     }
     
     setUtterances(prev => [...prev, newUtterance])
-  }, [sourceLang, targetLang, translateText, sessionStartTime])
+  }, [sourceLang, targetLang, translateText, sessionStartTime, formatTime])
 
   // Deepgram API 키 가져오기
   const getDeepgramApiKey = async (): Promise<string | null> => {
@@ -809,12 +825,17 @@ function YouTubeLivePageContent() {
           }
         }
         
+        // created_at 시간을 기반으로 상대적인 startTime 계산
+        const firstTimestamp = utterancesData[0]?.created_at ? new Date(utterancesData[0].created_at).getTime() : 0
+        const currentTimestamp = new Date(utt.created_at).getTime()
+        const relativeStartTime = firstTimestamp > 0 ? currentTimestamp - firstTimestamp : idx * 3000
+        
         loadedUtterances.push({
           id: utt.id,
           original: utt.original_text,
           translated: translatedText,
           timestamp: new Date(utt.created_at),
-          startTime: idx * 3000,
+          startTime: relativeStartTime,  // DB 기록 시간 기반 상대 시간
         })
       }
 
