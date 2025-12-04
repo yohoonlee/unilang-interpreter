@@ -740,16 +740,35 @@ function YouTubeLivePageContent() {
         return
       }
       
-      const savedSession: SavedSession = JSON.parse(savedSessionStr)
+      const savedSession = JSON.parse(savedSessionStr)
       console.log("저장된 세션 로드됨:", savedSession)
       
       // sessionStorage에서 데이터 삭제 (일회성)
       sessionStorage.removeItem('unilang_saved_session')
       
+      // utterances 타입 변환 (timestamp를 Date로 변환)
+      const convertedUtterances: Utterance[] = savedSession.utterances.map((u: {
+        id: string
+        original: string
+        translated: string
+        timestamp: string | Date
+        startTime: number
+      }) => ({
+        id: u.id,
+        original: u.original,
+        translated: u.translated || u.original, // translated가 없으면 original 사용
+        timestamp: typeof u.timestamp === 'string' ? new Date(u.timestamp) : u.timestamp,
+        startTime: u.startTime || 0,
+      }))
+      
+      console.log("변환된 utterances:", convertedUtterances.length, "개")
+      console.log("첫 번째 utterance:", convertedUtterances[0])
+      
       // 저장된 데이터로 상태 설정
-      setUtterances(savedSession.utterances)
+      setUtterances(convertedUtterances)
       if (savedSession.summary) {
         setSummary(savedSession.summary)
+        setShowSummary(false) // 요약 모달은 닫힌 상태로
       }
       if (savedSession.isReorganized) {
         setIsReorganized(true)
@@ -1915,14 +1934,25 @@ function YouTubeLivePageContent() {
   }
 
   // 표시할 utterances
-  // - 크게보기: 최근 2개 (큰 폰트)
-  // - 작게보기: 최근 4개 (작은 폰트)
-  // - 저장된 내용 보기 (replayMode): 전체 스크롤 가능
-  const displayUtterances = isReplayMode 
-    ? utterances 
-    : isLargeView 
-      ? utterances.slice(-2) 
-      : utterances.slice(-4)
+  // - 크게보기: 현재 위치 기준 2개
+  // - 작게보기: 현재 위치 기준 4개
+  const getDisplayUtterances = () => {
+    if (utterances.length === 0) return []
+    
+    const count = isLargeView ? 2 : 4
+    
+    if (isReplayMode && currentSyncIndex >= 0) {
+      // 리플레이 모드: 현재 동기화 인덱스 기준으로 표시
+      // 현재 자막이 중간에 오도록 (앞 1-2개, 현재, 뒤 1-2개)
+      const startIdx = Math.max(0, currentSyncIndex - Math.floor(count / 2))
+      const endIdx = Math.min(utterances.length, startIdx + count)
+      return utterances.slice(startIdx, endIdx)
+    } else {
+      // 실시간 모드 또는 동기화 전: 최근 것들 표시
+      return utterances.slice(-count)
+    }
+  }
+  const displayUtterances = getDisplayUtterances()
 
   // 전체화면에서 표시할 자막 (동기화 모드면 현재 자막, 아니면 최신 자막)
   const displayedSubtitle = isReplayMode && currentSyncIndex >= 0 
@@ -2117,9 +2147,9 @@ function YouTubeLivePageContent() {
       {/* 자막 히스토리 영역 - 전체화면 아닐 때만 */}
       {!isFullscreen && (
       <div 
-        className={`overflow-y-auto px-4 py-2 space-y-2 ${isLargeView ? 'flex flex-col justify-center' : ''}`}
+        className={`overflow-hidden px-4 py-2 space-y-2 ${isLargeView ? 'flex flex-col justify-center' : ''}`}
         style={{ 
-          height: isLargeView ? '160px' : '200px',  // 크게보기: 2개, 작게보기: 4개
+          height: isLargeView ? '160px' : '280px',  // 크게보기: 2개, 작게보기: 4개 (높이 늘림)
           flexShrink: 0 
         }}
       >
