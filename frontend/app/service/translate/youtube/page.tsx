@@ -1760,12 +1760,19 @@ function YouTubeTranslatePageContent() {
                       >
                         {/* 썸네일 + 정보 */}
                         <div className="flex gap-3">
-                          <div className="relative w-20 h-14 rounded-lg overflow-hidden shrink-0 bg-slate-200">
+                          <div 
+                            className="relative w-24 h-16 rounded-lg overflow-hidden shrink-0 bg-slate-200 cursor-pointer group"
+                            onClick={() => playFromHistory(session)}
+                          >
                             <img 
                               src={`https://img.youtube.com/vi/${session.youtube_video_id}/mqdefault.jpg`}
                               alt="썸네일"
                               className="w-full h-full object-cover"
                             />
+                            {/* 재생 오버레이 */}
+                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Play className="h-6 w-6 text-white" fill="white" />
+                            </div>
                           </div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-medium text-sm truncate">{session.youtube_title || session.title}</h4>
@@ -1775,16 +1782,26 @@ function YouTubeTranslatePageContent() {
                               <span>•</span>
                               <span>{session.total_utterances || 0}문장</span>
                             </div>
+                            {/* 원어 → 번역어 표시 */}
+                            <div className="flex items-center gap-1 mt-1.5">
+                              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                                {LANGUAGES.find(l => l.code === session.source_language)?.name || session.source_language || '자동'}
+                              </span>
+                              <span className="text-slate-400 text-xs">→</span>
+                              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">
+                                {LANGUAGES.find(l => l.code === session.target_languages?.[0])?.name || session.target_languages?.[0] || '한국어'}
+                              </span>
+                            </div>
                           </div>
                         </div>
                         
                         {/* 액션 버튼 */}
-                        <div className="flex items-center gap-2 mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-1 mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => playFromHistory(session)}
-                            className="flex-1 text-green-600 hover:text-green-700 hover:bg-green-50 text-xs"
+                            className="flex-1 text-green-600 hover:text-green-700 hover:bg-green-50 text-xs h-8"
                           >
                             <Play className="h-3 w-3 mr-1" />
                             다시보기
@@ -1793,18 +1810,18 @@ function YouTubeTranslatePageContent() {
                             variant="ghost"
                             size="sm"
                             onClick={() => viewSummaryFromHistory(session)}
-                            className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 text-xs"
+                            className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 text-xs h-8"
                           >
-                            <FileText className="h-3 w-3 mr-1" />
+                            <Sparkles className="h-3 w-3 mr-1" />
                             요약보기
                           </Button>
                           <Button
                             variant="ghost"
-                            size="icon"
+                            size="sm"
                             onClick={() => deleteSession(session.id)}
-                            className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                            className="text-red-500 hover:text-red-600 hover:bg-red-50 h-8 px-2"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>

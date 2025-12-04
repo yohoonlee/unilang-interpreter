@@ -1821,19 +1821,25 @@ function MicTranslatePageContent() {
                               <h3 className="font-semibold text-slate-900 dark:text-white truncate">
                                 {session.title}
                               </h3>
-                              <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                              <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
                                 <span className="flex items-center gap-1">
                                   <Calendar className="h-3 w-3" />
                                   {new Date(session.created_at).toLocaleDateString("ko-KR", {
-                                    year: "numeric",
                                     month: "short",
                                     day: "numeric",
                                     hour: "2-digit",
                                     minute: "2-digit"
                                   })}
                                 </span>
-                                <span>
-                                  {getLanguageInfo(session.source_language).flag} → {session.target_languages.map(t => getLanguageInfo(t).flag).join("")}
+                              </div>
+                              {/* 원어 → 번역어 표시 */}
+                              <div className="flex items-center gap-1 mt-1.5">
+                                <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                                  {getLanguageInfo(session.source_language).flag} {getLanguageInfo(session.source_language).name}
+                                </span>
+                                <span className="text-slate-400 text-xs">→</span>
+                                <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">
+                                  {session.target_languages.map(t => `${getLanguageInfo(t).flag} ${getLanguageInfo(t).name}`).join(", ")}
                                 </span>
                               </div>
                             </div>
