@@ -540,6 +540,34 @@ function YouTubeLivePageContent() {
     checkSavedData()
   }, [videoId, sourceLang, targetLang])
 
+  // 자동 실행: 선택 화면이 표시될 때 URL 파라미터에 따라 자동으로 함수 호출
+  const hasAutoExecuted = useRef(false)
+  useEffect(() => {
+    if (showReplayChoice && !hasAutoExecuted.current) {
+      // loadSaved=true인 경우: "저장된 내용 보기" 자동 실행
+      if (loadSaved) {
+        console.log("🚀 자동 실행: 저장된 내용 보기")
+        hasAutoExecuted.current = true
+        // 약간의 지연 후 실행 (렌더링 완료 보장)
+        setTimeout(() => {
+          loadSavedData()
+        }, 100)
+      }
+    }
+  }, [showReplayChoice, loadSaved])
+
+  // 자동 실행: 실시간 통역 모드 (자막 없음)
+  useEffect(() => {
+    if (realtimeMode && videoId && !hasAutoExecuted.current) {
+      console.log("🚀 자동 실행: 실시간 통역 모드")
+      hasAutoExecuted.current = true
+      // 약간의 지연 후 실행
+      setTimeout(() => {
+        startCapture()
+      }, 500)
+    }
+  }, [realtimeMode, videoId])
+
   // 자막 데이터 로드 및 처리 (통합 워크플로우)
   const processPreloadedSubtitles = useCallback(async () => {
     if (!hasPreloadedSubtitles || isProcessingSubtitles) return
