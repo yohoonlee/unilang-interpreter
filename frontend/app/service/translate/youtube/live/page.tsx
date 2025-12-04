@@ -77,6 +77,7 @@ interface SavedSession {
   utterances: Utterance[]
   savedAt: string
   summary?: string
+  isReorganized?: boolean  // AI 재정리 여부
 }
 
 export default function YouTubeLivePage() {
@@ -123,6 +124,9 @@ function YouTubeLivePageContent() {
   
   // 크게보기/작게보기 토글
   const [isLargeView, setIsLargeView] = useState(false)
+  
+  // AI 재정리 여부
+  const [isReorganized, setIsReorganized] = useState(false)
   
   // 타임싱크 재생 모드
   const [isReplayMode, setIsReplayMode] = useState(false)
@@ -316,16 +320,61 @@ function YouTubeLivePageContent() {
     init()
   }, [videoId, supabase.auth])
 
-  // 저장된 데이터 확인 - autostart여도 저장된 데이터 있으면 선택 모달 표시
+  // 저장된 데이터 확인 - 로컬, DB(내 데이터), 공유 데이터 순으로 확인
   useEffect(() => {
-    if (videoId) {
+    const checkSavedData = async () => {
+      if (!videoId) return
+      
+      // 1. 로컬 스토리지 확인
       const saved = localStorage.getItem(getStorageKey())
       if (saved) {
         setHasSavedData(true)
-        // 저장된 데이터가 있으면 항상 선택 모달 표시
         setShowReplayChoice(true)
+        return
+      }
+      
+      // 2. DB 확인 (내 데이터 + 공유 데이터)
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        
+        // 내 데이터 확인
+        if (user) {
+          const { data: mySession } = await supabase
+            .from("translation_sessions")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("youtube_video_id", videoId)
+            .limit(1)
+            .single()
+          
+          if (mySession) {
+            setHasSavedData(true)
+            setShowReplayChoice(true)
+            return
+          }
+        }
+        
+        // 공유 데이터 확인 (같은 영상, 같은 언어)
+        const { data: sharedSession } = await supabase
+          .from("translation_sessions")
+          .select("id")
+          .eq("youtube_video_id", videoId)
+          .eq("source_language", sourceLang === "auto" ? "en" : sourceLang)
+          .contains("target_languages", [targetLang])
+          .eq("status", "completed")
+          .limit(1)
+          .single()
+        
+        if (sharedSession) {
+          setHasSavedData(true)
+          setShowReplayChoice(true)
+        }
+      } catch (err) {
+        // DB 조회 실패는 무시
       }
     }
+    
+    checkSavedData()
   }, [videoId, sourceLang, targetLang])
 
   // 자동 시작 (autostart 파라미터가 있고 저장된 데이터가 없을 때만)
@@ -382,9 +431,13 @@ function YouTubeLivePageContent() {
     }
   }, [])
 
-  // 발화 처리 (번역 포함)
-  const processUtterance = useCallback(async (text: string) => {
-    const srcLang = sourceLang === "auto" ? "en" : sourceLang
+  // 발화 처리 (번역 포함) - 다국어 자동 감지 지원
+  const processUtterance = useCallback(async (text: string, detectedLang?: string) => {
+    // 자동 감지 모드인 경우 감지된 언어 사용, 아니면 설정된 언어 사용
+    const srcLang = sourceLang === "auto" 
+      ? (detectedLang || "en") 
+      : sourceLang
+    
     let translated = ""
     
     try {
@@ -402,6 +455,11 @@ function YouTubeLivePageContent() {
       translated,
       timestamp: new Date(),
       startTime: sessionStartTime > 0 ? now - sessionStartTime : 0,
+    }
+    
+    // 다국어 감지 모드에서 감지된 언어 로깅
+    if (sourceLang === "auto" && detectedLang) {
+      console.log(`[다국어 감지] ${LANGUAGES[detectedLang] || detectedLang}: "${text.slice(0, 30)}..."`)
     }
     
     setUtterances(prev => [...prev, newUtterance])
@@ -476,14 +534,16 @@ function YouTubeLivePageContent() {
 
       setConnectionStatus("음성 인식 연결 중...")
 
-      // 3. 언어 코드 설정
-      const deepgramLang = DEEPGRAM_LANGUAGES[sourceLang] || "en"
-
-      // 4. WebSocket 연결
-      const ws = new WebSocket(
-        `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-2&language=${deepgramLang}&punctuate=true&interim_results=true`,
-        ["token", apiKey]
-      )
+      // 3. 언어 코드 설정 (auto인 경우 다국어 감지 활성화)
+      const isAutoDetect = sourceLang === "auto"
+      const deepgramLang = isAutoDetect ? "multi" : (DEEPGRAM_LANGUAGES[sourceLang] || "en")
+      
+      // 4. WebSocket 연결 (다국어 자동 감지 지원)
+      const wsUrl = isAutoDetect
+        ? `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-2-general&detect_language=true&punctuate=true&interim_results=true`
+        : `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-2&language=${deepgramLang}&punctuate=true&interim_results=true`
+      
+      const ws = new WebSocket(wsUrl, ["token", apiKey])
 
       ws.onopen = () => {
         setConnectionStatus("연결됨 ✓")
@@ -518,10 +578,15 @@ function YouTubeLivePageContent() {
           
           if (data.type === "Results" && data.channel?.alternatives?.[0]) {
             const transcript = data.channel.alternatives[0].transcript
+            // 다국어 자동 감지: 감지된 언어 추출
+            const detectedLanguage = data.channel?.detected_language || 
+                                     data.channel?.alternatives?.[0]?.languages?.[0] ||
+                                     (sourceLang === "auto" ? "en" : sourceLang)
             
             if (data.is_final && transcript?.trim()) {
               setCurrentTranscript("")
-              await processUtterance(transcript.trim())
+              // 감지된 언어 정보와 함께 처리
+              await processUtterance(transcript.trim(), detectedLanguage)
             } else if (transcript) {
               setCurrentTranscript(transcript)
             }
@@ -608,49 +673,201 @@ function YouTubeLivePageContent() {
         utterances,
         savedAt: new Date().toISOString(),
         summary: summary || undefined,
+        isReorganized: isReorganized,  // AI 재정리 여부 저장
       }
       
       localStorage.setItem(getStorageKey(), JSON.stringify(sessionData))
       setHasSavedData(true)
-      console.log("[저장] 자동 저장 완료:", utterances.length, "개 문장")
+      console.log("[저장] 자동 저장 완료:", utterances.length, "개 문장", isReorganized ? "(AI 재정리)" : "")
     } catch (err) {
       console.error("[저장] 자동 저장 실패:", err)
     }
-  }, [videoId, sourceLang, targetLang, utterances, summary])
+  }, [videoId, sourceLang, targetLang, utterances, summary, isReorganized])
 
-  // 저장된 데이터 불러오기
-  const loadSavedData = () => {
+  // DB에서 통역 데이터 불러오기 (자기 데이터 우선, 없으면 공유 데이터)
+  const loadFromDatabase = async (): Promise<SavedSession | null> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      let session: any = null
+      let isSharedData = false
+
+      // 1. 먼저 자기 데이터 조회 (로그인한 경우)
+      if (user) {
+        const { data: mySession } = await supabase
+          .from("translation_sessions")
+          .select("id, youtube_title, user_id")
+          .eq("user_id", user.id)
+          .eq("youtube_video_id", videoId)
+          .eq("source_language", sourceLang === "auto" ? "en" : sourceLang)
+          .contains("target_languages", [targetLang])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single()
+        
+        if (mySession) {
+          session = mySession
+        }
+      }
+
+      // 2. 자기 데이터가 없으면 다른 유저의 공유 데이터 검색 (같은 언어)
+      if (!session) {
+        const { data: sharedSession } = await supabase
+          .from("translation_sessions")
+          .select("id, youtube_title, user_id, total_utterances, source_language, target_languages")
+          .eq("youtube_video_id", videoId)
+          .eq("source_language", sourceLang === "auto" ? "en" : sourceLang)
+          .contains("target_languages", [targetLang])
+          .eq("status", "completed")
+          .order("total_utterances", { ascending: false })
+          .limit(1)
+          .single()
+        
+        if (sharedSession) {
+          session = sharedSession
+          isSharedData = true
+          console.log("[DB 불러오기] 공유 데이터 발견 (같은 언어)")
+        }
+      }
+      
+      // 3. 같은 언어 데이터도 없으면, 원본만 있는 데이터 검색하여 새 언어로 번역
+      let needsTranslation = false
+      if (!session) {
+        const { data: anySession } = await supabase
+          .from("translation_sessions")
+          .select("id, youtube_title, user_id, total_utterances, source_language, target_languages")
+          .eq("youtube_video_id", videoId)
+          .eq("status", "completed")
+          .order("total_utterances", { ascending: false })
+          .limit(1)
+          .single()
+        
+        if (anySession) {
+          session = anySession
+          isSharedData = true
+          needsTranslation = true
+          console.log("[DB 불러오기] 다른 언어 데이터 발견, 새로 번역 필요")
+        }
+      }
+
+      if (!session) return null
+
+      // 발화 및 번역 데이터 조회
+      const { data: utterancesData, error: uttError } = await supabase
+        .from("utterances")
+        .select(`
+          id,
+          original_text,
+          created_at,
+          translations (
+            translated_text,
+            target_language
+          )
+        `)
+        .eq("session_id", session.id)
+        .order("created_at", { ascending: true })
+
+      if (uttError || !utterancesData || utterancesData.length === 0) return null
+
+      // SavedSession 형태로 변환
+      const loadedUtterances: Utterance[] = []
+      
+      for (let idx = 0; idx < utterancesData.length; idx++) {
+        const utt: any = utterancesData[idx]
+        let translatedText = utt.translations?.[0]?.translated_text || ""
+        
+        // 다른 언어 데이터인 경우 새로 번역
+        if (needsTranslation && targetLang !== "none") {
+          try {
+            const sessionSourceLang = session.source_language || "en"
+            translatedText = await translateText(utt.original_text, sessionSourceLang, targetLang)
+          } catch (err) {
+            console.error("[번역 오류]", err)
+            translatedText = ""
+          }
+        }
+        
+        loadedUtterances.push({
+          id: utt.id,
+          original: utt.original_text,
+          translated: translatedText,
+          timestamp: new Date(utt.created_at),
+          startTime: idx * 3000,
+        })
+      }
+
+      console.log(`[DB 불러오기] ${isSharedData ? "공유" : "내"} 데이터:`, loadedUtterances.length, "개 문장", needsTranslation ? "(새로 번역됨)" : "")
+
+      return {
+        videoId: videoId!,
+        sourceLang: session.source_language || sourceLang,
+        targetLang,
+        utterances: loadedUtterances,
+        savedAt: new Date().toISOString(),
+        isReorganized: false,
+      }
+    } catch (err) {
+      console.error("[DB 불러오기] 실패:", err)
+      return null
+    }
+  }
+
+  // 저장된 데이터 불러오기 (로컬 우선, 없으면 DB)
+  const loadSavedData = async () => {
+    let data: SavedSession | null = null
+    
+    // 1. 로컬 스토리지에서 먼저 확인
     const saved = localStorage.getItem(getStorageKey())
     if (saved) {
       try {
-        const data: SavedSession = JSON.parse(saved)
-        const loadedUtterances = data.utterances.map(u => ({
-          ...u,
-          timestamp: new Date(u.timestamp),
-        }))
-        setUtterances(loadedUtterances)
-        if (data.summary) {
-          setSummary(data.summary)
-        }
-        setShowReplayChoice(false)
-        setIsReplayMode(true)
-        setCurrentSyncIndex(-1)
-        
-        // 첫 번째 자막 시간으로 YouTube 이동
-        if (loadedUtterances.length > 0 && loadedUtterances[0].startTime > 0) {
-          setTimeout(() => {
-            if (playerRef.current) {
-              const seekTime = loadedUtterances[0].startTime / 1000
-              playerRef.current.seekTo(seekTime, true)
-              playerRef.current.playVideo()
-              startSyncTimer()
-            }
-          }, 500)
-        }
+        data = JSON.parse(saved)
+        console.log("[불러오기] 로컬에서 로드")
       } catch (err) {
-        console.error("[불러오기] 실패:", err)
-        setError("저장된 데이터를 불러올 수 없습니다.")
+        console.error("[불러오기] 로컬 파싱 실패:", err)
       }
+    }
+    
+    // 2. 로컬에 없으면 DB에서 불러오기
+    if (!data) {
+      data = await loadFromDatabase()
+      if (data) {
+        // DB 데이터를 로컬에 캐싱
+        localStorage.setItem(getStorageKey(), JSON.stringify(data))
+        console.log("[불러오기] DB에서 로드 후 로컬에 캐싱")
+      }
+    }
+    
+    if (data) {
+      const loadedUtterances = data.utterances.map(u => ({
+        ...u,
+        timestamp: new Date(u.timestamp),
+      }))
+      setUtterances(loadedUtterances)
+      if (data.summary) {
+        setSummary(data.summary)
+      }
+      // AI 재정리 여부 복원
+      if (data.isReorganized) {
+        setIsReorganized(true)
+        console.log("[불러오기] AI 재정리본 로드됨")
+      }
+      setShowReplayChoice(false)
+      setIsReplayMode(true)
+      setCurrentSyncIndex(-1)
+      
+      // 첫 번째 자막 시간으로 YouTube 이동
+      if (loadedUtterances.length > 0 && loadedUtterances[0].startTime > 0) {
+        setTimeout(() => {
+          if (playerRef.current) {
+            const seekTime = loadedUtterances[0].startTime / 1000
+            playerRef.current.seekTo(seekTime, true)
+            playerRef.current.playVideo()
+            startSyncTimer()
+          }
+        }, 500)
+      }
+    } else {
+      setError("저장된 데이터를 찾을 수 없습니다.")
     }
   }
 
@@ -660,6 +877,7 @@ function YouTubeLivePageContent() {
     setUtterances([])
     setSummary("")
     setIsReplayMode(false)
+    setIsReorganized(false)  // 새 세션이므로 초기화
     if (autostart) {
       startCapture()
     }
@@ -743,23 +961,29 @@ function YouTubeLivePageContent() {
       
       // 재정리된 결과로 utterances 업데이트
       const newUtterances: Utterance[] = []
-      for (const item of reorganized) {
+      for (let i = 0; i < reorganized.length; i++) {
+        const item = reorganized[i]
         let translated = item.text
         if (targetLang !== "none" && sourceLang !== targetLang) {
           const srcLang = sourceLang === "auto" ? "en" : sourceLang
           translated = await translateText(item.text, srcLang, targetLang)
         }
         
+        // merged_from에서 첫 번째 인덱스의 startTime 사용 (동기화 유지)
+        const firstMergedIdx = item.merged_from?.[0] ? item.merged_from[0] - 1 : i
+        const originalStartTime = utterances[firstMergedIdx]?.startTime || 0
+        
         newUtterances.push({
           id: `reorg_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           original: item.text,
           translated: targetLang === "none" ? "" : translated,
-          timestamp: new Date(),
-          startTime: 0,
+          timestamp: utterances[firstMergedIdx]?.timestamp || new Date(),
+          startTime: originalStartTime,  // 원본의 startTime 보존
         })
       }
       
       setUtterances(newUtterances)
+      setIsReorganized(true)  // AI 재정리 완료 표시
       // 재정리 후 자동 저장
       setTimeout(() => autoSaveToStorage(), 500)
       
@@ -1307,7 +1531,9 @@ function YouTubeLivePageContent() {
       <div className="px-4 py-4 bg-slate-800 border-t border-slate-700">
         <div className="flex items-center justify-between">
           <span className="text-slate-400 text-sm">
-            총 {utterances.length}개 문장 {hasSavedData && <span className="text-green-400">(저장됨)</span>}
+            총 {utterances.length}개 문장 
+            {isReorganized && <span className="text-purple-400 ml-1">(AI 재정리)</span>}
+            {hasSavedData && <span className="text-green-400 ml-1">(저장됨)</span>}
           </span>
           
           <div className="flex items-center gap-3">

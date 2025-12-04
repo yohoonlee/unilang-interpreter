@@ -1,6 +1,6 @@
 # YouTube 실시간 통역 기능 기술 문서
 
-> 최종 업데이트: 2024년 12월 3일
+> 최종 업데이트: 2024년 12월 4일
 
 ## 📋 목차
 
@@ -9,10 +9,12 @@
 3. [핵심 기술 스택](#핵심-기술-스택)
 4. [Deepgram 연동](#deepgram-연동)
 5. [기능 상세](#기능-상세)
-6. [데이터 저장 구조](#데이터-저장-구조)
-7. [API 엔드포인트](#api-엔드포인트)
-8. [UI/UX 구성](#uiux-구성)
-9. [참조 사이트](#참조-사이트)
+6. [데이터 공유 시스템](#데이터-공유-시스템)
+7. [다국어 자동 감지](#다국어-자동-감지)
+8. [데이터 저장 구조](#데이터-저장-구조)
+9. [API 엔드포인트](#api-엔드포인트)
+10. [UI/UX 구성](#uiux-구성)
+11. [참조 사이트](#참조-사이트)
 
 ---
 
@@ -32,6 +34,10 @@ YouTube 영상의 음성을 실시간으로 인식하고 번역하는 기능입�
 | **다시보기** | 저장된 통역 내용 불러오기 |
 | **AI 재정리** | Gemini API를 통한 문장 재구성 |
 | **요약 생성** | Gemini API를 통한 내용 요약 |
+| **🆕 기기간 동기화** | DB에서 통역 데이터 불러오기 (로그인 시) |
+| **🆕 공유 데이터 활용** | 다른 유저가 통역한 같은 영상 데이터 재활용 |
+| **🆕 원본 활용 번역** | 저장된 원본으로 다른 언어 번역 |
+| **🆕 다국어 자동 감지** | 여러 언어가 섞인 영상 자동 감지 및 통합 통역 |
 
 ---
 
@@ -261,6 +267,187 @@ const exitFullscreen = async () => {
 
 ---
 
+## 데이터 공유 시스템
+
+### 개요
+
+통역 데이터를 효율적으로 재활용하여 비용을 절감하고 빠른 서비스를 제공합니다.
+
+### 데이터 불러오기 우선순위
+
+```
+1. 로컬 스토리지 (가장 빠름)
+   ↓ 없으면
+2. DB - 내 데이터 (로그인 시)
+   ↓ 없으면
+3. DB - 공유 데이터 (같은 영상, 같은 언어)
+   ↓ 없으면
+4. DB - 원본 데이터 (같은 영상, 다른 언어) → 새로 번역
+   ↓ 없으면
+5. 새로 통역 시작
+```
+
+### 1단계: 기기간 동기화
+
+로그인한 사용자는 다른 기기에서도 동일한 통역 데이터에 접근할 수 있습니다.
+
+```typescript
+// DB에서 내 데이터 조회
+const { data: mySession } = await supabase
+  .from("translation_sessions")
+  .select("id, youtube_title, user_id")
+  .eq("user_id", user.id)
+  .eq("youtube_video_id", videoId)
+  .order("created_at", { ascending: false })
+  .limit(1)
+  .single()
+```
+
+### 2단계: 공유 데이터 활용 (같은 언어)
+
+다른 사용자가 이미 통역한 같은 영상 데이터를 재활용합니다.
+
+```typescript
+// 공유 데이터 검색 (가장 많은 발화 수)
+const { data: sharedSession } = await supabase
+  .from("translation_sessions")
+  .select("id, youtube_title, total_utterances")
+  .eq("youtube_video_id", videoId)
+  .eq("source_language", sourceLang)
+  .contains("target_languages", [targetLang])
+  .eq("status", "completed")
+  .order("total_utterances", { ascending: false })
+  .limit(1)
+  .single()
+```
+
+**장점:**
+- 음성 인식 비용 절약 (Deepgram API 호출 불필요)
+- 즉시 제공 가능
+
+### 3단계: 원본 활용 다른 언어 번역
+
+같은 영상의 원본 텍스트가 있으면, 새 언어로 번역하여 제공합니다.
+
+```typescript
+// 원본 데이터만 있는 세션 검색
+const { data: anySession } = await supabase
+  .from("translation_sessions")
+  .select("id, source_language")
+  .eq("youtube_video_id", videoId)
+  .eq("status", "completed")
+  .order("total_utterances", { ascending: false })
+  .limit(1)
+  .single()
+
+// 원본 텍스트를 새 언어로 번역
+if (needsTranslation && targetLang !== "none") {
+  translatedText = await translateText(
+    originalText, 
+    sessionSourceLang, 
+    targetLang
+  )
+}
+```
+
+**예시:**
+- 영상 A: 영어 → 한국어 통역 완료
+- 새 사용자: 영상 A를 영어 → 일본어로 보고 싶음
+- 시스템: 저장된 영어 원본을 일본어로 번역하여 제공
+
+**장점:**
+- 음성 인식 비용 절약
+- 번역 비용만 발생 (훨씬 저렴)
+
+---
+
+## 다국어 자동 감지
+
+### 개요
+
+여러 언어가 섞인 영상(예: 국제 회의)에서 각 발화의 언어를 자동 감지하고 통합 통역합니다.
+
+### 활용 시나리오
+
+```
+[국제 회의 영상]
+👤 영어: "Let's discuss the project timeline."
+👤 프랑스어: "Je suis d'accord avec cette proposition."
+👤 스페인어: "Necesitamos más recursos."
+   ↓ UniLang 다국어 감지
+📺 한국어: "프로젝트 일정에 대해 논의합시다."
+📺 한국어: "저는 이 제안에 동의합니다."
+📺 한국어: "더 많은 자원이 필요합니다."
+```
+
+### Deepgram 다국어 모드
+
+```typescript
+// 자동 감지 모드 (sourceLang === "auto")
+const wsUrl = isAutoDetect
+  ? `wss://api.deepgram.com/v1/listen?` +
+    `encoding=linear16&sample_rate=16000&channels=1&` +
+    `model=nova-2-general&` +  // 다국어 지원 모델
+    `detect_language=true&` +   // 언어 자동 감지
+    `punctuate=true&interim_results=true`
+  : `wss://api.deepgram.com/v1/listen?` +
+    `encoding=linear16&sample_rate=16000&channels=1&` +
+    `model=nova-2&language=${deepgramLang}&` +
+    `punctuate=true&interim_results=true`
+```
+
+### 감지된 언어 처리
+
+```typescript
+ws.onmessage = async (event) => {
+  const data = JSON.parse(event.data)
+  
+  // 감지된 언어 추출
+  const detectedLanguage = data.channel?.detected_language || 
+                           data.channel?.alternatives?.[0]?.languages?.[0] ||
+                           "en"
+  
+  if (data.is_final && transcript?.trim()) {
+    // 감지된 언어에서 목표 언어로 번역
+    await processUtterance(transcript.trim(), detectedLanguage)
+  }
+}
+
+// 발화 처리
+const processUtterance = async (text: string, detectedLang?: string) => {
+  const srcLang = sourceLang === "auto" 
+    ? (detectedLang || "en") 
+    : sourceLang
+  
+  // 감지된 언어 → 목표 언어로 번역
+  if (targetLang !== srcLang) {
+    translated = await translateText(text, srcLang, targetLang)
+  }
+}
+```
+
+### 화상회의 적용 (향후)
+
+다국어 자동 감지는 화상회의에서 핵심 기능이 됩니다:
+
+```
+[실시간 화상회의]
+┌─────────────────────────────────────────┐
+│  👤 Engineer A (영어)                    │
+│  👤 Engineer B (불어)                    │
+│  👤 Engineer C (스페인어)                │
+├─────────────────────────────────────────┤
+│  📺 모든 발언 → 한국어로 실시간 통역     │
+│  🎤 내 발언(한국어) → 참가자별 언어로    │
+└─────────────────────────────────────────┘
+```
+
+**기능:**
+- 다른 참가자의 발언: 자동 감지 → 내 언어로 통역
+- 내 발언: 내 언어 → 참가자별 설정 언어로 음성 합성
+
+---
+
 ## 데이터 저장 구조
 
 ### 로컬 스토리지
@@ -417,6 +604,43 @@ target_language: text
 ---
 
 ## 변경 이력
+
+### 2024-12-04
+
+#### 추가된 기능
+
+1. **기기간 동기화 (1단계)**
+   - DB에서 통역 데이터 불러오기
+   - 로컬 → DB → 공유 데이터 순으로 검색
+   - DB 데이터 로컬 캐싱
+
+2. **공유 데이터 활용 (2단계)**
+   - 다른 유저의 같은 영상/같은 언어 데이터 재활용
+   - 가장 많은 발화 수를 가진 세션 자동 선택
+   - 음성 인식 비용 절감
+
+3. **원본 활용 다른 언어 번역 (3단계)**
+   - 저장된 원본 텍스트로 새 언어 번역
+   - Google Translate API 실시간 번역
+   - 음성 인식 비용 절감 + 번역 비용만 발생
+
+4. **다국어 자동 감지 통합 통역 (4단계)**
+   - Deepgram `detect_language=true` 옵션 추가
+   - `nova-2-general` 다국어 모델 사용
+   - 각 발화의 언어 자동 감지 → 목표 언어로 통역
+   - 국제 회의/다국어 콘텐츠 지원
+
+5. **AI 재정리 개선**
+   - `isReorganized` 플래그 추가
+   - 원본 startTime 보존 (동기화 유지)
+   - 재정리 상태 UI 표시
+
+#### 수정된 사항
+- YouTube IFrame API로 변경 (영상 동기화)
+- 자막 클릭 시 해당 시간으로 영상 이동
+- 현재 재생 중인 자막 강조 표시
+
+---
 
 ### 2024-12-03
 
