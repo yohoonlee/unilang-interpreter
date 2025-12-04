@@ -289,31 +289,40 @@ function YouTubeLivePageContent() {
   useEffect(() => {
     currentSyncIndexRef.current = currentSyncIndex
   }, [currentSyncIndex])
+  
+  // utterances를 ref로 관리 (closure 문제 해결)
+  const utterancesRef = useRef(utterances)
+  useEffect(() => {
+    utterancesRef.current = utterances
+    console.log("[ref 업데이트] utterances:", utterances.length, "개")
+  }, [utterances])
 
   // 동기화 타이머 시작
   const startSyncTimer = useCallback(() => {
     if (syncIntervalRef.current) clearInterval(syncIntervalRef.current)
     
-    console.log("[동기화] 타이머 시작")
+    console.log("[동기화] 타이머 시작, utterances:", utterancesRef.current.length, "개")
     
     syncIntervalRef.current = setInterval(() => {
-      if (playerRef.current && utterances.length > 0) {
+      const currentUtterances = utterancesRef.current // ref에서 최신 값 가져오기
+      
+      if (playerRef.current && currentUtterances.length > 0) {
         const currentTime = playerRef.current.getCurrentTime() * 1000 // ms로 변환
         setCurrentVideoTime(currentTime)
         
         // startTime이 유효한지 확인 (모두 0이면 시간 기반 균등 분배)
-        const hasValidStartTime = utterances.some(u => u.startTime > 0)
+        const hasValidStartTime = currentUtterances.some(u => u.startTime > 0)
         
         let newIndex = -1
         
         if (hasValidStartTime) {
           // 원본 startTime 기반 동기화
           // 영상 시간이 첫 번째 자막 시간보다 작으면 첫 번째 자막 표시
-          if (currentTime < (utterances[0]?.startTime || 0)) {
+          if (currentTime < (currentUtterances[0]?.startTime || 0)) {
             newIndex = 0
           } else {
-            newIndex = utterances.findIndex((utt, idx) => {
-              const nextUtt = utterances[idx + 1]
+            newIndex = currentUtterances.findIndex((utt, idx) => {
+              const nextUtt = currentUtterances[idx + 1]
               if (nextUtt) {
                 return utt.startTime <= currentTime && currentTime < nextUtt.startTime
               }
@@ -322,9 +331,9 @@ function YouTubeLivePageContent() {
             // findIndex가 -1 반환하면 마지막으로 찾은 자막 유지 또는 첫 번째
             if (newIndex === -1) {
               // 마지막 자막보다 시간이 지났으면 마지막 자막 유지
-              const lastUtt = utterances[utterances.length - 1]
+              const lastUtt = currentUtterances[currentUtterances.length - 1]
               if (lastUtt && currentTime >= lastUtt.startTime) {
-                newIndex = utterances.length - 1
+                newIndex = currentUtterances.length - 1
               } else {
                 newIndex = 0
               }
@@ -335,10 +344,10 @@ function YouTubeLivePageContent() {
           try {
             const duration = playerRef.current.getDuration() * 1000 // ms
             if (duration > 0) {
-              const timePerUtterance = duration / utterances.length
+              const timePerUtterance = duration / currentUtterances.length
               newIndex = Math.min(
                 Math.floor(currentTime / timePerUtterance),
-                utterances.length - 1
+                currentUtterances.length - 1
               )
             }
           } catch {
@@ -350,11 +359,11 @@ function YouTubeLivePageContent() {
         // ref를 사용하여 비교 (closure 문제 해결)
         if (newIndex !== -1 && newIndex !== currentSyncIndexRef.current) {
           setCurrentSyncIndex(newIndex)
-          console.log(`[동기화] 자막 ${newIndex + 1}/${utterances.length}, 영상시간: ${Math.floor(currentTime/1000)}초`)
+          console.log(`[동기화] 자막 ${newIndex + 1}/${currentUtterances.length}, 영상시간: ${Math.floor(currentTime/1000)}초, startTime: ${currentUtterances[newIndex]?.startTime}`)
         }
       }
     }, 300) // 300ms 간격으로 동기화
-  }, [utterances])
+  }, [])
   
   // 동기화 타이머 정지
   const stopSyncTimer = () => {
@@ -1385,8 +1394,12 @@ function YouTubeLivePageContent() {
       console.log("[불러오기] startTime 확인:", loadedUtterances.slice(0, 3).map(u => u.startTime))
       
       setUtterances(loadedUtterances)
+      
+      // 요약 로드
+      console.log("[불러오기] summary 확인:", data.summary ? "있음" : "없음", data.summary?.substring(0, 50))
       if (data.summary) {
         setSummary(data.summary)
+        console.log("[불러오기] 요약 설정 완료")
       }
       // AI 재정리 여부 복원
       if (data.isReorganized) {
