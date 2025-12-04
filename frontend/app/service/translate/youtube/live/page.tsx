@@ -257,24 +257,47 @@ function YouTubeLivePageContent() {
     if (syncIntervalRef.current) clearInterval(syncIntervalRef.current)
     
     syncIntervalRef.current = setInterval(() => {
-      if (playerRef.current && isReplayMode) {
+      if (playerRef.current && isReplayMode && utterances.length > 0) {
         const currentTime = playerRef.current.getCurrentTime() * 1000 // ms로 변환
         setCurrentVideoTime(currentTime)
         
-        // 현재 시간에 해당하는 자막 찾기
-        const index = utterances.findIndex((utt, idx) => {
-          const nextUtt = utterances[idx + 1]
-          if (nextUtt) {
-            return utt.startTime <= currentTime && currentTime < nextUtt.startTime
-          }
-          return utt.startTime <= currentTime
-        })
+        // startTime이 유효한지 확인 (모두 0이면 시간 기반 균등 분배)
+        const hasValidStartTime = utterances.some(u => u.startTime > 0)
         
-        if (index !== -1 && index !== currentSyncIndex) {
-          setCurrentSyncIndex(index)
+        let newIndex = -1
+        
+        if (hasValidStartTime) {
+          // 원본 startTime 기반 동기화
+          newIndex = utterances.findIndex((utt, idx) => {
+            const nextUtt = utterances[idx + 1]
+            if (nextUtt) {
+              return utt.startTime <= currentTime && currentTime < nextUtt.startTime
+            }
+            return utt.startTime <= currentTime
+          })
+        } else {
+          // startTime이 없는 경우: 영상 길이 기준 균등 분배
+          try {
+            const duration = playerRef.current.getDuration() * 1000 // ms
+            if (duration > 0) {
+              const timePerUtterance = duration / utterances.length
+              newIndex = Math.min(
+                Math.floor(currentTime / timePerUtterance),
+                utterances.length - 1
+              )
+            }
+          } catch {
+            // 영상 길이를 가져올 수 없는 경우
+            newIndex = 0
+          }
+        }
+        
+        if (newIndex !== -1 && newIndex !== currentSyncIndex) {
+          setCurrentSyncIndex(newIndex)
+          console.log(`[동기화] 자막 ${newIndex + 1}/${utterances.length}`)
         }
       }
-    }, 200) // 200ms 간격으로 동기화
+    }, 300) // 300ms 간격으로 동기화
   }, [utterances, currentSyncIndex, isReplayMode])
   
   // 동기화 타이머 정지
@@ -811,22 +834,35 @@ function YouTubeLivePageContent() {
     }
   }
 
-  // 저장된 데이터 불러오기 (로컬 우선, 없으면 DB)
+  // 저장된 데이터 불러오기 (AI 재정리본 우선, 로컬 우선, 없으면 DB)
   const loadSavedData = async () => {
     let data: SavedSession | null = null
+    let localData: SavedSession | null = null
     
     // 1. 로컬 스토리지에서 먼저 확인
     const saved = localStorage.getItem(getStorageKey())
     if (saved) {
       try {
-        data = JSON.parse(saved)
-        console.log("[불러오기] 로컬에서 로드")
+        localData = JSON.parse(saved)
+        console.log("[불러오기] 로컬 데이터 발견, AI재정리:", localData?.isReorganized)
       } catch (err) {
         console.error("[불러오기] 로컬 파싱 실패:", err)
       }
     }
     
-    // 2. 로컬에 없으면 DB에서 불러오기
+    // 2. 로컬 데이터가 AI 재정리본이면 우선 사용 (최종본)
+    if (localData?.isReorganized) {
+      data = localData
+      console.log("[불러오기] AI 재정리본 사용 (최종본)")
+    }
+    // 3. 로컬에 일반 데이터만 있으면 DB에서 AI 재정리본 확인
+    else if (localData) {
+      // 로컬 데이터 사용 (startTime 정보가 있으므로 동기화 가능)
+      data = localData
+      console.log("[불러오기] 로컬 원본 데이터 사용")
+    }
+    
+    // 4. 로컬에 없으면 DB에서 불러오기
     if (!data) {
       data = await loadFromDatabase()
       if (data) {
@@ -854,17 +890,25 @@ function YouTubeLivePageContent() {
       setIsReplayMode(true)
       setCurrentSyncIndex(-1)
       
-      // 첫 번째 자막 시간으로 YouTube 이동
-      if (loadedUtterances.length > 0 && loadedUtterances[0].startTime > 0) {
-        setTimeout(() => {
-          if (playerRef.current) {
-            const seekTime = loadedUtterances[0].startTime / 1000
-            playerRef.current.seekTo(seekTime, true)
-            playerRef.current.playVideo()
-            startSyncTimer()
+      // YouTube 플레이어가 준비되면 영상 재생 및 동기화 시작
+      const startPlaybackWithSync = () => {
+        if (playerRef.current && isPlayerReady) {
+          // 첫 번째 자막 시간으로 이동 (startTime이 있는 경우)
+          const firstStartTime = loadedUtterances[0]?.startTime || 0
+          if (firstStartTime > 0) {
+            playerRef.current.seekTo(firstStartTime / 1000, true)
           }
-        }, 500)
+          playerRef.current.playVideo()
+          startSyncTimer()
+          console.log("[동기화] 재생 및 동기화 시작")
+        } else {
+          // 플레이어가 아직 준비되지 않았으면 재시도
+          setTimeout(startPlaybackWithSync, 500)
+        }
       }
+      
+      // 약간의 딜레이 후 재생 시작
+      setTimeout(startPlaybackWithSync, 800)
     } else {
       setError("저장된 데이터를 찾을 수 없습니다.")
     }
