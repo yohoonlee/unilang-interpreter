@@ -14,30 +14,56 @@ function extractVideoId(url: string): string | null {
   return null
 }
 
-// YouTube 자막 직접 가져오기
+// 외부 자막 API 서버 URL (Railway 등에 배포)
+const SUBTITLE_API_URL = process.env.SUBTITLE_API_URL
+
+// YouTube 자막 가져오기 (외부 API 서버 사용)
 async function fetchYouTubeTranscript(videoId: string): Promise<{
   transcript: Array<{ text: string; offset: number; duration: number; lang?: string }>;
   availableLanguages: string[];
 } | null> {
   console.log(`🎬 YouTube 전사 시작: ${videoId}`)
   
+  // 외부 자막 API 서버가 설정되어 있으면 사용
+  if (SUBTITLE_API_URL) {
+    console.log(`🌐 외부 자막 API 서버 사용: ${SUBTITLE_API_URL}`)
+    try {
+      const response = await fetch(`${SUBTITLE_API_URL}/api/subtitles/${videoId}?lang=ko`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success && data.subtitles) {
+          console.log(`✅ 외부 API에서 자막 ${data.subtitles.length}개 가져옴`)
+          return {
+            transcript: data.subtitles.map((s: any) => ({
+              text: s.text,
+              offset: s.start * 1000,
+              duration: s.duration * 1000,
+              lang: data.language
+            })),
+            availableLanguages: data.available_languages || [data.language]
+          }
+        }
+      } else {
+        console.log(`❌ 외부 API 응답 실패: ${response.status}`)
+      }
+    } catch (err: any) {
+      console.error(`❌ 외부 API 오류: ${err.message}`)
+    }
+  }
+  
+  // 외부 API가 없거나 실패하면 직접 시도 (대부분 실패함)
+  console.log(`🔍 직접 YouTube 페이지 파싱 시도...`)
+  
   try {
-    // YouTube 영상 페이지 가져오기
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}`
-    console.log(`🔍 YouTube 페이지 요청: ${watchUrl}`)
-    
     const response = await fetch(watchUrl, {
       headers: {
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0',
       }
     })
     
@@ -58,14 +84,7 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
       return null
     }
     
-    let captionTracks
-    try {
-      captionTracks = JSON.parse(captionTracksMatch[1])
-    } catch (e) {
-      console.log("❌ captionTracks JSON 파싱 실패")
-      return null
-    }
-    
+    const captionTracks = JSON.parse(captionTracksMatch[1])
     if (!captionTracks || captionTracks.length === 0) {
       console.log("❌ 자막 트랙이 비어있음")
       return null
@@ -89,8 +108,6 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
     
     // 자막 URL에서 데이터 가져오기
     const captionUrl = selectedTrack.baseUrl
-    console.log(`📥 자막 URL 요청...`)
-    
     const captionResponse = await fetch(captionUrl)
     if (!captionResponse.ok) {
       console.log(`❌ 자막 URL 요청 실패: ${captionResponse.status}`)
@@ -98,7 +115,6 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
     }
     
     const captionXml = await captionResponse.text()
-    console.log(`📝 자막 XML 길이: ${captionXml.length}`)
     
     // XML 파싱
     const textMatches = captionXml.matchAll(/<text start="([\d.]+)" dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g)
@@ -118,12 +134,7 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
         .trim()
       
       if (text) {
-        transcript.push({
-          text,
-          offset: start,
-          duration: dur,
-          lang: selectedTrack.languageCode
-        })
+        transcript.push({ text, offset: start, duration: dur, lang: selectedTrack.languageCode })
       }
     }
     
