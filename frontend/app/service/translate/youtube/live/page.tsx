@@ -757,14 +757,11 @@ function YouTubeLivePageContent() {
     }
   }
 
-  // 저장 키 생성 함수 (메인 페이지와 동일)
-  const getStorageKey = (vid: string) => `unilang_youtube_${vid}_${sourceLang}_${targetLang}`
-  
   // 저장된 세션 로드 함수
   const loadSavedSession = useCallback(async () => {
     try {
       // localStorage에서 영구 저장된 세션 데이터 로드
-      const storageKey = getStorageKey(videoId)
+      const storageKey = getStorageKey()
       console.log("🔍 저장 키:", storageKey)
       
       const savedSessionStr = localStorage.getItem(storageKey)
