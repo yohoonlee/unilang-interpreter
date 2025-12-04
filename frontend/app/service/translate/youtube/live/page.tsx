@@ -1321,6 +1321,12 @@ function YouTubeLivePageContent() {
   }
 
   // 저장된 데이터 불러오기 (AI 재정리본 우선, 로컬 우선, 없으면 DB)
+  // 플레이어 준비 상태 ref (closure 문제 해결)
+  const isPlayerReadyRef = useRef(isPlayerReady)
+  useEffect(() => {
+    isPlayerReadyRef.current = isPlayerReady
+  }, [isPlayerReady])
+
   const loadSavedData = async () => {
     let data: SavedSession | null = null
     let localData: SavedSession | null = null
@@ -1359,10 +1365,25 @@ function YouTubeLivePageContent() {
     }
     
     if (data) {
-      const loadedUtterances = data.utterances.map(u => ({
-        ...u,
-        timestamp: new Date(u.timestamp),
+      // utterances 타입 변환 (loadSavedSession과 동일하게)
+      const loadedUtterances: Utterance[] = data.utterances.map((u: {
+        id: string
+        original: string
+        translated: string
+        timestamp: string | Date
+        startTime: number
+      }) => ({
+        id: u.id,
+        original: u.original,
+        translated: u.translated || u.original, // translated가 없으면 original 사용
+        timestamp: typeof u.timestamp === 'string' ? new Date(u.timestamp) : u.timestamp,
+        startTime: u.startTime || 0,
       }))
+      
+      console.log("[불러오기] 변환된 utterances:", loadedUtterances.length, "개")
+      console.log("[불러오기] 첫 번째 utterance:", loadedUtterances[0])
+      console.log("[불러오기] startTime 확인:", loadedUtterances.slice(0, 3).map(u => u.startTime))
+      
       setUtterances(loadedUtterances)
       if (data.summary) {
         setSummary(data.summary)
@@ -1372,19 +1393,26 @@ function YouTubeLivePageContent() {
         setIsReorganized(true)
         console.log("[불러오기] AI 재정리본 로드됨")
       }
+      // 영상 길이 복원
+      if (data.videoDuration) {
+        setVideoDuration(data.videoDuration)
+      }
+      
       setShowReplayChoice(false)
       setIsReplayMode(true)
       setCurrentSyncIndex(0)  // 첫 번째 자막부터 시작
       
       // YouTube 플레이어가 준비되면 영상 재생 및 동기화 시작
       const startPlaybackWithSync = () => {
-        if (playerRef.current && isPlayerReady) {
+        // ref를 사용하여 최신 상태 확인 (closure 문제 해결)
+        if (playerRef.current && isPlayerReadyRef.current) {
           // 영상을 처음(0초)부터 시작
           playerRef.current.seekTo(0, true)
           playerRef.current.playVideo()
           startSyncTimer()
           console.log("[동기화] 영상 처음부터 재생 및 동기화 시작")
         } else {
+          console.log("[동기화] 플레이어 준비 대기 중... playerRef:", !!playerRef.current, "isPlayerReady:", isPlayerReadyRef.current)
           // 플레이어가 아직 준비되지 않았으면 재시도
           setTimeout(startPlaybackWithSync, 500)
         }
