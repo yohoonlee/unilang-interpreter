@@ -30,20 +30,65 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
     })
     
     const html = await response.text()
+    console.log(`📄 HTML 길이: ${html.length}`)
     
-    // ytInitialPlayerResponse에서 자막 정보 추출
-    const playerResponseMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});/)
+    // ytInitialPlayerResponse에서 자막 정보 추출 (여러 패턴 시도)
+    let playerResponse = null
+    
+    // 패턴 1: 기본 패턴
+    let playerResponseMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*(?:var|const|let|<\/script>)/s)
+    
+    // 패턴 2: 더 넓은 범위
+    if (!playerResponseMatch) {
+      playerResponseMatch = html.match(/var\s+ytInitialPlayerResponse\s*=\s*(\{[\s\S]*?\});\s*var/)
+    }
+    
+    // 패턴 3: 스크립트 태그 내에서 찾기
+    if (!playerResponseMatch) {
+      const scriptMatch = html.match(/<script[^>]*>[\s\S]*?ytInitialPlayerResponse\s*=\s*(\{[\s\S]*?\});[\s\S]*?<\/script>/)
+      if (scriptMatch) {
+        playerResponseMatch = scriptMatch
+      }
+    }
+    
     if (!playerResponseMatch) {
       console.log("❌ ytInitialPlayerResponse를 찾을 수 없음")
+      // 디버그: HTML에 관련 키워드가 있는지 확인
+      console.log("captionTracks 포함:", html.includes("captionTracks"))
+      console.log("playerCaptionsTracklistRenderer 포함:", html.includes("playerCaptionsTracklistRenderer"))
       return null
     }
     
-    let playerResponse
     try {
-      playerResponse = JSON.parse(playerResponseMatch[1])
+      // JSON 문자열 정리 (마지막 세미콜론 제거 등)
+      let jsonStr = playerResponseMatch[1].trim()
+      if (jsonStr.endsWith(';')) {
+        jsonStr = jsonStr.slice(0, -1)
+      }
+      playerResponse = JSON.parse(jsonStr)
     } catch (e) {
-      console.log("❌ playerResponse 파싱 실패")
-      return null
+      console.log("❌ playerResponse 파싱 실패:", e)
+      
+      // 대안: captionTracks를 직접 찾기
+      const captionTracksMatch = html.match(/"captionTracks":\s*(\[[\s\S]*?\])/)
+      if (captionTracksMatch) {
+        try {
+          const captionTracks = JSON.parse(captionTracksMatch[1])
+          console.log("✅ captionTracks 직접 파싱 성공")
+          playerResponse = {
+            captions: {
+              playerCaptionsTracklistRenderer: {
+                captionTracks
+              }
+            }
+          }
+        } catch (e2) {
+          console.log("❌ captionTracks 직접 파싱도 실패")
+          return null
+        }
+      } else {
+        return null
+      }
     }
     
     const captionTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks
