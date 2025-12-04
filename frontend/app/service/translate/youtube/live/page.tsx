@@ -78,6 +78,8 @@ interface SavedSession {
   savedAt: string
   summary?: string
   isReorganized?: boolean  // AI 재정리 여부
+  videoDuration?: number   // 영상 총 시간 (ms)
+  lastTextTime?: number    // 마지막 텍스트 시간 (ms)
 }
 
 export default function YouTubeLivePage() {
@@ -95,8 +97,10 @@ function YouTubeLivePageContent() {
   const sourceLang = searchParams.get("source") || "auto"
   const targetLang = searchParams.get("target") || "ko"
   const autostart = searchParams.get("autostart") === "true"
+  const quickSummaryMode = searchParams.get("quickSummary") === "true"
   
   const [isListening, setIsListening] = useState(false)
+  const [isQuickSummaryRunning, setIsQuickSummaryRunning] = useState(false)
   const [currentTranscript, setCurrentTranscript] = useState("")
   const [utterances, setUtterances] = useState<Utterance[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -156,6 +160,10 @@ function YouTubeLivePageContent() {
   const [currentVideoTime, setCurrentVideoTime] = useState(0)
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const [currentSyncIndex, setCurrentSyncIndex] = useState(-1)
+  
+  // 영상 길이 및 저장 완료율
+  const [videoDuration, setVideoDuration] = useState(0)  // 영상 총 시간 (ms)
+  const [savedDataCoverage, setSavedDataCoverage] = useState(0)  // 저장 완료율 (%)
 
   // 저장된 데이터 키
   const getStorageKey = () => `unilang_youtube_${videoId}_${sourceLang}_${targetLang}`
@@ -245,6 +253,10 @@ function YouTubeLivePageContent() {
         onReady: (event) => {
           console.log("[YouTube] Player ready")
           setIsPlayerReady(true)
+          // 영상 길이 저장
+          const duration = event.target.getDuration() * 1000 // ms로 변환
+          setVideoDuration(duration)
+          console.log(`[YouTube] 영상 길이: ${Math.floor(duration/1000)}초`)
         },
         onStateChange: (event) => {
           // 재생 상태 변경 시
@@ -252,6 +264,12 @@ function YouTubeLivePageContent() {
             startSyncTimer()
           } else if (event.data === window.YT.PlayerState.PAUSED) {
             stopSyncTimer()
+          } else if (event.data === window.YT.PlayerState.ENDED) {
+            // 영상 종료 시 빠른 요약 모드이면 자동 처리
+            if (quickSummaryMode && isQuickSummaryRunning) {
+              console.log("[빠른 요약] 영상 종료 - 자동 AI 재정리 시작")
+              handleQuickSummaryComplete()
+            }
           }
         }
       }
@@ -420,16 +438,43 @@ function YouTubeLivePageContent() {
   }, [videoId, supabase.auth])
 
   // 저장된 데이터 확인 - 로컬, DB(내 데이터), 공유 데이터 순으로 확인
+  // 95% 이상 커버리지일 때만 저장본 보기 활성화
   useEffect(() => {
     const checkSavedData = async () => {
       if (!videoId) return
       
+      const MIN_COVERAGE = 95 // 최소 커버리지 (%)
+      
       // 1. 로컬 스토리지 확인
       const saved = localStorage.getItem(getStorageKey())
       if (saved) {
-        setHasSavedData(true)
-        setShowReplayChoice(true)
-        return
+        try {
+          const data: SavedSession = JSON.parse(saved)
+          // 커버리지 계산
+          if (data.videoDuration && data.lastTextTime) {
+            const coverage = (data.lastTextTime / data.videoDuration) * 100
+            setSavedDataCoverage(coverage)
+            console.log(`[저장본 확인] 로컬 커버리지: ${coverage.toFixed(1)}%`)
+            
+            if (coverage >= MIN_COVERAGE) {
+              setHasSavedData(true)
+              setShowReplayChoice(true)
+              return
+            } else {
+              console.log(`[저장본 확인] 커버리지 미달 (${coverage.toFixed(1)}% < ${MIN_COVERAGE}%) - 저장본 보기 비활성화`)
+            }
+          } else {
+            // 이전 형식 데이터는 그대로 활성화
+            setHasSavedData(true)
+            setShowReplayChoice(true)
+            return
+          }
+        } catch {
+          // 파싱 실패 시 기존 로직
+          setHasSavedData(true)
+          setShowReplayChoice(true)
+          return
+        }
       }
       
       // 2. DB 확인 (내 데이터 + 공유 데이터)
@@ -619,6 +664,12 @@ function YouTubeLivePageContent() {
       setShowInstructions(false)
       setSessionStartTime(Date.now())
       
+      // 빠른 요약 모드 시작
+      if (quickSummaryMode) {
+        setIsQuickSummaryRunning(true)
+        console.log("[빠른 요약] 모드 시작 - 영상 끝까지 자동 추출")
+      }
+      
       // 1. 시스템 오디오 캡처 (화면 공유) - 현재 탭 우선
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
@@ -761,8 +812,8 @@ function YouTubeLivePageContent() {
     return int16Array
   }
 
-  // 캡처 중지
-  const stopCapture = useCallback(() => {
+  // 캡처 중지 (자동 저장 + 백그라운드 AI 재정리)
+  const stopCapture = useCallback(async (shouldCloseWindow = false) => {
     if (websocketRef.current) {
       websocketRef.current.close()
       websocketRef.current = null
@@ -781,13 +832,46 @@ function YouTubeLivePageContent() {
     setIsListening(false)
     setIsReady(false)
     setConnectionStatus("대기 중")
-  }, [])
+    
+    // 자동 저장 (utterances가 있을 때만)
+    if (utterances.length > 0) {
+      console.log("[통역 중단] 자동 저장 시작...")
+      autoSaveToStorage()
+      await saveToDatabase()
+      
+      // 백그라운드 AI 재정리 (재정리되지 않은 경우에만)
+      if (!isReorganized && utterances.length >= 3) {
+        console.log("[통역 중단] 백그라운드 AI 재정리 시작...")
+        // 비동기로 AI 재정리 수행 (창 닫기 전에 시작만 함)
+        reorganizeWithAI().catch(err => {
+          console.error("[AI 재정리] 백그라운드 처리 실패:", err)
+        })
+      }
+    }
+    
+    // 창 닫기 요청이 있으면 창 닫기
+    if (shouldCloseWindow) {
+      setTimeout(() => {
+        window.close()
+      }, 500) // 저장 완료를 위한 약간의 딜레이
+    }
+  }, [utterances, autoSaveToStorage, saveToDatabase, isReorganized])
 
   // 로컬 스토리지에 자동 저장
   const autoSaveToStorage = useCallback(() => {
     if (!videoId || utterances.length === 0) return
     
     try {
+      // 마지막 텍스트 시간 계산
+      const lastTextTime = utterances.length > 0 
+        ? Math.max(...utterances.map(u => u.startTime || 0))
+        : 0
+      
+      // 현재 영상 길이 가져오기
+      const currentDuration = playerRef.current 
+        ? playerRef.current.getDuration() * 1000 
+        : videoDuration
+      
       const sessionData: SavedSession = {
         videoId,
         sourceLang,
@@ -796,15 +880,25 @@ function YouTubeLivePageContent() {
         savedAt: new Date().toISOString(),
         summary: summary || undefined,
         isReorganized: isReorganized,  // AI 재정리 여부 저장
+        videoDuration: currentDuration,  // 영상 총 시간
+        lastTextTime: lastTextTime,      // 마지막 텍스트 시간
       }
       
       localStorage.setItem(getStorageKey(), JSON.stringify(sessionData))
       setHasSavedData(true)
-      console.log("[저장] 자동 저장 완료:", utterances.length, "개 문장", isReorganized ? "(AI 재정리)" : "")
+      
+      // 저장 완료율 계산
+      if (currentDuration > 0) {
+        const coverage = Math.min(100, (lastTextTime / currentDuration) * 100)
+        setSavedDataCoverage(coverage)
+        console.log(`[저장] 자동 저장 완료: ${utterances.length}개 문장, 커버리지: ${coverage.toFixed(1)}%`, isReorganized ? "(AI 재정리)" : "")
+      } else {
+        console.log("[저장] 자동 저장 완료:", utterances.length, "개 문장", isReorganized ? "(AI 재정리)" : "")
+      }
     } catch (err) {
       console.error("[저장] 자동 저장 실패:", err)
     }
-  }, [videoId, sourceLang, targetLang, utterances, summary, isReorganized])
+  }, [videoId, sourceLang, targetLang, utterances, summary, isReorganized, videoDuration])
 
   // DB에서 통역 데이터 불러오기 (자기 데이터 우선, 없으면 공유 데이터)
   const loadFromDatabase = async (): Promise<SavedSession | null> => {
@@ -1214,6 +1308,32 @@ function YouTubeLivePageContent() {
     }
   }
 
+  // 빠른 요약 모드 완료 처리
+  const handleQuickSummaryComplete = async () => {
+    if (utterances.length === 0) {
+      setError("추출된 텍스트가 없습니다.")
+      return
+    }
+    
+    setIsQuickSummaryRunning(false)
+    console.log(`[빠른 요약] ${utterances.length}개 문장 추출 완료, AI 재정리 시작...`)
+    
+    // 1. 먼저 저장
+    autoSaveToStorage()
+    await saveToDatabase()
+    
+    // 2. AI 재정리 수행
+    if (!isReorganized) {
+      await reorganizeWithAI()
+    }
+    
+    // 3. 요약 생성
+    await generateSummary()
+    
+    console.log("[빠른 요약] 완료!")
+    setShowSummary(true)
+  }
+
   // 요약을 DB에 저장
   const saveSummaryToDatabase = async (summaryText: string) => {
     if (!dbSessionId) {
@@ -1618,6 +1738,11 @@ function YouTubeLivePageContent() {
                 <span className="w-2 h-2 bg-blue-400 rounded-full" />
                 저장된 내용
               </span>
+            ) : isQuickSummaryRunning ? (
+              <span className="flex items-center gap-1 text-orange-400 text-xs">
+                <span className="w-2 h-2 bg-orange-400 rounded-full animate-pulse" />
+                빠른 요약 진행 중... (영상 끝까지 자동 추출)
+              </span>
             ) : (
               <span className="text-yellow-400 text-xs">{connectionStatus}</span>
             )}
@@ -1656,10 +1781,7 @@ function YouTubeLivePageContent() {
                 </button>
               ) : (
                 <button
-                  onClick={() => {
-                    stopCapture()
-                    window.close() // 창 닫기
-                  }}
+                  onClick={() => stopCapture(true)}
                   className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded transition-colors"
                 >
                   ⏹ 통역 중단

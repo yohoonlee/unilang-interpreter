@@ -351,7 +351,7 @@ function YouTubeTranslatePageContent() {
   }
 
   // 원클릭 실시간 통역 시작 - YouTube를 팝업으로 열고 현재 페이지에서 자막 표시
-  const startOneClickLiveMode = async () => {
+  const startOneClickLiveMode = async (quickSummary = false) => {
     if (!videoId) {
       setError("YouTube URL을 먼저 입력해주세요")
       return
@@ -363,7 +363,8 @@ function YouTubeTranslatePageContent() {
     const left = Math.floor((window.screen.width - width) / 2)
     const top = Math.floor((window.screen.height - height) / 2)
     
-    const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true`
+    // quickSummary 모드: 빠른 요약 모드로 실행
+    const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true${quickSummary ? '&quickSummary=true' : ''}`
     
     const liveWindow = window.open(
       liveUrl,
@@ -1171,13 +1172,22 @@ function YouTubeTranslatePageContent() {
                       )}
                     </Button>
                     <Button
-                      onClick={startOneClickLiveMode}
+                      onClick={() => startOneClickLiveMode(false)}
                       disabled={!videoId || isProcessing}
                       className="bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 px-4"
                       title="실시간 통역 (자막 없는 영상)"
                     >
                       <Volume2 className="h-5 w-5 mr-1" />
                       실시간 통역
+                    </Button>
+                    <Button
+                      onClick={() => startOneClickLiveMode(true)}
+                      disabled={!videoId || isProcessing}
+                      className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 px-4"
+                      title="빠른 요약 (영상 끝까지 추출 후 AI 재정리)"
+                    >
+                      <Sparkles className="h-5 w-5 mr-1" />
+                      빠른 요약
                     </Button>
                   </div>
                 ) : (
