@@ -609,9 +609,10 @@ function YouTubeTranslatePageContent() {
     const left = Math.floor((window.screen.width - width) / 2)
     const top = Math.floor((window.screen.height - height) / 2)
 
-    // 팝업 열기 헬퍼 함수
+    // 팝업 열기 헬퍼 함수 (저장된 세션으로 재생)
     const openLivePlayer = (sessionData: SavedSession) => {
-      sessionStorage.setItem('unilang_saved_session', JSON.stringify(sessionData))
+      // localStorage에 임시 저장 (새 창에서 접근 가능)
+      localStorage.setItem('unilang_temp_session', JSON.stringify(sessionData))
       const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true`
       const liveWindow = window.open(
         liveUrl,

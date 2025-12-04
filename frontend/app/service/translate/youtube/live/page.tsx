@@ -760,7 +760,8 @@ function YouTubeLivePageContent() {
   // 저장된 세션 로드 함수
   const loadSavedSession = useCallback(async () => {
     try {
-      const savedSessionStr = sessionStorage.getItem('unilang_saved_session')
+      // localStorage에서 임시 세션 데이터 로드 (새 창에서 접근 가능)
+      const savedSessionStr = localStorage.getItem('unilang_temp_session')
       if (!savedSessionStr) {
         console.error("저장된 세션 데이터를 찾을 수 없습니다")
         setShouldLoadSavedSession(false)
@@ -770,8 +771,8 @@ function YouTubeLivePageContent() {
       const savedSession = JSON.parse(savedSessionStr)
       console.log("저장된 세션 로드됨:", savedSession)
       
-      // sessionStorage에서 데이터 삭제 (일회성)
-      sessionStorage.removeItem('unilang_saved_session')
+      // localStorage에서 임시 데이터 삭제 (일회성)
+      localStorage.removeItem('unilang_temp_session')
       
       // utterances 타입 변환 (timestamp를 Date로 변환)
       const convertedUtterances: Utterance[] = savedSession.utterances.map((u: {
