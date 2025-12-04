@@ -477,10 +477,7 @@ function YouTubeLivePageContent() {
             
             if (coverage >= MIN_COVERAGE) {
               setHasSavedData(true)
-              // autostart가 true이면 선택 화면 스킵 (바로 재생)
-              if (!autostart) {
-                setShowReplayChoice(true)
-              }
+              setShowReplayChoice(true)
               return
             } else {
               console.log(`[저장본 확인] 커버리지 미달 (${coverage.toFixed(1)}% < ${MIN_COVERAGE}%) - 저장본 보기 비활성화`)
@@ -488,19 +485,13 @@ function YouTubeLivePageContent() {
           } else {
             // 이전 형식 데이터는 그대로 활성화
             setHasSavedData(true)
-            // autostart가 true이면 선택 화면 스킵 (바로 재생)
-            if (!autostart) {
-              setShowReplayChoice(true)
-            }
+            setShowReplayChoice(true)
             return
           }
         } catch {
           // 파싱 실패 시 기존 로직
           setHasSavedData(true)
-          // autostart가 true이면 선택 화면 스킵 (바로 재생)
-          if (!autostart) {
-            setShowReplayChoice(true)
-          }
+          setShowReplayChoice(true)
           return
         }
       }
@@ -521,10 +512,7 @@ function YouTubeLivePageContent() {
           
           if (mySession) {
             setHasSavedData(true)
-            // autostart가 true이면 선택 화면 스킵
-            if (!autostart) {
-              setShowReplayChoice(true)
-            }
+            setShowReplayChoice(true)
             return
           }
         }
@@ -542,10 +530,7 @@ function YouTubeLivePageContent() {
         
         if (sharedSession) {
           setHasSavedData(true)
-          // autostart가 true이면 선택 화면 스킵
-          if (!autostart) {
-            setShowReplayChoice(true)
-          }
+          setShowReplayChoice(true)
         }
       } catch (err) {
         // DB 조회 실패는 무시
@@ -553,7 +538,7 @@ function YouTubeLivePageContent() {
     }
     
     checkSavedData()
-  }, [videoId, sourceLang, targetLang, autostart])
+  }, [videoId, sourceLang, targetLang])
 
   // 자막 데이터 로드 및 처리 (통합 워크플로우)
   const processPreloadedSubtitles = useCallback(async () => {
@@ -836,45 +821,31 @@ function YouTubeLivePageContent() {
 
   // 자동 시작 (autostart 파라미터 처리)
   useEffect(() => {
-    if (!autostart || !videoId || hasAutoStarted.current) return
-    
-    // loadSaved=true인 경우: 바로 저장된 데이터 로드 (선택 화면 건너뜀)
-    if (shouldLoadSavedSession) {
+    if (autostart && videoId && !hasAutoStarted.current && !showReplayChoice) {
       hasAutoStarted.current = true
-      console.log("🚀 자동 시작: 저장된 세션 로드")
-      const timer = setTimeout(() => {
-        loadSavedSession()
-      }, 300)
-      return () => clearTimeout(timer)
-    }
-    
-    // realtimeMode=true인 경우: 바로 실시간 통역 시작
-    if (realtimeMode) {
-      hasAutoStarted.current = true
-      console.log("🚀 자동 시작: 실시간 통역 모드")
-      const timer = setTimeout(() => {
-        startCapture()
-      }, 500)
-      return () => clearTimeout(timer)
-    }
-    
-    // 그 외: 선택 화면이 없으면 자동 시작
-    if (!showReplayChoice) {
-      if (hasPreloadedSubtitles) {
-        hasAutoStarted.current = true
+      
+      if (realtimeMode) {
+        // 실시간 통역 모드
+        console.log("🚀 자동 시작: 실시간 통역 모드")
+        const timer = setTimeout(() => {
+          startCapture()
+        }, 500)
+        return () => clearTimeout(timer)
+      } else if (hasPreloadedSubtitles) {
+        // 자막이 있는 경우: 자막 처리 워크플로우 시작
         const timer = setTimeout(() => {
           processPreloadedSubtitles()
         }, 1000)
         return () => clearTimeout(timer)
       } else if (!hasSavedData) {
-        hasAutoStarted.current = true
+        // 저장된 데이터 없음: 실시간 모드
         const timer = setTimeout(() => {
           startCapture()
         }, 1000)
         return () => clearTimeout(timer)
       }
     }
-  }, [autostart, videoId, showReplayChoice, shouldLoadSavedSession, hasPreloadedSubtitles, realtimeMode, hasSavedData, loadSavedSession, processPreloadedSubtitles])
+  }, [autostart, videoId, showReplayChoice, hasPreloadedSubtitles, realtimeMode, hasSavedData, processPreloadedSubtitles])
 
   // 자동 스크롤 (실시간 모드: 최신으로, 재생 모드: 현재 자막으로)
   useEffect(() => {
