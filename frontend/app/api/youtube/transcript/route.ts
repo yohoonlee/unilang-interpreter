@@ -36,14 +36,31 @@ export async function POST(request: NextRequest) {
 
     console.log("🎬 YouTube 전사 시작:", videoId)
 
-    // YouTube 자막 가져오기
+    // YouTube 자막 가져오기 (여러 언어 시도)
     let transcript
-    try {
-      // 먼저 원본 자막 시도
-      transcript = await YoutubeTranscript.fetchTranscript(videoId)
-    } catch (err) {
-      // 자막이 없는 경우 에러
-      console.error("YouTube 자막 가져오기 실패:", err)
+    const languagesToTry = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'de', undefined] // undefined = 기본 자막
+    let lastError = null
+    
+    for (const lang of languagesToTry) {
+      try {
+        console.log(`🔍 자막 시도: ${lang || '기본'}`)
+        if (lang) {
+          transcript = await YoutubeTranscript.fetchTranscript(videoId, { lang })
+        } else {
+          transcript = await YoutubeTranscript.fetchTranscript(videoId)
+        }
+        if (transcript && transcript.length > 0) {
+          console.log(`✅ 자막 발견: ${lang || '기본'} (${transcript.length}개)`)
+          break
+        }
+      } catch (err) {
+        lastError = err
+        console.log(`❌ ${lang || '기본'} 자막 없음`)
+      }
+    }
+    
+    if (!transcript || transcript.length === 0) {
+      console.error("YouTube 자막 가져오기 실패:", lastError)
       return NextResponse.json({ 
         success: false, 
         error: "이 동영상에는 자막이 없거나 자막을 가져올 수 없습니다. 자막이 활성화된 동영상을 시도해주세요." 

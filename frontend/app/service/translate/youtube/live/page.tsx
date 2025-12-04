@@ -837,7 +837,7 @@ function YouTubeLivePageContent() {
     setConnectionStatus("대기 중")
   }, [])
   
-  // 통역 중단 + 창 닫기 요청
+  // 작업 종료 + 창 닫기 요청
   const stopAndClose = useCallback(() => {
     stopCapture()
     setShouldCloseWindow(true)
@@ -1560,25 +1560,25 @@ function YouTubeLivePageContent() {
       const saveAndProcess = async () => {
         try {
           // 1. 자동 저장
-          console.log("[통역 중단] 1/3 자동 저장 중...")
+          console.log("[작업 종료] 1/3 자동 저장 중...")
           autoSaveToStorage()
           await saveToDatabase()
           
           // 2. AI 재정리 (아직 안된 경우만)
           if (!isReorganized && utterances.length >= 3) {
-            console.log("[통역 중단] 2/3 AI 재정리 중...")
+            console.log("[작업 종료] 2/3 AI 재정리 중...")
             await reorganizeWithAI()
           }
           
           // 3. 요약 생성 (아직 없는 경우만)
           if (!summary && utterances.length >= 3) {
-            console.log("[통역 중단] 3/3 요약 생성 중...")
+            console.log("[작업 종료] 3/3 요약 생성 중...")
             await generateSummary()
           }
           
-          console.log("[통역 중단] 모든 처리 완료!")
+          console.log("[작업 종료] 모든 처리 완료!")
         } catch (err) {
-          console.error("[통역 중단] 처리 중 오류:", err)
+          console.error("[작업 종료] 처리 중 오류:", err)
         } finally {
           // 처리 완료 후 창 닫기
           setTimeout(() => window.close(), 500)
@@ -1822,7 +1822,7 @@ function YouTubeLivePageContent() {
                   onClick={stopAndClose}
                   className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded transition-colors"
                 >
-                  ⏹ 통역 중단
+                  ⏹ 작업 종료
                 </button>
               )
             )}
