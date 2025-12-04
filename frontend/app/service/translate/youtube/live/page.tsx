@@ -1554,16 +1554,37 @@ function YouTubeLivePageContent() {
     }
   }, [utterances.length, autoSaveToStorage])
 
-  // 창 닫기 요청 처리 (저장 후 닫기)
+  // 창 닫기 요청 처리 (저장 + AI재정리 + 요약 후 닫기)
   useEffect(() => {
     if (shouldCloseWindow && utterances.length > 0) {
-      const saveAndClose = async () => {
-        console.log("[통역 중단] 자동 저장 후 창 닫기...")
-        autoSaveToStorage()
-        await saveToDatabase()
-        setTimeout(() => window.close(), 300)
+      const saveAndProcess = async () => {
+        try {
+          // 1. 자동 저장
+          console.log("[통역 중단] 1/3 자동 저장 중...")
+          autoSaveToStorage()
+          await saveToDatabase()
+          
+          // 2. AI 재정리 (아직 안된 경우만)
+          if (!isReorganized && utterances.length >= 3) {
+            console.log("[통역 중단] 2/3 AI 재정리 중...")
+            await reorganizeWithAI()
+          }
+          
+          // 3. 요약 생성 (아직 없는 경우만)
+          if (!summary && utterances.length >= 3) {
+            console.log("[통역 중단] 3/3 요약 생성 중...")
+            await generateSummary()
+          }
+          
+          console.log("[통역 중단] 모든 처리 완료!")
+        } catch (err) {
+          console.error("[통역 중단] 처리 중 오류:", err)
+        } finally {
+          // 처리 완료 후 창 닫기
+          setTimeout(() => window.close(), 500)
+        }
       }
-      saveAndClose()
+      saveAndProcess()
     } else if (shouldCloseWindow) {
       window.close()
     }
