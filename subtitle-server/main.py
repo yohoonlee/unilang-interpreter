@@ -2,7 +2,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
 from pydantic import BaseModel
+from typing import List, Optional
 import re
+import os
 
 app = FastAPI(title="YouTube Subtitle API")
 
@@ -17,7 +19,7 @@ app.add_middleware(
 
 class SubtitleRequest(BaseModel):
     youtube_url: str
-    languages: list[str] = ["ko", "en", "ja", "zh"]
+    languages: List[str] = ["ko", "en", "ja", "zh"]
 
 class SubtitleItem(BaseModel):
     text: str
@@ -28,9 +30,9 @@ class SubtitleResponse(BaseModel):
     success: bool
     video_id: str
     language: str
-    subtitles: list[SubtitleItem]
-    available_languages: list[str]
-    error: str | None = None
+    subtitles: List[SubtitleItem]
+    available_languages: List[str]
+    error: Optional[str] = None
 
 def extract_video_id(url: str) -> str | None:
     """YouTube URL에서 비디오 ID 추출"""
