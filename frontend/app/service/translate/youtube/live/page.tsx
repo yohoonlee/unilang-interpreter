@@ -40,26 +40,50 @@ interface YTPlayer {
 
 // 지원 언어 목록
 const LANGUAGES: Record<string, string> = {
+  "auto": "자동 감지",
   "ko": "한국어",
   "en": "English",
-  "ja": "日本語",
   "zh": "中文",
+  "ja": "日本語",
   "es": "Español",
-  "fr": "Français",
+  "ar": "العربية",
   "de": "Deutsch",
-  "auto": "자동 감지",
+  "fr": "Français",
+  "hi": "हिन्दी",
+  "id": "Bahasa Indonesia",
+  "it": "Italiano",
+  "ms": "Bahasa Melayu",
+  "nl": "Nederlands",
+  "pl": "Polski",
+  "pt": "Português",
+  "ru": "Русский",
+  "th": "ภาษาไทย",
+  "tr": "Türkçe",
+  "vi": "Tiếng Việt",
 }
 
 // Deepgram 언어 코드 매핑
 const DEEPGRAM_LANGUAGES: Record<string, string> = {
+  "auto": "en",
   "ko": "ko",
   "en": "en",
-  "ja": "ja",
   "zh": "zh",
+  "ja": "ja",
   "es": "es",
-  "fr": "fr",
+  "ar": "ar",
   "de": "de",
-  "auto": "en",
+  "fr": "fr",
+  "hi": "hi",
+  "id": "id",
+  "it": "it",
+  "ms": "ms",
+  "nl": "nl",
+  "pl": "pl",
+  "pt": "pt",
+  "ru": "ru",
+  "th": "th",
+  "tr": "tr",
+  "vi": "vi",
 }
 
 interface Utterance {
@@ -2200,13 +2224,13 @@ function YouTubeLivePageContent() {
               {LANGUAGES[sourceLang] || sourceLang} → {LANGUAGES[targetLang] || targetLang}
             </span>
             
-            {/* 전체화면 버튼 */}
+            {/* 전체화면 전환 버튼 - 빨간색으로 눈에 띄게 */}
             <button
               onClick={toggleFullscreen}
-              className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded transition-colors"
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded shadow-lg transition-colors"
               title="전체화면 (자막 오버레이)"
             >
-              {isFullscreen ? "⛶ 창모드" : "⛶ 전체화면"}
+              {isFullscreen ? "↙ 창 모드로 전환" : "↗ 전체화면 전환"}
             </button>
             
             {/* 자막 크게보기/작게보기 토글 */}

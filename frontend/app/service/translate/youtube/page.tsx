@@ -36,14 +36,29 @@ import { createClient } from "@/lib/supabase/client"
 
 // 지원 언어 목록
 const LANGUAGES = [
+  // 원본 언어 (자동 감지)
   { code: "auto", name: "자동 감지", flag: "🌐" },
+  // 주요 5개 언어 (상단 배치)
   { code: "ko", name: "한국어", flag: "🇰🇷" },
   { code: "en", name: "영어", flag: "🇺🇸" },
-  { code: "ja", name: "일본어", flag: "🇯🇵" },
   { code: "zh", name: "중국어", flag: "🇨🇳" },
+  { code: "ja", name: "일본어", flag: "🇯🇵" },
   { code: "es", name: "스페인어", flag: "🇪🇸" },
-  { code: "fr", name: "프랑스어", flag: "🇫🇷" },
+  // 나머지 언어 (알파벳순)
+  { code: "ar", name: "아랍어", flag: "🇸🇦" },
   { code: "de", name: "독일어", flag: "🇩🇪" },
+  { code: "fr", name: "프랑스어", flag: "🇫🇷" },
+  { code: "hi", name: "힌디어", flag: "🇮🇳" },
+  { code: "id", name: "인도네시아어", flag: "🇮🇩" },
+  { code: "it", name: "이탈리아어", flag: "🇮🇹" },
+  { code: "ms", name: "말레이어", flag: "🇲🇾" },
+  { code: "nl", name: "네덜란드어", flag: "🇳🇱" },
+  { code: "pl", name: "폴란드어", flag: "🇵🇱" },
+  { code: "pt", name: "포르투갈어", flag: "🇧🇷" },
+  { code: "ru", name: "러시아어", flag: "🇷🇺" },
+  { code: "th", name: "태국어", flag: "🇹🇭" },
+  { code: "tr", name: "터키어", flag: "🇹🇷" },
+  { code: "vi", name: "베트남어", flag: "🇻🇳" },
 ]
 
 const TARGET_LANGUAGES = [
