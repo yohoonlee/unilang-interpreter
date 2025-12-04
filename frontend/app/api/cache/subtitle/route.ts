@@ -188,6 +188,7 @@ export async function POST(request: NextRequest) {
         summaries: summaries || {},
         video_duration: videoDuration,
         last_text_time: lastTextTime,
+        last_viewed_at: new Date().toISOString(), // 시청 시각
       })
 
     if (error) {

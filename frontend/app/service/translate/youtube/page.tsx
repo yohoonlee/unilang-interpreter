@@ -104,6 +104,7 @@ interface YouTubeSession {
   last_text_time: number | null
   created_at: string
   updated_at: string
+  last_viewed_at: string | null  // 시청 시각
 }
 
 // 저장된 세션 데이터 (LocalStorage)
@@ -216,11 +217,11 @@ function YouTubeTranslatePageContent() {
         return
       }
 
-      // video_subtitles_cache 테이블에서 조회 (모든 사용자 공유)
+      // video_subtitles_cache 테이블에서 조회 (최근 시청순)
       const { data, error } = await supabase
         .from("video_subtitles_cache")
         .select("*")
-        .order("updated_at", { ascending: false })
+        .order("last_viewed_at", { ascending: false, nullsFirst: false })
         .limit(20)
 
       console.log("📋 YouTube 캐시 목록 결과:", { count: data?.length, error })
@@ -234,6 +235,19 @@ function YouTubeTranslatePageContent() {
       console.error("오류:", err)
     } finally {
       setIsLoadingHistory(false)
+    }
+  }
+  
+  // 시청 시각 업데이트
+  const updateViewedAt = async (videoId: string) => {
+    try {
+      await supabase
+        .from("video_subtitles_cache")
+        .update({ last_viewed_at: new Date().toISOString() })
+        .eq("video_id", videoId)
+      console.log("✅ 시청 시각 업데이트:", videoId)
+    } catch (err) {
+      console.error("시청 시각 업데이트 실패:", err)
     }
   }
 
@@ -267,6 +281,9 @@ function YouTubeTranslatePageContent() {
 
   // 기록에서 특정 언어로 다시보기
   const playFromHistoryWithLang = (session: YouTubeSession & { displayLang?: string }, targetLang: string) => {
+    // 시청 시각 업데이트
+    updateViewedAt(session.video_id)
+    
     // 캐시된 데이터를 localStorage에 저장 (새 창에서 사용)
     const storageKey = `unilang_youtube_${session.video_id}_${session.original_lang}_${targetLang}`
     const translatedUtterances = session.translations?.[targetLang] as Array<{
@@ -1878,7 +1895,14 @@ function YouTubeTranslatePageContent() {
                             </h4>
                             <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
                               <Calendar className="h-3 w-3" />
-                              {new Date(item.updated_at || item.created_at).toLocaleDateString("ko-KR")}
+                              {/* 시청 시각을 로컬 시간으로 표시 */}
+                              {new Date(item.last_viewed_at || item.updated_at || item.created_at).toLocaleString("ko-KR", {
+                                year: "numeric",
+                                month: "2-digit", 
+                                day: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit"
+                              })}
                               <span>•</span>
                               <span>{Array.isArray(item.subtitles) ? item.subtitles.length : 0}문장</span>
                             </div>
