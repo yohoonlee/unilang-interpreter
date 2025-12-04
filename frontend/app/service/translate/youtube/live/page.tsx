@@ -812,6 +812,9 @@ function YouTubeLivePageContent() {
     return int16Array
   }
 
+  // 창 닫기 플래그
+  const [shouldCloseWindow, setShouldCloseWindow] = useState(false)
+  
   // 캡처 중지 (기본 리소스 정리만)
   const stopCapture = useCallback(() => {
     if (websocketRef.current) {
@@ -834,33 +837,11 @@ function YouTubeLivePageContent() {
     setConnectionStatus("대기 중")
   }, [])
   
-  // 통역 중단 + 자동 저장 + AI 재정리 + 창 닫기
-  const stopAndSave = useCallback(async (shouldCloseWindow = false) => {
-    // 1. 먼저 캡처 중지
+  // 통역 중단 + 창 닫기 요청
+  const stopAndClose = useCallback(() => {
     stopCapture()
-    
-    // 2. 자동 저장 (utterances가 있을 때만)
-    if (utterances.length > 0) {
-      console.log("[통역 중단] 자동 저장 시작...")
-      autoSaveToStorage()
-      await saveToDatabase()
-      
-      // 백그라운드 AI 재정리 (재정리되지 않은 경우에만)
-      if (!isReorganized && utterances.length >= 3) {
-        console.log("[통역 중단] 백그라운드 AI 재정리 시작...")
-        reorganizeWithAI().catch(err => {
-          console.error("[AI 재정리] 백그라운드 처리 실패:", err)
-        })
-      }
-    }
-    
-    // 3. 창 닫기 요청이 있으면 창 닫기
-    if (shouldCloseWindow) {
-      setTimeout(() => {
-        window.close()
-      }, 500)
-    }
-  }, [stopCapture, utterances, autoSaveToStorage, saveToDatabase, isReorganized, reorganizeWithAI])
+    setShouldCloseWindow(true)
+  }, [stopCapture])
 
   // 로컬 스토리지에 자동 저장
   const autoSaveToStorage = useCallback(() => {
@@ -1313,30 +1294,19 @@ function YouTubeLivePageContent() {
     }
   }
 
-  // 빠른 요약 모드 완료 처리
-  const handleQuickSummaryComplete = async () => {
+  // 빠른 요약 완료 플래그
+  const [quickSummaryCompleted, setQuickSummaryCompleted] = useState(false)
+  
+  // 빠른 요약 모드 완료 처리 (플래그만 설정)
+  const handleQuickSummaryComplete = () => {
     if (utterances.length === 0) {
       setError("추출된 텍스트가 없습니다.")
       return
     }
     
     setIsQuickSummaryRunning(false)
-    console.log(`[빠른 요약] ${utterances.length}개 문장 추출 완료, AI 재정리 시작...`)
-    
-    // 1. 먼저 저장
-    autoSaveToStorage()
-    await saveToDatabase()
-    
-    // 2. AI 재정리 수행
-    if (!isReorganized) {
-      await reorganizeWithAI()
-    }
-    
-    // 3. 요약 생성
-    await generateSummary()
-    
-    console.log("[빠른 요약] 완료!")
-    setShowSummary(true)
+    setQuickSummaryCompleted(true)
+    console.log(`[빠른 요약] ${utterances.length}개 문장 추출 완료`)
   }
 
   // 요약을 DB에 저장
@@ -1584,6 +1554,46 @@ function YouTubeLivePageContent() {
     }
   }, [utterances.length, autoSaveToStorage])
 
+  // 창 닫기 요청 처리 (저장 후 닫기)
+  useEffect(() => {
+    if (shouldCloseWindow && utterances.length > 0) {
+      const saveAndClose = async () => {
+        console.log("[통역 중단] 자동 저장 후 창 닫기...")
+        autoSaveToStorage()
+        await saveToDatabase()
+        setTimeout(() => window.close(), 300)
+      }
+      saveAndClose()
+    } else if (shouldCloseWindow) {
+      window.close()
+    }
+  }, [shouldCloseWindow])
+
+  // 빠른 요약 완료 처리
+  useEffect(() => {
+    if (quickSummaryCompleted && utterances.length > 0) {
+      const processQuickSummary = async () => {
+        console.log("[빠른 요약] AI 재정리 시작...")
+        
+        // 1. 저장
+        autoSaveToStorage()
+        await saveToDatabase()
+        
+        // 2. AI 재정리
+        if (!isReorganized) {
+          await reorganizeWithAI()
+        }
+        
+        // 3. 요약 생성
+        await generateSummary()
+        
+        console.log("[빠른 요약] 완료!")
+        setQuickSummaryCompleted(false)
+      }
+      processQuickSummary()
+    }
+  }, [quickSummaryCompleted])
+
   if (!videoId) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center text-white">
@@ -1788,7 +1798,7 @@ function YouTubeLivePageContent() {
                 </button>
               ) : (
                 <button
-                  onClick={() => stopAndSave(true)}
+                  onClick={stopAndClose}
                   className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded transition-colors"
                 >
                   ⏹ 통역 중단
