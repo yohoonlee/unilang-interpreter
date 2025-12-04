@@ -4,11 +4,20 @@ from pydantic import BaseModel
 from typing import List, Optional
 import os
 import re
+import sys
+
+print("🚀 서버 시작 중...", flush=True)
 
 # youtube-transcript-api v1.0+ 새로운 인터페이스
-from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api.proxies import WebshareProxyConfig
+try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+    from youtube_transcript_api.proxies import WebshareProxyConfig
+    print("✅ youtube-transcript-api 로드 성공", flush=True)
+except Exception as e:
+    print(f"❌ youtube-transcript-api 로드 실패: {e}", flush=True)
+    sys.exit(1)
 
+print("📦 FastAPI 앱 초기화...", flush=True)
 app = FastAPI(title="YouTube Subtitle API")
 
 # CORS 설정
@@ -205,6 +214,16 @@ def api_status():
         "proxy_username": WEBSHARE_PROXY_USERNAME[:4] + "..." if WEBSHARE_PROXY_USERNAME else None
     }
 
+# 시작 이벤트
+@app.on_event("startup")
+async def startup_event():
+    print("=" * 50, flush=True)
+    print("🎉 YouTube Subtitle API 서버 시작 완료!", flush=True)
+    print(f"📡 프록시 설정: {'✅' if WEBSHARE_PROXY_USERNAME else '❌'}", flush=True)
+    print("=" * 50, flush=True)
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", 8000))
+    print(f"🔧 PORT: {port}", flush=True)
+    uvicorn.run(app, host="0.0.0.0", port=port)
