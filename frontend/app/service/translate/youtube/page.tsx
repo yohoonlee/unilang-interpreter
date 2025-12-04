@@ -782,6 +782,7 @@ function YouTubeTranslatePageContent() {
       let detectedLang: string
       let videoDuration: number
       let lastTextTime: number
+      let videoTitle: string | null = null
       
       if (cachedOriginalSubtitles && cachedOriginalLang) {
         // ✅ 캐시에서 원본 자막 사용 (YouTube 다운로드 스킵!)
@@ -847,6 +848,8 @@ function YouTubeTranslatePageContent() {
           startTime: Math.floor(item.start),
         }))
         detectedLang = data.language || sourceLanguage
+        videoTitle = data.videoTitle || null
+        console.log("📺 YouTube 제목:", videoTitle)
         videoDuration = data.duration ? data.duration * 1000 : 0
         lastTextTime = convertedUtterances.length > 0 
           ? convertedUtterances[convertedUtterances.length - 1].startTime 
@@ -982,6 +985,7 @@ function YouTubeTranslatePageContent() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             videoId: videoId,
+            videoTitle: videoTitle,  // YouTube 제목 추가!
             originalLang: originalLang,
             subtitles: originalUtterances,
             translations: targetLanguage !== originalLang ? {

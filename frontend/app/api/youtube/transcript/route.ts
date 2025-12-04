@@ -14,6 +14,23 @@ function extractVideoId(url: string): string | null {
   return null
 }
 
+// YouTube 제목 가져오기 (oEmbed API 사용)
+async function fetchYouTubeTitle(videoId: string): Promise<string | null> {
+  try {
+    const response = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
+    )
+    if (response.ok) {
+      const data = await response.json()
+      console.log(`📋 YouTube 제목: ${data.title}`)
+      return data.title
+    }
+  } catch (err) {
+    console.error("YouTube 제목 가져오기 실패:", err)
+  }
+  return null
+}
+
 // 외부 자막 API 서버 URL (Railway 등에 배포)
 const SUBTITLE_API_URL = process.env.SUBTITLE_API_URL
 
@@ -171,6 +188,9 @@ export async function POST(request: NextRequest) {
 
     console.log("🎬 YouTube 전사 시작:", videoId)
 
+    // YouTube 제목 가져오기 (병렬)
+    const titlePromise = fetchYouTubeTitle(videoId)
+
     // 직접 YouTube에서 자막 가져오기
     const result = await fetchYouTubeTranscript(videoId)
     
@@ -251,12 +271,16 @@ export async function POST(request: NextRequest) {
 
     // 감지된 언어 (YouTube 자막의 언어)
     const detectedLanguage = transcript[0]?.lang || "unknown"
+    
+    // YouTube 제목 가져오기 (대기)
+    const videoTitle = await titlePromise
 
-    console.log(`✅ YouTube 전사 완료: ${utterances.length}개 자막, ${duration.toFixed(0)}초`)
+    console.log(`✅ YouTube 전사 완료: ${utterances.length}개 자막, ${duration.toFixed(0)}초, 제목: ${videoTitle}`)
 
     return NextResponse.json({
       success: true,
       videoId,
+      videoTitle,
       text: fullText,
       language: detectedLanguage,
       duration,
