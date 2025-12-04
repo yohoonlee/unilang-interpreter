@@ -649,7 +649,7 @@ function YouTubeLivePageContent() {
         .map(u => u.translated || u.original)
         .join("\n")
       
-      const response = await fetch("/api/ai/reorganize", {
+      const response = await fetch("/api/gemini/reorganize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: textToReorganize, language: targetLang }),
@@ -690,7 +690,7 @@ function YouTubeLivePageContent() {
         .map(u => u.translated || u.original)
         .join("\n")
       
-      const response = await fetch("/api/ai/summarize", {
+      const response = await fetch("/api/gemini/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: textToSummarize, language: targetLang }),

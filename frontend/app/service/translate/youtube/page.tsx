@@ -486,17 +486,26 @@ function YouTubeTranslatePageContent() {
 
   // 번역 함수
   const translateTextForWorkflow = async (text: string, from: string, to: string): Promise<string> => {
-    if (from === to || to === "none") return text
+    if (from === to || to === "none") {
+      console.log("⏭️ 번역 건너뜀 (같은 언어):", from, to)
+      return text
+    }
     try {
       const response = await fetch("/api/gemini/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, sourceLang: from, targetLang: to }),
       })
-      if (!response.ok) return text
+      if (!response.ok) {
+        console.error("번역 API 실패:", response.status)
+        return text
+      }
       const data = await response.json()
-      return data.translatedText || text
-    } catch {
+      const result = data.translatedText || text
+      console.log("🌐 번역:", text.substring(0, 30), "→", result.substring(0, 30))
+      return result
+    } catch (err) {
+      console.error("번역 오류:", err)
       return text
     }
   }
@@ -504,15 +513,21 @@ function YouTubeTranslatePageContent() {
   // AI 재처리 함수
   const reorganizeTextForWorkflow = async (text: string, language: string): Promise<string> => {
     try {
-      const response = await fetch("/api/ai/reorganize", {
+      console.log("🔄 AI 재처리 시작:", { textLength: text.length, language })
+      const response = await fetch("/api/gemini/reorganize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, language }),
       })
-      if (!response.ok) return text
+      if (!response.ok) {
+        console.error("재처리 API 실패:", response.status)
+        return text
+      }
       const data = await response.json()
+      console.log("✅ AI 재처리 완료")
       return data.reorganizedText || text
-    } catch {
+    } catch (err) {
+      console.error("재처리 오류:", err)
       return text
     }
   }
@@ -520,15 +535,21 @@ function YouTubeTranslatePageContent() {
   // 요약 생성 함수
   const summarizeTextForWorkflow = async (text: string, language: string): Promise<string> => {
     try {
-      const response = await fetch("/api/ai/summarize", {
+      console.log("📝 요약 생성 시작:", { textLength: text.length, language })
+      const response = await fetch("/api/gemini/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, language }),
       })
-      if (!response.ok) return ""
+      if (!response.ok) {
+        console.error("요약 API 실패:", response.status)
+        return ""
+      }
       const data = await response.json()
+      console.log("✅ 요약 생성 완료:", data.summary?.substring(0, 100))
       return data.summary || ""
-    } catch {
+    } catch (err) {
+      console.error("요약 생성 오류:", err)
       return ""
     }
   }
