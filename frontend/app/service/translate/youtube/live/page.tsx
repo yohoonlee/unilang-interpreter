@@ -757,22 +757,25 @@ function YouTubeLivePageContent() {
     }
   }
 
+  // 저장 키 생성 함수 (메인 페이지와 동일)
+  const getStorageKey = (vid: string) => `unilang_youtube_${vid}_${sourceLang}_${targetLang}`
+  
   // 저장된 세션 로드 함수
   const loadSavedSession = useCallback(async () => {
     try {
-      // localStorage에서 임시 세션 데이터 로드 (새 창에서 접근 가능)
-      const savedSessionStr = localStorage.getItem('unilang_temp_session')
+      // localStorage에서 영구 저장된 세션 데이터 로드
+      const storageKey = getStorageKey(videoId)
+      console.log("🔍 저장 키:", storageKey)
+      
+      const savedSessionStr = localStorage.getItem(storageKey)
       if (!savedSessionStr) {
-        console.error("저장된 세션 데이터를 찾을 수 없습니다")
+        console.error("저장된 세션 데이터를 찾을 수 없습니다:", storageKey)
         setShouldLoadSavedSession(false)
         return
       }
       
       const savedSession = JSON.parse(savedSessionStr)
-      console.log("저장된 세션 로드됨:", savedSession)
-      
-      // localStorage에서 임시 데이터 삭제 (일회성)
-      localStorage.removeItem('unilang_temp_session')
+      console.log("✅ 저장된 세션 로드됨:", savedSession)
       
       // utterances 타입 변환 (timestamp를 Date로 변환)
       const convertedUtterances: Utterance[] = savedSession.utterances.map((u: {

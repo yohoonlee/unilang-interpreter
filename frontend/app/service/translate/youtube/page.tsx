@@ -610,9 +610,8 @@ function YouTubeTranslatePageContent() {
     const top = Math.floor((window.screen.height - height) / 2)
 
     // 팝업 열기 헬퍼 함수 (저장된 세션으로 재생)
-    const openLivePlayer = (sessionData: SavedSession) => {
-      // localStorage에 임시 저장 (새 창에서 접근 가능)
-      localStorage.setItem('unilang_temp_session', JSON.stringify(sessionData))
+    const openLivePlayer = () => {
+      // 이미 localStorage에 영구 저장되어 있으므로 바로 새 창 열기
       const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true`
       const liveWindow = window.open(
         liveUrl,
@@ -653,10 +652,10 @@ function YouTubeTranslatePageContent() {
             lastTextTime: cacheData.lastTextTime,
           }
           
-          // LocalStorage에도 저장 (오프라인 사용 가능)
+          // LocalStorage에 저장 (오프라인 사용 가능)
           localStorage.setItem(getStorageKey(videoId), JSON.stringify(cachedSession))
           
-          openLivePlayer(cachedSession)
+          openLivePlayer()
           return
         }
         
@@ -676,7 +675,7 @@ function YouTubeTranslatePageContent() {
       if (exists && coverage >= 98 && savedData) {
         setProgress(100)
         setProgressText(`로컬 데이터 발견! (${coverage.toFixed(1)}% 완성) 바로 재생합니다...`)
-        openLivePlayer(savedData)
+        openLivePlayer()
         return
       }
       
@@ -877,7 +876,7 @@ function YouTubeTranslatePageContent() {
         setProgress(95)
         setProgressText("플레이어 열기...")
         
-        openLivePlayer(sessionData)
+        openLivePlayer()
         
         setProgress(100)
         setProgressText("완료!")
