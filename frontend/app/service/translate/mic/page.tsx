@@ -2306,7 +2306,26 @@ function MicTranslatePageContent() {
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 py-4">
         {/* 통합 컨트롤 패널 (민트색) */}
-        <Card className="mb-4 border-2 border-teal-300 dark:border-teal-700 bg-gradient-to-br from-teal-50 via-cyan-50 to-teal-50 dark:from-teal-900/30 dark:via-cyan-900/20 dark:to-teal-900/30 shadow-lg">
+        <Card className="mb-4 border-2 border-teal-300 dark:border-teal-700 bg-gradient-to-br from-teal-50 via-cyan-50 to-teal-50 dark:from-teal-900/30 dark:via-cyan-900/20 dark:to-teal-900/30 shadow-lg relative">
+          {/* 우상단 목록 버튼 */}
+          <Button 
+            variant="ghost" 
+            size="icon"
+            onClick={() => {
+              setShowSessionList(true)
+              loadSessions()
+            }}
+            className="absolute top-3 right-3 z-10 hover:bg-teal-100 dark:hover:bg-teal-900/50"
+            title="통역 기록 목록"
+          >
+            <Menu className="h-5 w-5 text-teal-600" />
+            {sessions.length > 0 && (
+              <span className="absolute -top-1 -right-1 h-4 w-4 bg-teal-500 text-white text-[10px] rounded-full flex items-center justify-center">
+                {sessions.length > 9 ? '9+' : sessions.length}
+              </span>
+            )}
+          </Button>
+          
           <CardContent className="p-5">
             {/* 타이틀 행 */}
             <div className="flex items-center gap-3 mb-4">
@@ -2562,26 +2581,13 @@ function MicTranslatePageContent() {
                 )}
               </div>
               
-              {/* 오른쪽: TTS 표시 + 목록 버튼 */}
+              {/* 오른쪽: TTS 표시 */}
               <div className="flex items-center gap-2 text-sm justify-end">
                 {audioSettings.autoPlayTTS && (
                   <span className="text-teal-600 dark:text-teal-400 flex items-center gap-1">
                     <Volume2 className="h-3 w-3" /> TTS
                   </span>
                 )}
-                {/* 목록 버튼 */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setShowSessionList(true)
-                    loadSessions()
-                  }}
-                  className="h-10 px-3 rounded-lg border-teal-300 text-teal-700 hover:bg-teal-50"
-                  title="통역 기록 목록"
-                >
-                  <List className="h-4 w-4" />
-                </Button>
               </div>
             </div>
           </CardContent>

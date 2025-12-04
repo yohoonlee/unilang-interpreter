@@ -1842,7 +1842,26 @@ function YouTubeTranslatePageContent() {
         {/* URL 입력 */}
         {!showHistory && (
         /* URL 입력 */
-        <Card className="border-red-200 dark:border-red-800 bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20">
+        <Card className="border-red-200 dark:border-red-800 bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 relative">
+          {/* 우상단 햄버거 메뉴 버튼 */}
+          <Button 
+            variant="ghost" 
+            size="icon"
+            onClick={() => {
+              setShowHistory(!showHistory)
+              loadYoutubeHistory()
+            }}
+            className="absolute top-3 right-3 z-10 hover:bg-red-100 dark:hover:bg-red-900/50"
+            title="통역 기록 목록"
+          >
+            <Menu className="h-5 w-5 text-red-600" />
+            {youtubeSessions.length > 0 && (
+              <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">
+                {youtubeSessions.length > 9 ? '9+' : youtubeSessions.length}
+              </span>
+            )}
+          </Button>
+          
           <CardContent className="p-4 space-y-4">
             {/* URL 입력 */}
             <div>
