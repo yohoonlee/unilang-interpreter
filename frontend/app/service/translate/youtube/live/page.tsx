@@ -534,14 +534,13 @@ function YouTubeLivePageContent() {
 
       setConnectionStatus("음성 인식 연결 중...")
 
-      // 3. 언어 코드 설정 (auto인 경우 다국어 감지 활성화)
-      const isAutoDetect = sourceLang === "auto"
-      const deepgramLang = isAutoDetect ? "multi" : (DEEPGRAM_LANGUAGES[sourceLang] || "en")
+      // 3. 언어 코드 설정
+      const deepgramLang = DEEPGRAM_LANGUAGES[sourceLang] || "en"
       
-      // 4. WebSocket 연결 (다국어 자동 감지 지원)
-      const wsUrl = isAutoDetect
-        ? `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-2-general&detect_language=true&punctuate=true&interim_results=true`
-        : `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-2&language=${deepgramLang}&punctuate=true&interim_results=true`
+      // 4. WebSocket 연결
+      // Note: detect_language는 Nova-2에서 지원되지만 multi 모드와 함께 사용
+      // auto 모드에서는 영어 기본으로 시작하고, 응답의 detected_language 활용
+      const wsUrl = `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-2&language=${deepgramLang}&punctuate=true&interim_results=true`
       
       const ws = new WebSocket(wsUrl, ["token", apiKey])
 
