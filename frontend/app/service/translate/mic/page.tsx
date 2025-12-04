@@ -507,7 +507,11 @@ function MicTranslatePageContent() {
 
   // 세션 목록 로드
   const loadSessions = async () => {
-    if (!userId) return
+    console.log("📋 loadSessions 호출, userId:", userId)
+    if (!userId) {
+      console.log("⚠️ userId가 없어서 세션 로드 스킵")
+      return
+    }
     
     setIsLoadingSessions(true)
     try {
@@ -515,7 +519,10 @@ function MicTranslatePageContent() {
         .from("translation_sessions")
         .select("*")
         .eq("user_id", userId)
+        .eq("session_type", "mic")
         .order("created_at", { ascending: false })
+      
+      console.log("📋 세션 목록 결과:", { data, error })
       
       if (error) {
         console.error("세션 목록 로드 실패:", error)

@@ -201,10 +201,14 @@ function YouTubeTranslatePageContent() {
 
   // YouTube 통역 기록 불러오기
   const loadYoutubeHistory = async () => {
+    console.log("📋 loadYoutubeHistory 호출")
     setIsLoadingHistory(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
+      console.log("📋 현재 사용자:", user?.id || "없음")
+      
       if (!user) {
+        console.log("⚠️ 로그인 필요 - 세션 로드 스킵")
         setIsLoadingHistory(false)
         return
       }
@@ -217,6 +221,8 @@ function YouTubeTranslatePageContent() {
         .order("started_at", { ascending: false })
         .limit(20)
 
+      console.log("📋 YouTube 세션 목록 결과:", { count: data?.length, error })
+      
       if (error) {
         console.error("YouTube 기록 로드 실패:", error)
       } else {
