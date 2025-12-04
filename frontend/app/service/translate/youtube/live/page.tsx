@@ -477,7 +477,10 @@ function YouTubeLivePageContent() {
             
             if (coverage >= MIN_COVERAGE) {
               setHasSavedData(true)
-              setShowReplayChoice(true)
+              // autostart가 true이면 선택 화면 스킵 (바로 재생)
+              if (!autostart) {
+                setShowReplayChoice(true)
+              }
               return
             } else {
               console.log(`[저장본 확인] 커버리지 미달 (${coverage.toFixed(1)}% < ${MIN_COVERAGE}%) - 저장본 보기 비활성화`)
@@ -485,13 +488,19 @@ function YouTubeLivePageContent() {
           } else {
             // 이전 형식 데이터는 그대로 활성화
             setHasSavedData(true)
-            setShowReplayChoice(true)
+            // autostart가 true이면 선택 화면 스킵 (바로 재생)
+            if (!autostart) {
+              setShowReplayChoice(true)
+            }
             return
           }
         } catch {
           // 파싱 실패 시 기존 로직
           setHasSavedData(true)
-          setShowReplayChoice(true)
+          // autostart가 true이면 선택 화면 스킵 (바로 재생)
+          if (!autostart) {
+            setShowReplayChoice(true)
+          }
           return
         }
       }
@@ -512,7 +521,10 @@ function YouTubeLivePageContent() {
           
           if (mySession) {
             setHasSavedData(true)
-            setShowReplayChoice(true)
+            // autostart가 true이면 선택 화면 스킵
+            if (!autostart) {
+              setShowReplayChoice(true)
+            }
             return
           }
         }
@@ -530,7 +542,10 @@ function YouTubeLivePageContent() {
         
         if (sharedSession) {
           setHasSavedData(true)
-          setShowReplayChoice(true)
+          // autostart가 true이면 선택 화면 스킵
+          if (!autostart) {
+            setShowReplayChoice(true)
+          }
         }
       } catch (err) {
         // DB 조회 실패는 무시
@@ -538,7 +553,7 @@ function YouTubeLivePageContent() {
     }
     
     checkSavedData()
-  }, [videoId, sourceLang, targetLang])
+  }, [videoId, sourceLang, targetLang, autostart])
 
   // 자막 데이터 로드 및 처리 (통합 워크플로우)
   const processPreloadedSubtitles = useCallback(async () => {
