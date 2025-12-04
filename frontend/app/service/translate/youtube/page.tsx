@@ -262,7 +262,11 @@ function YouTubeTranslatePageContent() {
   const playFromHistory = (session: YouTubeSession) => {
     // 첫 번째 번역 언어 가져오기
     const targetLang = Object.keys(session.translations || {})[0] || "ko"
-    
+    playFromHistoryWithLang(session, targetLang)
+  }
+
+  // 기록에서 특정 언어로 다시보기
+  const playFromHistoryWithLang = (session: YouTubeSession & { displayLang?: string }, targetLang: string) => {
     // 캐시된 데이터를 localStorage에 저장 (새 창에서 사용)
     const storageKey = `unilang_youtube_${session.video_id}_${session.original_lang}_${targetLang}`
     const translatedUtterances = session.translations?.[targetLang] as Array<{
@@ -316,36 +320,41 @@ function YouTubeTranslatePageContent() {
   const [isLoadingSummary, setIsLoadingSummary] = useState(false)
   
   const viewSummaryFromHistory = async (session: YouTubeSession) => {
+    // 첫 번째 번역 언어 가져오기
+    const targetLang = Object.keys(session.summaries || {})[0] || Object.keys(session.translations || {})[0] || "ko"
+    viewSummaryFromHistoryWithLang(session, targetLang)
+  }
+  
+  // 특정 언어의 요약 보기
+  const viewSummaryFromHistoryWithLang = async (session: YouTubeSession & { displayLang?: string }, targetLang: string) => {
     setIsLoadingSummary(true)
     try {
-      // summaries 객체에서 첫 번째 요약 가져오기
-      const summaryKeys = Object.keys(session.summaries || {})
+      // 해당 언어의 요약 확인
+      const summaryText = session.summaries?.[targetLang]
       
-      if (summaryKeys.length > 0) {
-        const firstLang = summaryKeys[0]
-        const summaryText = session.summaries[firstLang]
-        
-        if (summaryText) {
-          setViewingSummary({
-            title: session.video_title || session.video_id,
-            summary: summaryText
-          })
-          setIsLoadingSummary(false)
-          return
-        }
+      if (summaryText) {
+        setViewingSummary({
+          title: session.video_title || session.video_id,
+          summary: summaryText
+        })
+        setIsLoadingSummary(false)
+        return
       }
       
       // 요약이 없으면 자막 데이터로 새로 생성
-      if (!Array.isArray(session.subtitles) || session.subtitles.length === 0) {
+      // 해당 언어의 번역본 사용
+      const utterances = session.translations?.[targetLang] as Array<{original?: string, translated?: string, text?: string}> 
+        || session.subtitles as Array<{original?: string, text?: string}>
+      
+      if (!Array.isArray(utterances) || utterances.length === 0) {
         alert("이 세션에 저장된 내용이 없습니다.")
         setIsLoadingSummary(false)
         return
       }
       
-      // AI 요약 생성
-      const targetLang = Object.keys(session.translations || {})[0] || "ko"
-      const textToSummarize = (session.subtitles as Array<{original?: string, text?: string}>)
-        .map(s => s.original || s.text || "")
+      // AI 요약 생성 (번역된 텍스트 사용)
+      const textToSummarize = utterances
+        .map(s => s.translated || s.original || s.text || "")
         .join("\n")
       
       const response = await fetch("/api/gemini/summarize", {
@@ -1810,9 +1819,28 @@ function YouTubeTranslatePageContent() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {youtubeSessions.map((session) => (
+                    {/* 각 세션의 번역 언어별로 별도 항목 표시 */}
+                    {youtubeSessions.flatMap((session) => {
+                      const translationLangs = Object.keys(session.translations || {})
+                      
+                      // 번역이 있으면 각 언어별로 항목 생성
+                      if (translationLangs.length > 0) {
+                        return translationLangs.map((lang) => ({
+                          ...session,
+                          displayLang: lang,
+                          key: `${session.id}-${lang}`,
+                        }))
+                      }
+                      
+                      // 번역이 없으면 원본만 표시
+                      return [{
+                        ...session,
+                        displayLang: session.original_lang,
+                        key: session.id,
+                      }]
+                    }).map((item) => (
                       <div
-                        key={session.id}
+                        key={item.key}
                         className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                       >
                         {/* 썸네일 + 정보 */}
@@ -1820,17 +1848,17 @@ function YouTubeTranslatePageContent() {
                           {/* 썸네일 - 테두리 추가 */}
                           <div 
                             className="relative w-28 h-20 rounded-lg overflow-hidden shrink-0 bg-slate-200 cursor-pointer group border-2 border-slate-300 dark:border-slate-600"
-                            onClick={() => playFromHistory(session)}
+                            onClick={() => playFromHistoryWithLang(item, item.displayLang)}
                           >
                             <img 
-                              src={`https://img.youtube.com/vi/${session.video_id}/mqdefault.jpg`}
+                              src={`https://img.youtube.com/vi/${item.video_id}/mqdefault.jpg`}
                               alt="썸네일"
                               className="w-full h-full object-cover"
                             />
                             {/* 영상 시간 표시 */}
-                            {session.video_duration && session.video_duration > 0 && (
+                            {item.video_duration && item.video_duration > 0 && (
                               <div className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/80 text-white text-[10px] rounded">
-                                {Math.floor(session.video_duration / 60000)}:{String(Math.floor((session.video_duration % 60000) / 1000)).padStart(2, '0')}
+                                {Math.floor(item.video_duration / 60000)}:{String(Math.floor((item.video_duration % 60000) / 1000)).padStart(2, '0')}
                               </div>
                             )}
                             {/* 재생 오버레이 */}
@@ -1841,29 +1869,27 @@ function YouTubeTranslatePageContent() {
                           <div className="flex-1 min-w-0">
                             {/* 제목: video_title이 없으면 첫 번째 자막 텍스트 사용 */}
                             <h4 className="font-medium text-sm line-clamp-2">
-                              {session.video_title || 
-                               (Array.isArray(session.subtitles) && session.subtitles.length > 0 
-                                 ? ((session.subtitles[0] as {original?: string, text?: string})?.original || 
-                                    (session.subtitles[0] as {original?: string, text?: string})?.text || 
-                                    session.video_id)?.substring(0, 50) + "..."
-                                 : session.video_id)}
+                              {item.video_title || 
+                               (Array.isArray(item.subtitles) && item.subtitles.length > 0 
+                                 ? ((item.subtitles[0] as {original?: string, text?: string})?.original || 
+                                    (item.subtitles[0] as {original?: string, text?: string})?.text || 
+                                    item.video_id)?.substring(0, 50) + "..."
+                                 : item.video_id)}
                             </h4>
                             <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
                               <Calendar className="h-3 w-3" />
-                              {new Date(session.updated_at || session.created_at).toLocaleDateString("ko-KR")}
+                              {new Date(item.updated_at || item.created_at).toLocaleDateString("ko-KR")}
                               <span>•</span>
-                              <span>{Array.isArray(session.subtitles) ? session.subtitles.length : 0}문장</span>
+                              <span>{Array.isArray(item.subtitles) ? item.subtitles.length : 0}문장</span>
                             </div>
-                            {/* 원어 → 번역어 표시 */}
+                            {/* 원어 → 번역어 표시 (displayLang 사용) */}
                             <div className="flex items-center gap-1 mt-1.5">
                               <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                                {LANGUAGES.find(l => l.code === session.original_lang)?.name || session.original_lang || '자동'}
+                                {LANGUAGES.find(l => l.code === item.original_lang)?.name || item.original_lang || '자동'}
                               </span>
                               <span className="text-slate-400 text-xs">→</span>
                               <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">
-                                {Object.keys(session.translations || {}).length > 0 
-                                  ? LANGUAGES.find(l => l.code === Object.keys(session.translations)[0])?.name || Object.keys(session.translations)[0]
-                                  : '번역 없음'}
+                                {LANGUAGES.find(l => l.code === item.displayLang)?.name || item.displayLang || '원본'}
                               </span>
                             </div>
                           </div>
@@ -1873,7 +1899,7 @@ function YouTubeTranslatePageContent() {
                         <div className="flex items-center gap-2 mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
                           <Button
                             size="sm"
-                            onClick={() => playFromHistory(session)}
+                            onClick={() => playFromHistoryWithLang(item, item.displayLang)}
                             className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs h-8"
                           >
                             <Play className="h-3 w-3 mr-1" />
@@ -1881,7 +1907,7 @@ function YouTubeTranslatePageContent() {
                           </Button>
                           <Button
                             size="sm"
-                            onClick={() => viewSummaryFromHistory(session)}
+                            onClick={() => viewSummaryFromHistoryWithLang(item, item.displayLang)}
                             className="flex-1 bg-purple-500 hover:bg-purple-600 text-white text-xs h-8"
                           >
                             <Sparkles className="h-3 w-3 mr-1" />
@@ -1890,7 +1916,7 @@ function YouTubeTranslatePageContent() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => deleteSession(session.id)}
+                            onClick={() => deleteSession(item.id)}
                             className="text-red-500 hover:text-red-600 hover:bg-red-50 h-8 px-2"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
