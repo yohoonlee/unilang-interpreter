@@ -463,12 +463,20 @@ function YouTubeLivePageContent() {
     
     let translated = ""
     
-    try {
-      if (targetLang !== "none" && targetLang !== srcLang) {
+    // 동일 언어 선택 시 (영어→영어, 한국어→한국어)
+    // 번역 없이 원본을 그대로 사용 (녹색으로 표시하기 위해)
+    const isSameLanguage = targetLang === srcLang || targetLang === "none"
+    
+    if (isSameLanguage) {
+      // 동일 언어: 원본을 그대로 표시 (번역 비용 절감)
+      translated = text
+      console.log(`[동일 언어] ${LANGUAGES[srcLang] || srcLang} - 번역 없이 원본 저장`)
+    } else {
+      try {
         translated = await translateText(text, srcLang, targetLang)
+      } catch (err) {
+        console.error("번역 실패:", err)
       }
-    } catch (err) {
-      console.error("번역 실패:", err)
     }
     
     // YouTube 영상의 현재 재생 시간을 정확하게 가져옴 (ms)
@@ -1452,11 +1460,13 @@ function YouTubeLivePageContent() {
                   ⏱ {formatTime(displayedSubtitle.startTime)}
                 </p>
               )}
-              {/* 원어 */}
-              <p className="text-white text-xl md:text-2xl text-center mb-2 drop-shadow-lg">
-                {displayedSubtitle.original}
-              </p>
-              {/* 번역어 */}
+              {/* 동일 언어가 아닐 때만 원어 표시 */}
+              {displayedSubtitle.original !== displayedSubtitle.translated && (
+                <p className="text-white text-xl md:text-2xl text-center mb-2 drop-shadow-lg">
+                  {displayedSubtitle.original}
+                </p>
+              )}
+              {/* 번역어 (동일 언어일 때는 원본이 녹색으로 표시됨) */}
               {displayedSubtitle.translated && (
                 <p className="text-green-400 text-2xl md:text-3xl font-bold text-center drop-shadow-lg">
                   {displayedSubtitle.translated}
@@ -1661,11 +1671,15 @@ function YouTubeLivePageContent() {
                       </div>
                     )}
                     <div className="flex-1">
-                      <p className={`${isCurrentSync ? 'text-white' : 'text-white'} ${isLargeView ? 'text-xl leading-relaxed' : 'text-sm'}`}>
-                        {utt.original}
-                      </p>
+                      {/* 동일 언어가 아닐 때만 원본(흰색) 표시 */}
+                      {utt.original !== utt.translated && (
+                        <p className={`${isCurrentSync ? 'text-white' : 'text-white'} ${isLargeView ? 'text-xl leading-relaxed' : 'text-sm'}`}>
+                          {utt.original}
+                        </p>
+                      )}
+                      {/* 번역 (동일 언어일 때는 원본이 녹색으로 표시됨) */}
                       {utt.translated && (
-                        <p className={`mt-2 ${isCurrentSync ? 'text-green-300' : 'text-green-400'} ${isLargeView ? 'text-2xl font-bold leading-relaxed' : 'text-sm'}`}>
+                        <p className={`${utt.original !== utt.translated ? 'mt-2' : ''} ${isCurrentSync ? 'text-green-300' : 'text-green-400'} ${isLargeView ? 'text-2xl font-bold leading-relaxed' : 'text-sm'}`}>
                           {utt.translated}
                         </p>
                       )}
