@@ -262,6 +262,41 @@ function YouTubeTranslatePageContent() {
   const playFromHistory = (session: YouTubeSession) => {
     // 첫 번째 번역 언어 가져오기
     const targetLang = Object.keys(session.translations || {})[0] || "ko"
+    
+    // 캐시된 데이터를 localStorage에 저장 (새 창에서 사용)
+    const storageKey = `unilang_youtube_${session.video_id}_${session.original_lang}_${targetLang}`
+    const translatedUtterances = session.translations?.[targetLang] as Array<{
+      id: string
+      original: string
+      translated: string
+      startTime: number
+    }> || []
+    
+    // 번역본이 없으면 원본 자막 사용
+    const utterances = translatedUtterances.length > 0 
+      ? translatedUtterances 
+      : (session.subtitles as Array<{original?: string, text?: string, startTime?: number}>)?.map((s, i) => ({
+          id: `subtitle-${i}`,
+          original: s.original || s.text || "",
+          translated: s.original || s.text || "",
+          startTime: s.startTime || 0,
+        })) || []
+    
+    const sessionData = {
+      videoId: session.video_id,
+      sourceLang: session.original_lang,
+      targetLang: targetLang,
+      utterances: utterances,
+      savedAt: session.updated_at || session.created_at,
+      summary: session.summaries?.[targetLang] || "",
+      isReorganized: true,
+      videoDuration: session.video_duration || 0,
+      lastTextTime: session.last_text_time || 0,
+    }
+    
+    localStorage.setItem(storageKey, JSON.stringify(sessionData))
+    console.log("📦 캐시 데이터 저장:", storageKey, { utterances: utterances.length })
+    
     const liveUrl = `/service/translate/youtube/live?v=${session.video_id}&source=${session.original_lang}&target=${targetLang}&loadSaved=true&autostart=true`
     
     const width = Math.floor(window.screen.width * 0.9)
@@ -1778,8 +1813,9 @@ function YouTubeTranslatePageContent() {
                       >
                         {/* 썸네일 + 정보 */}
                         <div className="flex gap-3">
+                          {/* 썸네일 - 테두리 추가 */}
                           <div 
-                            className="relative w-24 h-16 rounded-lg overflow-hidden shrink-0 bg-slate-200 cursor-pointer group"
+                            className="relative w-28 h-20 rounded-lg overflow-hidden shrink-0 bg-slate-200 cursor-pointer group border-2 border-slate-300 dark:border-slate-600"
                             onClick={() => playFromHistory(session)}
                           >
                             <img 
@@ -1787,13 +1823,27 @@ function YouTubeTranslatePageContent() {
                               alt="썸네일"
                               className="w-full h-full object-cover"
                             />
+                            {/* 영상 시간 표시 */}
+                            {session.video_duration && session.video_duration > 0 && (
+                              <div className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/80 text-white text-[10px] rounded">
+                                {Math.floor(session.video_duration / 60000)}:{String(Math.floor((session.video_duration % 60000) / 1000)).padStart(2, '0')}
+                              </div>
+                            )}
                             {/* 재생 오버레이 */}
                             <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Play className="h-6 w-6 text-white" fill="white" />
+                              <Play className="h-8 w-8 text-white" fill="white" />
                             </div>
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-medium text-sm truncate">{session.video_title || session.video_id}</h4>
+                            {/* 제목: video_title이 없으면 첫 번째 자막 텍스트 사용 */}
+                            <h4 className="font-medium text-sm line-clamp-2">
+                              {session.video_title || 
+                               (Array.isArray(session.subtitles) && session.subtitles.length > 0 
+                                 ? ((session.subtitles[0] as {original?: string, text?: string})?.original || 
+                                    (session.subtitles[0] as {original?: string, text?: string})?.text || 
+                                    session.video_id)?.substring(0, 50) + "..."
+                                 : session.video_id)}
+                            </h4>
                             <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
                               <Calendar className="h-3 w-3" />
                               {new Date(session.updated_at || session.created_at).toLocaleDateString("ko-KR")}
@@ -1815,22 +1865,20 @@ function YouTubeTranslatePageContent() {
                           </div>
                         </div>
                         
-                        {/* 액션 버튼 */}
-                        <div className="flex items-center gap-1 mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                        {/* 액션 버튼 - 배경색 추가 */}
+                        <div className="flex items-center gap-2 mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
                           <Button
-                            variant="ghost"
                             size="sm"
                             onClick={() => playFromHistory(session)}
-                            className="flex-1 text-green-600 hover:text-green-700 hover:bg-green-50 text-xs h-8"
+                            className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs h-8"
                           >
                             <Play className="h-3 w-3 mr-1" />
                             다시보기
                           </Button>
                           <Button
-                            variant="ghost"
                             size="sm"
                             onClick={() => viewSummaryFromHistory(session)}
-                            className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 text-xs h-8"
+                            className="flex-1 bg-purple-500 hover:bg-purple-600 text-white text-xs h-8"
                           >
                             <Sparkles className="h-3 w-3 mr-1" />
                             요약보기
