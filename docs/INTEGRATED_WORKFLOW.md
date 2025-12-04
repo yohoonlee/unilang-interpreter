@@ -332,3 +332,4 @@ interface SavedSession {
 6. 실시간 음성인식 및 번역 표시
 ```
 
+
