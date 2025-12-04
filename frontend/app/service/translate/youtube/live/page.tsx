@@ -252,12 +252,20 @@ function YouTubeLivePageContent() {
     })
   }, [videoId, isReplayMode])
   
+  // 현재 동기화 인덱스를 ref로 관리 (closure 문제 해결)
+  const currentSyncIndexRef = useRef(currentSyncIndex)
+  useEffect(() => {
+    currentSyncIndexRef.current = currentSyncIndex
+  }, [currentSyncIndex])
+
   // 동기화 타이머 시작
   const startSyncTimer = useCallback(() => {
     if (syncIntervalRef.current) clearInterval(syncIntervalRef.current)
     
+    console.log("[동기화] 타이머 시작")
+    
     syncIntervalRef.current = setInterval(() => {
-      if (playerRef.current && isReplayMode && utterances.length > 0) {
+      if (playerRef.current && utterances.length > 0) {
         const currentTime = playerRef.current.getCurrentTime() * 1000 // ms로 변환
         setCurrentVideoTime(currentTime)
         
@@ -279,8 +287,16 @@ function YouTubeLivePageContent() {
               }
               return utt.startTime <= currentTime
             })
-            // findIndex가 -1 반환하면 첫 번째 자막 표시
-            if (newIndex === -1) newIndex = 0
+            // findIndex가 -1 반환하면 마지막으로 찾은 자막 유지 또는 첫 번째
+            if (newIndex === -1) {
+              // 마지막 자막보다 시간이 지났으면 마지막 자막 유지
+              const lastUtt = utterances[utterances.length - 1]
+              if (lastUtt && currentTime >= lastUtt.startTime) {
+                newIndex = utterances.length - 1
+              } else {
+                newIndex = 0
+              }
+            }
           }
         } else {
           // startTime이 없는 경우: 영상 길이 기준 균등 분배
@@ -299,13 +315,14 @@ function YouTubeLivePageContent() {
           }
         }
         
-        if (newIndex !== -1 && newIndex !== currentSyncIndex) {
+        // ref를 사용하여 비교 (closure 문제 해결)
+        if (newIndex !== -1 && newIndex !== currentSyncIndexRef.current) {
           setCurrentSyncIndex(newIndex)
-          console.log(`[동기화] 자막 ${newIndex + 1}/${utterances.length}`)
+          console.log(`[동기화] 자막 ${newIndex + 1}/${utterances.length}, 영상시간: ${Math.floor(currentTime/1000)}초`)
         }
       }
     }, 300) // 300ms 간격으로 동기화
-  }, [utterances, currentSyncIndex, isReplayMode])
+  }, [utterances])
   
   // 동기화 타이머 정지
   const stopSyncTimer = () => {
