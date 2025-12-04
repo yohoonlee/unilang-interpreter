@@ -100,6 +100,7 @@ function YouTubeLivePageContent() {
   const quickSummaryMode = searchParams.get("quickSummary") === "true"
   const hasSubtitles = searchParams.get("hasSubtitles") === "true"
   const realtimeMode = searchParams.get("realtimeMode") === "true"
+  const loadSaved = searchParams.get("loadSaved") === "true"
   
   const [isListening, setIsListening] = useState(false)
   const [isQuickSummaryRunning, setIsQuickSummaryRunning] = useState(false)
@@ -113,6 +114,7 @@ function YouTubeLivePageContent() {
   // 자막 모드 상태
   const [hasPreloadedSubtitles, setHasPreloadedSubtitles] = useState(hasSubtitles)
   const [isProcessingSubtitles, setIsProcessingSubtitles] = useState(false)
+  const [shouldLoadSavedSession, setShouldLoadSavedSession] = useState(loadSaved)
   
   // AI 재처리 상태
   const [isReorganizing, setIsReorganizing] = useState(false)
@@ -728,32 +730,70 @@ function YouTubeLivePageContent() {
     }
   }
 
+  // 저장된 세션 로드 함수
+  const loadSavedSession = useCallback(async () => {
+    try {
+      const savedSessionStr = sessionStorage.getItem('unilang_saved_session')
+      if (!savedSessionStr) {
+        console.error("저장된 세션 데이터를 찾을 수 없습니다")
+        setShouldLoadSavedSession(false)
+        return
+      }
+      
+      const savedSession: SavedSession = JSON.parse(savedSessionStr)
+      console.log("저장된 세션 로드됨:", savedSession)
+      
+      // sessionStorage에서 데이터 삭제 (일회성)
+      sessionStorage.removeItem('unilang_saved_session')
+      
+      // 저장된 데이터로 상태 설정
+      setUtterances(savedSession.utterances)
+      if (savedSession.summary) {
+        setSummary(savedSession.summary)
+      }
+      if (savedSession.isReorganized) {
+        setIsReorganized(true)
+      }
+      if (savedSession.videoDuration) {
+        setVideoDuration(savedSession.videoDuration)
+      }
+      
+      setHasSavedData(true)
+      setIsReplayMode(true)
+      setConnectionStatus("저장된 데이터 로드 완료 - 영상을 재생하세요")
+      
+    } catch (err) {
+      console.error("저장된 세션 로드 오류:", err)
+      setShouldLoadSavedSession(false)
+    }
+  }, [])
+
   // 자동 시작 (autostart 파라미터 처리)
   useEffect(() => {
-    if (autostart && videoId && !hasAutoStarted.current && !showReplayChoice && !hasSavedData) {
+    if (autostart && videoId && !hasAutoStarted.current && !showReplayChoice) {
       hasAutoStarted.current = true
       
-      if (hasPreloadedSubtitles) {
+      if (shouldLoadSavedSession) {
+        // 저장된 데이터 로드 (98% 이상 완성된 경우)
+        const timer = setTimeout(() => {
+          loadSavedSession()
+        }, 500)
+        return () => clearTimeout(timer)
+      } else if (hasPreloadedSubtitles) {
         // 자막이 있는 경우: 자막 처리 워크플로우 시작
         const timer = setTimeout(() => {
           processPreloadedSubtitles()
         }, 1000)
         return () => clearTimeout(timer)
-      } else if (realtimeMode) {
-        // 실시간 통역 모드
-        const timer = setTimeout(() => {
-          startCapture()
-        }, 1000)
-        return () => clearTimeout(timer)
-      } else {
-        // 기본: 실시간 캡처 시작
+      } else if (realtimeMode || !hasSavedData) {
+        // 실시간 통역 모드 또는 저장된 데이터 없음
         const timer = setTimeout(() => {
           startCapture()
         }, 1000)
         return () => clearTimeout(timer)
       }
     }
-  }, [autostart, videoId, showReplayChoice, hasPreloadedSubtitles, realtimeMode, processPreloadedSubtitles])
+  }, [autostart, videoId, showReplayChoice, shouldLoadSavedSession, hasPreloadedSubtitles, realtimeMode, hasSavedData, loadSavedSession, processPreloadedSubtitles])
 
   // 자동 스크롤 (실시간 모드: 최신으로, 재생 모드: 현재 자막으로)
   useEffect(() => {

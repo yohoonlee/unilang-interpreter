@@ -88,6 +88,27 @@ interface YouTubeSession {
   total_utterances: number
 }
 
+// 저장된 세션 데이터 (LocalStorage)
+interface SavedUtterance {
+  id: string
+  original: string
+  translated: string
+  timestamp: Date | string
+  startTime: number
+}
+
+interface SavedSession {
+  videoId: string
+  sourceLang: string
+  targetLang: string
+  utterances: SavedUtterance[]
+  savedAt: string
+  summary?: string
+  isReorganized?: boolean
+  videoDuration?: number
+  lastTextTime?: number
+}
+
 export default function YouTubeTranslatePage() {
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center">로딩 중...</div>}>
@@ -427,6 +448,42 @@ function YouTubeTranslatePageContent() {
     setResult(null)
   }
 
+  // 저장된 데이터 키 생성
+  const getStorageKey = (vid: string) => `unilang_youtube_${vid}_${sourceLanguage}_${targetLanguage}`
+  
+  // 기존 저장 데이터 확인 및 완성도 체크
+  const checkExistingSavedData = (vid: string): { exists: boolean; coverage: number; data: SavedSession | null } => {
+    try {
+      const key = getStorageKey(vid)
+      const saved = localStorage.getItem(key)
+      if (!saved) return { exists: false, coverage: 0, data: null }
+      
+      const data: SavedSession = JSON.parse(saved)
+      if (!data.utterances || data.utterances.length === 0) {
+        return { exists: false, coverage: 0, data: null }
+      }
+      
+      // 완성도 계산: 마지막 자막 시간 / 영상 총 시간
+      const lastTextTime = data.lastTextTime || 0
+      const videoDuration = data.videoDuration || 0
+      
+      if (videoDuration > 0 && lastTextTime > 0) {
+        const coverage = (lastTextTime / videoDuration) * 100
+        return { exists: true, coverage, data }
+      }
+      
+      // 영상 길이 정보가 없으면 자막 개수로 판단 (100개 이상이면 완성으로 간주)
+      if (data.utterances.length >= 100) {
+        return { exists: true, coverage: 100, data }
+      }
+      
+      return { exists: true, coverage: 50, data } // 기본값
+    } catch (err) {
+      console.error("저장 데이터 확인 오류:", err)
+      return { exists: false, coverage: 0, data: null }
+    }
+  }
+
   // 통합 실시간 통역 시작 - 자막 있으면 추출 후 플레이, 없으면 실시간 통역
   const startIntegratedLiveMode = async () => {
     if (!videoId) {
@@ -437,9 +494,41 @@ function YouTubeTranslatePageContent() {
     setError(null)
     setIsProcessing(true)
     setProgress(0)
-    setProgressText("자막 확인 중...")
+    setProgressText("기존 데이터 확인 중...")
+
+    // 팝업 창 설정
+    const width = Math.floor(window.screen.width * 0.9)
+    const height = Math.floor(window.screen.height * 0.9)
+    const left = Math.floor((window.screen.width - width) / 2)
+    const top = Math.floor((window.screen.height - height) / 2)
 
     try {
+      // 0단계: 기존 저장 데이터 확인 (98% 이상이면 바로 재생)
+      setProgress(5)
+      const { exists, coverage, data: savedData } = checkExistingSavedData(videoId)
+      
+      if (exists && coverage >= 98 && savedData) {
+        setProgress(100)
+        setProgressText(`기존 데이터 발견! (${coverage.toFixed(1)}% 완성) 바로 재생합니다...`)
+        
+        // 기존 데이터를 sessionStorage에 저장하고 바로 재생 모드로
+        sessionStorage.setItem('unilang_saved_session', JSON.stringify(savedData))
+        
+        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true`
+        
+        const liveWindow = window.open(
+          liveUrl,
+          "unilang_live",
+          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+        )
+        
+        if (!liveWindow) {
+          window.open(liveUrl, "_blank")
+        }
+        
+        return
+      }
+      
       // 1단계: 자막 추출 시도
       setProgress(10)
       setProgressText("YouTube 자막 추출 시도 중...")
@@ -454,12 +543,6 @@ function YouTubeTranslatePageContent() {
       })
 
       const data = await response.json()
-      
-      // 팝업 창 설정
-      const width = Math.floor(window.screen.width * 0.9)
-      const height = Math.floor(window.screen.height * 0.9)
-      const left = Math.floor((window.screen.width - width) / 2)
-      const top = Math.floor((window.screen.height - height) / 2)
       
       if (data.success && data.utterances?.length > 0) {
         // 자막이 있는 경우: 자막 데이터와 함께 플레이어 열기
@@ -520,11 +603,6 @@ function YouTubeTranslatePageContent() {
       console.error("통합 워크플로우 오류:", err)
       // 에러 발생 시에도 실시간 통역 모드로 전환
       setProgressText("자막 추출 실패 - 실시간 통역 모드로 전환...")
-      
-      const width = Math.floor(window.screen.width * 0.9)
-      const height = Math.floor(window.screen.height * 0.9)
-      const left = Math.floor((window.screen.width - width) / 2)
-      const top = Math.floor((window.screen.height - height) / 2)
       
       const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true&realtimeMode=true`
       
