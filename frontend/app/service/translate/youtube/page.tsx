@@ -484,6 +484,55 @@ function YouTubeTranslatePageContent() {
     }
   }
 
+  // 번역 함수
+  const translateTextForWorkflow = async (text: string, from: string, to: string): Promise<string> => {
+    if (from === to || to === "none") return text
+    try {
+      const response = await fetch("/api/gemini/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, sourceLang: from, targetLang: to }),
+      })
+      if (!response.ok) return text
+      const data = await response.json()
+      return data.translatedText || text
+    } catch {
+      return text
+    }
+  }
+
+  // AI 재처리 함수
+  const reorganizeTextForWorkflow = async (text: string, language: string): Promise<string> => {
+    try {
+      const response = await fetch("/api/ai/reorganize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, language }),
+      })
+      if (!response.ok) return text
+      const data = await response.json()
+      return data.reorganizedText || text
+    } catch {
+      return text
+    }
+  }
+
+  // 요약 생성 함수
+  const summarizeTextForWorkflow = async (text: string, language: string): Promise<string> => {
+    try {
+      const response = await fetch("/api/ai/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, language }),
+      })
+      if (!response.ok) return ""
+      const data = await response.json()
+      return data.summary || ""
+    } catch {
+      return ""
+    }
+  }
+
   // 통합 실시간 통역 시작 - 자막 있으면 추출 후 플레이, 없으면 실시간 통역
   const startIntegratedLiveMode = async () => {
     if (!videoId) {
@@ -545,26 +594,104 @@ function YouTubeTranslatePageContent() {
       const data = await response.json()
       
       if (data.success && data.utterances?.length > 0) {
-        // 자막이 있는 경우: 자막 데이터와 함께 플레이어 열기
-        setProgress(50)
-        setProgressText("자막 발견! 처리 중...")
+        // ============================================
+        // 자막이 있는 경우: 메인 페이지에서 모든 처리 완료 후 재생
+        // ============================================
         
-        // 자막 데이터를 sessionStorage에 저장 (URL로 전달하기에는 너무 큼)
-        const subtitleData = {
-          videoId: data.videoId,
-          language: data.language,
-          utterances: data.utterances,
-          text: data.text,
-          duration: data.duration,
-          hasSubtitles: true,
+        // 2단계: 자막을 Utterance 형식으로 변환
+        setProgress(20)
+        setProgressText("자막 변환 중...")
+        
+        const convertedUtterances: SavedUtterance[] = data.utterances.map((item: { start: number; text: string }, index: number) => ({
+          id: `subtitle-${index}`,
+          original: item.text,
+          translated: "",
+          timestamp: new Date().toISOString(),
+          startTime: Math.floor(item.start * 1000), // 초 → ms
+        }))
+        
+        // 3단계: 번역 수행
+        if (targetLanguage !== "none" && targetLanguage !== sourceLanguage) {
+          setProgress(30)
+          let translatedCount = 0
+          
+          for (const utterance of convertedUtterances) {
+            try {
+              const translated = await translateTextForWorkflow(
+                utterance.original, 
+                data.language || sourceLanguage, 
+                targetLanguage
+              )
+              utterance.translated = translated
+              translatedCount++
+              const progressValue = 30 + Math.floor((translatedCount / convertedUtterances.length) * 30)
+              setProgress(progressValue)
+              setProgressText(`번역 중... (${translatedCount}/${convertedUtterances.length})`)
+            } catch (err) {
+              console.error("번역 오류:", err)
+              utterance.translated = utterance.original
+            }
+          }
+        } else {
+          // 번역이 필요없으면 원본을 translated에도 복사
+          convertedUtterances.forEach(u => { u.translated = u.original })
         }
-        sessionStorage.setItem('unilang_subtitle_data', JSON.stringify(subtitleData))
         
+        // 4단계: AI 재처리
+        setProgress(65)
+        setProgressText("AI 재정리 중...")
+        
+        const textToReorganize = convertedUtterances.map(u => u.translated).join("\n")
+        const reorganizedText = await reorganizeTextForWorkflow(textToReorganize, targetLanguage)
+        
+        // 재정리된 텍스트를 utterances에 반영
+        if (reorganizedText) {
+          const lines = reorganizedText.split("\n").filter((l: string) => l.trim())
+          lines.forEach((line: string, index: number) => {
+            if (convertedUtterances[index]) {
+              convertedUtterances[index].translated = line
+            }
+          })
+        }
+        
+        // 5단계: 요약 생성
         setProgress(80)
+        setProgressText("요약 생성 중...")
+        
+        const textToSummarize = convertedUtterances.map(u => u.translated).join("\n")
+        const summary = await summarizeTextForWorkflow(textToSummarize, targetLanguage)
+        
+        // 6단계: 저장
+        setProgress(90)
+        setProgressText("저장 중...")
+        
+        const videoDuration = data.duration ? data.duration * 1000 : 0
+        const lastTextTime = convertedUtterances.length > 0 
+          ? convertedUtterances[convertedUtterances.length - 1].startTime 
+          : 0
+        
+        const sessionData: SavedSession = {
+          videoId: videoId,
+          sourceLang: sourceLanguage,
+          targetLang: targetLanguage,
+          utterances: convertedUtterances,
+          savedAt: new Date().toISOString(),
+          summary: summary,
+          isReorganized: true,
+          videoDuration: videoDuration,
+          lastTextTime: lastTextTime,
+        }
+        
+        // LocalStorage에 저장
+        localStorage.setItem(getStorageKey(videoId), JSON.stringify(sessionData))
+        
+        // 7단계: 플레이어 열기 (저장된 데이터로)
+        setProgress(95)
         setProgressText("플레이어 열기...")
         
-        // 자막 있음 모드로 live 페이지 열기
-        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&hasSubtitles=true&autostart=true`
+        sessionStorage.setItem('unilang_saved_session', JSON.stringify(sessionData))
+        
+        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true`
         
         const liveWindow = window.open(
           liveUrl,
@@ -578,6 +705,7 @@ function YouTubeTranslatePageContent() {
         
         setProgress(100)
         setProgressText("완료!")
+        
       } else {
         // 자막이 없는 경우: 실시간 통역 모드로 전환
         setProgress(50)
