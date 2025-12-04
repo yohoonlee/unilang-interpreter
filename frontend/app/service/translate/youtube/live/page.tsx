@@ -773,8 +773,14 @@ function YouTubeLivePageContent() {
         startTime: u.startTime || 0,
       }))
       
-      console.log("변환된 utterances:", convertedUtterances.length, "개")
-      console.log("첫 번째 utterance:", convertedUtterances[0])
+      console.log("📥 변환된 utterances:", convertedUtterances.length, "개")
+      console.log("📥 첫 번째 utterance:", convertedUtterances[0])
+      console.log("📥 번역 샘플:", convertedUtterances.slice(0, 3).map(u => ({
+        original: u.original?.substring(0, 30),
+        translated: u.translated?.substring(0, 30),
+        startTime: u.startTime
+      })))
+      console.log("📥 summary:", savedSession.summary?.substring(0, 100))
       
       // 저장된 데이터로 상태 설정
       setUtterances(convertedUtterances)

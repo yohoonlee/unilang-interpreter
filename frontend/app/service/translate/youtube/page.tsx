@@ -659,21 +659,37 @@ function YouTubeTranslatePageContent() {
           convertedUtterances.forEach(u => { u.translated = u.original })
         }
         
-        // 4단계: AI 재처리
+        // 4단계: AI 재처리 (선택적 - 번역 결과를 다듬음)
         setProgress(65)
         setProgressText("AI 재정리 중...")
         
-        const textToReorganize = convertedUtterances.map(u => u.translated).join("\n")
-        const reorganizedText = await reorganizeTextForWorkflow(textToReorganize, targetLanguage)
+        // 번역된 텍스트 백업
+        const translatedBackup = convertedUtterances.map(u => u.translated)
+        console.log("🔄 AI 재처리 전 번역 백업:", translatedBackup.slice(0, 3))
         
-        // 재정리된 텍스트를 utterances에 반영
-        if (reorganizedText) {
-          const lines = reorganizedText.split("\n").filter((l: string) => l.trim())
-          lines.forEach((line: string, index: number) => {
-            if (convertedUtterances[index]) {
-              convertedUtterances[index].translated = line
+        try {
+          const textToReorganize = convertedUtterances.map(u => u.translated).join("\n")
+          const reorganizedText = await reorganizeTextForWorkflow(textToReorganize, targetLanguage)
+          
+          // 재정리된 텍스트를 utterances에 반영 (줄 수가 맞을 때만)
+          if (reorganizedText) {
+            const lines = reorganizedText.split("\n").filter((l: string) => l.trim())
+            console.log("📝 재처리 결과 줄 수:", lines.length, "/ 원본:", convertedUtterances.length)
+            
+            // 줄 수가 비슷할 때만 적용 (±10%)
+            if (lines.length >= convertedUtterances.length * 0.9 && lines.length <= convertedUtterances.length * 1.1) {
+              lines.forEach((line: string, index: number) => {
+                if (convertedUtterances[index]) {
+                  convertedUtterances[index].translated = line
+                }
+              })
+              console.log("✅ AI 재처리 적용됨")
+            } else {
+              console.log("⚠️ 줄 수 불일치로 재처리 건너뜀, 원본 번역 유지")
             }
-          })
+          }
+        } catch (err) {
+          console.error("AI 재처리 오류, 원본 번역 유지:", err)
         }
         
         // 5단계: 요약 생성
@@ -703,6 +719,16 @@ function YouTubeTranslatePageContent() {
           videoDuration: videoDuration,
           lastTextTime: lastTextTime,
         }
+        
+        // 디버그: 저장 전 데이터 확인
+        console.log("💾 저장할 데이터:")
+        console.log("- utterances 수:", convertedUtterances.length)
+        console.log("- 첫 번째:", convertedUtterances[0])
+        console.log("- summary 길이:", summary?.length || 0)
+        console.log("- translated 샘플:", convertedUtterances.slice(0, 3).map(u => ({
+          original: u.original?.substring(0, 30),
+          translated: u.translated?.substring(0, 30)
+        })))
         
         // LocalStorage에 저장
         localStorage.setItem(getStorageKey(videoId), JSON.stringify(sessionData))
