@@ -268,13 +268,20 @@ function YouTubeLivePageContent() {
         
         if (hasValidStartTime) {
           // 원본 startTime 기반 동기화
-          newIndex = utterances.findIndex((utt, idx) => {
-            const nextUtt = utterances[idx + 1]
-            if (nextUtt) {
-              return utt.startTime <= currentTime && currentTime < nextUtt.startTime
-            }
-            return utt.startTime <= currentTime
-          })
+          // 영상 시간이 첫 번째 자막 시간보다 작으면 첫 번째 자막 표시
+          if (currentTime < (utterances[0]?.startTime || 0)) {
+            newIndex = 0
+          } else {
+            newIndex = utterances.findIndex((utt, idx) => {
+              const nextUtt = utterances[idx + 1]
+              if (nextUtt) {
+                return utt.startTime <= currentTime && currentTime < nextUtt.startTime
+              }
+              return utt.startTime <= currentTime
+            })
+            // findIndex가 -1 반환하면 첫 번째 자막 표시
+            if (newIndex === -1) newIndex = 0
+          }
         } else {
           // startTime이 없는 경우: 영상 길이 기준 균등 분배
           try {
@@ -937,19 +944,16 @@ function YouTubeLivePageContent() {
       }
       setShowReplayChoice(false)
       setIsReplayMode(true)
-      setCurrentSyncIndex(-1)
+      setCurrentSyncIndex(0)  // 첫 번째 자막부터 시작
       
       // YouTube 플레이어가 준비되면 영상 재생 및 동기화 시작
       const startPlaybackWithSync = () => {
         if (playerRef.current && isPlayerReady) {
-          // 첫 번째 자막 시간으로 이동 (startTime이 있는 경우)
-          const firstStartTime = loadedUtterances[0]?.startTime || 0
-          if (firstStartTime > 0) {
-            playerRef.current.seekTo(firstStartTime / 1000, true)
-          }
+          // 영상을 처음(0초)부터 시작
+          playerRef.current.seekTo(0, true)
           playerRef.current.playVideo()
           startSyncTimer()
-          console.log("[동기화] 재생 및 동기화 시작")
+          console.log("[동기화] 영상 처음부터 재생 및 동기화 시작")
         } else {
           // 플레이어가 아직 준비되지 않았으면 재시도
           setTimeout(startPlaybackWithSync, 500)
