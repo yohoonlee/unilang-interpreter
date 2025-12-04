@@ -1,14 +1,100 @@
 # 인프라 설정 가이드
 
 ## 목차
-1. [Railway 배포 (자막 서버)](#1-railway-배포-자막-서버)
-2. [Webshare 프록시 설정](#2-webshare-프록시-설정)
-3. [Vercel 배포 (프론트엔드)](#3-vercel-배포-프론트엔드)
-4. [환경 변수 설정](#4-환경-변수-설정)
+1. [서비스 아키텍처](#1-서비스-아키텍처)
+2. [Railway 배포 (자막 서버)](#2-railway-배포-자막-서버)
+3. [Webshare 프록시 설정](#3-webshare-프록시-설정)
+4. [Vercel 배포 (프론트엔드)](#4-vercel-배포-프론트엔드)
+5. [환경 변수 설정](#5-환경-변수-설정)
 
 ---
 
-## 1. Railway 배포 (자막 서버)
+## 1. 서비스 아키텍처
+
+### 전체 시스템 구조
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           UniLang 서비스 아키텍처                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                        [YouTube 자막 모드]                              │ │
+│  │                                                                         │ │
+│  │  ┌──────────┐    ┌──────────────┐    ┌──────────────────────┐          │ │
+│  │  │ YouTube  │───▶│   Railway    │───▶│  Google Cloud        │          │ │
+│  │  │  영상    │    │ (자막 추출)   │    │  Translation API     │          │ │
+│  │  │          │    │              │    │                      │          │ │
+│  │  └──────────┘    │  + Webshare  │    │ (GOOGLE_API_KEY)     │          │ │
+│  │                  │  (프록시)     │    └──────────────────────┘          │ │
+│  │                  └──────────────┘              │                        │ │
+│  │                         │                      ▼                        │ │
+│  │                         │              ┌──────────────┐                 │ │
+│  │                         │              │   번역된     │                 │ │
+│  │                         └─────────────▶│   자막 표시  │                 │ │
+│  │                                        │   + 영상싱크 │                 │ │
+│  │                                        └──────────────┘                 │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                       [실시간 통역 모드]                                 │ │
+│  │                                                                         │ │
+│  │  ┌──────────┐    ┌──────────────┐    ┌──────────────────────┐          │ │
+│  │  │ 마이크/  │───▶│   Deepgram   │───▶│  Google Cloud        │          │ │
+│  │  │ 시스템   │    │   (STT)      │    │  Translation API     │          │ │
+│  │  │ 오디오   │    │              │    │                      │          │ │
+│  │  └──────────┘    │ WebSocket    │    │ (GOOGLE_API_KEY)     │          │ │
+│  │                  └──────────────┘    └──────────────────────┘          │ │
+│  │                         │                      │                        │ │
+│  │                         │                      ▼                        │ │
+│  │                         │              ┌──────────────┐                 │ │
+│  │                         │              │   실시간     │                 │ │
+│  │                         └─────────────▶│   자막 표시  │                 │ │
+│  │                                        │   + 번역    │                 │ │
+│  │                                        └──────────────┘                 │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                          [데이터 저장]                                  │ │
+│  │                                                                         │ │
+│  │  ┌──────────────┐              ┌──────────────────────┐                │ │
+│  │  │ LocalStorage │◀────────────▶│      Supabase        │                │ │
+│  │  │  (즉시저장)  │              │   (영구 저장/공유)    │                │ │
+│  │  └──────────────┘              └──────────────────────┘                │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 각 서비스 역할
+
+| 서비스 | 역할 | API 키 | 비용 |
+|--------|------|--------|------|
+| **Railway** | YouTube 자막 추출 서버 호스팅 | `SUBTITLE_API_URL` | 무료~$5/월 |
+| **Webshare** | YouTube IP 차단 우회 프록시 | Railway에 설정 | $3.50/월 |
+| **Deepgram** | 실시간 음성→텍스트 (STT) | `DEEPGRAM_API_KEY` | 종량제 |
+| **Google Cloud Translation** | 텍스트 번역 | `GOOGLE_API_KEY` | 종량제 |
+| **Supabase** | 데이터베이스 + 인증 | `SUPABASE_*` | 무료~$25/월 |
+| **Vercel** | Next.js 프론트엔드 호스팅 | - | 무료~$20/월 |
+
+### 데이터 흐름
+
+```
+[사용자] ──▶ [Vercel 프론트엔드]
+                    │
+                    ├──▶ [Railway] ──▶ [YouTube] (자막 추출)
+                    │         │
+                    │         └──▶ [Webshare] (프록시)
+                    │
+                    ├──▶ [Deepgram] (실시간 STT)
+                    │
+                    ├──▶ [Google Cloud Translation] (번역)
+                    │
+                    └──▶ [Supabase] (저장/조회)
+```
+
+---
+
+## 2. Railway 배포 (자막 서버)
 
 ### 개요
 YouTube 자막 추출을 위한 Python FastAPI 서버를 Railway에 배포합니다.
@@ -84,7 +170,7 @@ python-3.11.6
 
 ---
 
-## 2. Webshare 프록시 설정
+## 3. Webshare 프록시 설정
 
 ### 개요
 YouTube는 서버 IP를 차단하므로, 주거용(Residential) 프록시가 필요합니다.
@@ -130,7 +216,7 @@ transcript = YouTubeTranscriptApi.get_transcript(
 
 ---
 
-## 3. Vercel 배포 (프론트엔드)
+## 4. Vercel 배포 (프론트엔드)
 
 ### 개요
 Next.js 프론트엔드를 Vercel에 배포합니다.
@@ -151,9 +237,12 @@ NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbG...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbG...
 
-# AI APIs
-GEMINI_API_KEY=AIza...
-DEEPGRAM_API_KEY=...
+# Google APIs
+GOOGLE_API_KEY=AIza...              # Google Cloud Translation API
+NEXT_PUBLIC_GOOGLE_API_KEY=AIza...  # 클라이언트 측 사용
+
+# 음성 인식 API
+DEEPGRAM_API_KEY=...                # Deepgram STT
 
 # 자막 서버 (Railway)
 SUBTITLE_API_URL=https://subtitle-server-xxx.railway.app
@@ -169,7 +258,7 @@ NAVER_CLIENT_SECRET=...
 
 ---
 
-## 4. 환경 변수 설정
+## 5. 환경 변수 설정
 
 ### Railway (subtitle-server)
 | 변수명 | 설명 | 예시 |
@@ -183,8 +272,9 @@ NAVER_CLIENT_SECRET=...
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase URL | ✅ |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase Anonymous Key | ✅ |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase Service Role Key | ✅ |
-| `GEMINI_API_KEY` | Google Gemini API Key | ✅ |
-| `DEEPGRAM_API_KEY` | Deepgram API Key | ✅ |
+| `GOOGLE_API_KEY` | Google Cloud Translation API Key | ✅ |
+| `NEXT_PUBLIC_GOOGLE_API_KEY` | Google API (클라이언트) | ✅ |
+| `DEEPGRAM_API_KEY` | Deepgram STT API Key | ✅ |
 | `SUBTITLE_API_URL` | Railway 자막 서버 URL | ✅ |
 | `NAVER_CLIENT_ID` | 네이버 OAuth Client ID | ❌ |
 | `NAVER_CLIENT_SECRET` | 네이버 OAuth Secret | ❌ |

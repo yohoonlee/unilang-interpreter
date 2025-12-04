@@ -140,8 +140,60 @@ YouTube 자막 추출 (Railway 서버 프록시)
 
 ---
 
-### POST /api/ai/reorganize
-AI 텍스트 재정리 (Gemini)
+### GET /api/deepgram/token
+Deepgram API 토큰 발급
+
+**응답:**
+```json
+{
+  "key": "temporary_api_key"
+}
+```
+
+---
+
+### POST /api/gemini/translate
+Google Cloud Translation API를 사용한 번역
+
+**요청:**
+```json
+{
+  "text": "번역할 텍스트",
+  "sourceLang": "en",      // 원본 언어 (생략 시 자동 감지)
+  "targetLang": "ko"       // 대상 언어 (필수)
+}
+```
+
+**응답:**
+```json
+{
+  "translatedText": "번역된 텍스트"
+}
+```
+
+**에러 응답:**
+```json
+{
+  "error": "GOOGLE_API_KEY not configured",
+  "translatedText": ""
+}
+```
+
+**지원 언어 코드:**
+| 코드 | 언어 | 코드 | 언어 |
+|------|------|------|------|
+| `ko` | 한국어 | `th` | 태국어 |
+| `en` | 영어 | `vi` | 베트남어 |
+| `ja` | 일본어 | `ru` | 러시아어 |
+| `zh` | 중국어(간체) | `pt` | 포르투갈어 |
+| `zh-TW` | 중국어(번체) | `ar` | 아랍어 |
+| `es` | 스페인어 | `de` | 독일어 |
+| `fr` | 프랑스어 | | |
+
+---
+
+### POST /api/gemini/reorganize
+AI 텍스트 재정리 (Google AI)
 
 **요청:**
 ```json
@@ -160,8 +212,8 @@ AI 텍스트 재정리 (Gemini)
 
 ---
 
-### POST /api/ai/summarize
-AI 요약 생성 (Gemini)
+### POST /api/gemini/summarize
+AI 요약 생성 (Google AI)
 
 **요청:**
 ```json
@@ -180,50 +232,25 @@ AI 요약 생성 (Gemini)
 
 ---
 
-### GET /api/deepgram/token
-Deepgram API 토큰 발급
-
-**응답:**
-```json
-{
-  "key": "temporary_api_key"
-}
-```
-
----
-
-### POST /api/gemini/translate
-Google Gemini 번역
-
-**요청:**
-```json
-{
-  "text": "번역할 텍스트",
-  "sourceLang": "en",
-  "targetLang": "ko"
-}
-```
-
-**응답:**
-```json
-{
-  "translatedText": "번역된 텍스트"
-}
-```
-
----
-
 ## 3. 외부 API 연동
 
 ### Deepgram (실시간 음성인식)
 - **용도**: 시스템 오디오 캡처 모드에서 실시간 음성→텍스트 변환
+- **API 키**: `DEEPGRAM_API_KEY`
 - **문서**: https://developers.deepgram.com/
 - **사용 위치**: `frontend/app/service/translate/youtube/live/page.tsx`
 
-### Google Gemini (AI 처리)
-- **용도**: 텍스트 재정리, 요약, 번역
+### Google Cloud Translation (번역)
+- **용도**: 텍스트 번역 (다국어 지원)
+- **API 키**: `GOOGLE_API_KEY`, `NEXT_PUBLIC_GOOGLE_API_KEY`
+- **문서**: https://cloud.google.com/translate/docs
+- **사용 위치**: `frontend/app/api/gemini/translate/route.ts`
+
+### Google AI (Gemini - AI 처리)
+- **용도**: 텍스트 재정리, 요약
+- **API 키**: `GOOGLE_API_KEY` (동일)
 - **문서**: https://ai.google.dev/
-- **사용 위치**: `frontend/app/api/gemini/`
+- **사용 위치**: `frontend/app/api/gemini/reorganize/`, `frontend/app/api/gemini/summarize/`
 
 ### Supabase (데이터베이스)
 - **용도**: 사용자 인증, 번역 세션 저장, 히스토리 관리

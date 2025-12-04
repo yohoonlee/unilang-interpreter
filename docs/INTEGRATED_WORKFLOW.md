@@ -159,10 +159,16 @@ for (const utterance of utterances) {
 | `ko` | 한국어 |
 | `en` | English |
 | `ja` | 日本語 |
-| `zh` | 中文 |
+| `zh` | 中文 (간체) |
+| `zh-TW` | 中文 (번체) |
+| `th` | ภาษาไทย |
+| `vi` | Tiếng Việt |
 | `es` | Español |
 | `fr` | Français |
 | `de` | Deutsch |
+| `ru` | Русский |
+| `pt` | Português |
+| `ar` | العربية |
 
 ---
 
@@ -267,6 +273,156 @@ await supabase.from('translation_sessions').upsert({
 
 ---
 
+## 다국어 캐싱 시스템 (계획)
+
+### 개요
+
+동일한 영상에 대해 여러 사용자가 다른 언어로 번역을 요청할 때, 이미 번역된 언어는 캐시에서 제공합니다.
+
+### 캐싱 전략
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    다국어 캐싱 워크플로우                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  [사용자 A] 영어 영상 → 한국어 번역 요청                           │
+│       │                                                          │
+│       ▼                                                          │
+│  ┌──────────────────┐                                            │
+│  │ 1. 캐시 확인     │──▶ 한국어 번역본 없음                        │
+│  └──────────────────┘                                            │
+│       │                                                          │
+│       ▼                                                          │
+│  ┌──────────────────┐                                            │
+│  │ 2. 번역 수행     │──▶ Google Cloud Translation                 │
+│  └──────────────────┘                                            │
+│       │                                                          │
+│       ▼                                                          │
+│  ┌──────────────────┐                                            │
+│  │ 3. 캐시 저장     │──▶ LocalStorage + Supabase                  │
+│  └──────────────────┘                                            │
+│       │                                                          │
+│       ▼                                                          │
+│  ┌──────────────────┐                                            │
+│  │ 4. 백그라운드    │──▶ 중국어, 태국어 등 추가 번역 (선택적)       │
+│  │    멀티 번역     │    스레드 처리로 비동기 저장                  │
+│  └──────────────────┘                                            │
+│                                                                  │
+│  ─────────────────────────────────────────────────────────────── │
+│                                                                  │
+│  [사용자 B] 같은 영상 → 중국어 번역 요청                           │
+│       │                                                          │
+│       ▼                                                          │
+│  ┌──────────────────┐                                            │
+│  │ 1. 캐시 확인     │──▶ 중국어 번역본 있음! ✅                    │
+│  └──────────────────┘                                            │
+│       │                                                          │
+│       ▼                                                          │
+│  ┌──────────────────┐                                            │
+│  │ 2. 캐시 로드     │──▶ 번역 스킵, 바로 재생                      │
+│  └──────────────────┘                                            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 캐시 규칙
+
+| 시나리오 | 동작 |
+|----------|------|
+| 요청 언어의 기존 자막 존재 | 번역 스킵, 기존 자막 사용 |
+| 요청 언어의 캐시 번역 존재 | 캐시에서 로드, 바로 재생 |
+| 새 언어 번역 요청 | 번역 수행 후 캐시 저장 |
+| 첫 번역 완료 시 | 백그라운드에서 주요 언어 추가 번역 |
+
+### 데이터베이스 구조 (Supabase)
+
+```sql
+-- 영상별 다국어 자막 캐시 테이블
+CREATE TABLE video_subtitles_cache (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  video_id VARCHAR NOT NULL,              -- YouTube 비디오 ID
+  original_lang VARCHAR NOT NULL,         -- 원본 언어 (en, ko, etc.)
+  subtitles JSONB NOT NULL,               -- 원본 자막 데이터
+  translations JSONB DEFAULT '{}',        -- {ko: [...], zh: [...], th: [...]}
+  video_duration INTEGER,                 -- 영상 길이 (ms)
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  
+  UNIQUE(video_id)
+);
+
+-- 번역본 추가 예시
+UPDATE video_subtitles_cache 
+SET translations = translations || '{"ko": [...]}'::jsonb,
+    updated_at = NOW()
+WHERE video_id = 'xxx';
+```
+
+### API 구조
+
+```typescript
+// 캐시 확인 API
+GET /api/cache/subtitle?videoId=xxx&lang=ko
+
+// 응답
+{
+  "exists": true,
+  "cached": true,           // 캐시에서 가져옴
+  "utterances": [...],
+  "summary": "...",
+  "cachedAt": "2024-12-04T..."
+}
+
+// 캐시 저장 API (백그라운드)
+POST /api/cache/subtitle
+{
+  "videoId": "xxx",
+  "lang": "ko",
+  "utterances": [...],
+  "summary": "..."
+}
+```
+
+### 백그라운드 멀티 번역
+
+```typescript
+// 첫 번역 완료 후 백그라운드에서 추가 언어 번역
+async function backgroundMultiTranslate(
+  videoId: string,
+  originalLang: string,
+  originalUtterances: Utterance[],
+  primaryLang: string  // 이미 번역된 언어
+) {
+  // 추가 번역 대상 언어 (우선순위)
+  const additionalLangs = ['zh', 'th', 'ja', 'es', 'vi']
+    .filter(lang => lang !== primaryLang && lang !== originalLang)
+  
+  // 순차적으로 번역 (API 제한 고려)
+  for (const targetLang of additionalLangs) {
+    try {
+      const translated = await translateAllUtterances(
+        originalUtterances,
+        originalLang,
+        targetLang
+      )
+      
+      // Supabase에 저장
+      await saveToCache(videoId, targetLang, translated)
+      
+      console.log(`✅ 백그라운드 번역 완료: ${targetLang}`)
+    } catch (error) {
+      console.error(`❌ 백그라운드 번역 실패: ${targetLang}`, error)
+    }
+    
+    // API 제한 방지 (1초 대기)
+    await new Promise(resolve => setTimeout(resolve, 1000))
+  }
+}
+```
+
+---
+
 ## 저장 데이터 구조
 
 ```typescript
@@ -286,6 +442,19 @@ interface SavedSession {
   isReorganized?: boolean // AI 재처리 여부
   videoDuration?: number  // 영상 총 시간 (ms)
   lastTextTime?: number   // 마지막 자막 시간 (ms)
+}
+
+// 다국어 캐시 데이터 구조
+interface VideoSubtitleCache {
+  videoId: string
+  originalLang: string
+  subtitles: Utterance[]         // 원본 자막
+  translations: {                 // 언어별 번역본
+    [langCode: string]: Utterance[]
+  }
+  videoDuration?: number
+  createdAt: string
+  updatedAt: string
 }
 ```
 
