@@ -748,23 +748,43 @@ function YouTubeLivePageContent() {
         }
       }
 
-      // 2. 자기 데이터가 없으면 다른 유저의 공유 데이터 검색 (같은 언어)
+      // 2. 자기 데이터가 없으면 AI 재정리본 우선 검색 (같은 언어)
       if (!session) {
-        const { data: sharedSession } = await supabase
+        // 먼저 AI 재정리본 검색 (제목에 [AI 재정리] 포함)
+        const { data: reorgSession } = await supabase
           .from("translation_sessions")
-          .select("id, youtube_title, user_id, total_utterances, source_language, target_languages")
+          .select("id, youtube_title, user_id, total_utterances, source_language, target_languages, title")
           .eq("youtube_video_id", videoId)
           .eq("source_language", sourceLang === "auto" ? "en" : sourceLang)
           .contains("target_languages", [targetLang])
           .eq("status", "completed")
+          .ilike("title", "%[AI 재정리]%")
           .order("total_utterances", { ascending: false })
           .limit(1)
           .single()
         
-        if (sharedSession) {
-          session = sharedSession
+        if (reorgSession) {
+          session = reorgSession
           isSharedData = true
-          console.log("[DB 불러오기] 공유 데이터 발견 (같은 언어)")
+          console.log("[DB 불러오기] AI 재정리본 발견 (비용 절감)")
+        } else {
+          // AI 재정리본이 없으면 일반 공유 데이터 검색
+          const { data: sharedSession } = await supabase
+            .from("translation_sessions")
+            .select("id, youtube_title, user_id, total_utterances, source_language, target_languages")
+            .eq("youtube_video_id", videoId)
+            .eq("source_language", sourceLang === "auto" ? "en" : sourceLang)
+            .contains("target_languages", [targetLang])
+            .eq("status", "completed")
+            .order("total_utterances", { ascending: false })
+            .limit(1)
+            .single()
+          
+          if (sharedSession) {
+            session = sharedSession
+            isSharedData = true
+            console.log("[DB 불러오기] 공유 데이터 발견 (같은 언어)")
+          }
         }
       }
       
@@ -1048,8 +1068,16 @@ function YouTubeLivePageContent() {
       
       setUtterances(newUtterances)
       setIsReorganized(true)  // AI 재정리 완료 표시
-      // 재정리 후 자동 저장
-      setTimeout(() => autoSaveToStorage(), 500)
+      
+      // 재정리 후 로컬 + DB 저장
+      setTimeout(async () => {
+        autoSaveToStorage()
+        // DB에도 저장 (업데이트)
+        const dbSaved = await saveToDatabase()
+        if (dbSaved) {
+          console.log("[AI 재정리] DB 저장 완료")
+        }
+      }, 500)
       
     } catch (err) {
       console.error("AI 재정리 오류:", err)
@@ -1111,13 +1139,15 @@ function YouTubeLivePageContent() {
         return false
       }
 
+      // AI 재정리 여부를 제목에 표시
+      const reorgSuffix = isReorganized ? " [AI 재정리]" : ""
       const title = youtubeTitle 
-        ? `${youtubeTitle} (${LANGUAGES[sourceLang] || sourceLang} → ${LANGUAGES[targetLang] || targetLang})`
-        : `YouTube 통역 - ${new Date().toLocaleString("ko-KR")}`
+        ? `${youtubeTitle} (${LANGUAGES[sourceLang] || sourceLang} → ${LANGUAGES[targetLang] || targetLang})${reorgSuffix}`
+        : `YouTube 통역 - ${new Date().toLocaleString("ko-KR")}${reorgSuffix}`
 
       // 기존 세션 업데이트 또는 새 세션 생성
       if (dbSessionId) {
-        // 기존 세션 업데이트
+        // 기존 세션 업데이트 (AI 재정리 시 utterances도 업데이트)
         const { error: updateError } = await supabase
           .from("translation_sessions")
           .update({
@@ -1129,6 +1159,40 @@ function YouTubeLivePageContent() {
           .eq("id", dbSessionId)
         
         if (updateError) throw updateError
+        
+        // AI 재정리 시 기존 utterances 삭제 후 새로 저장
+        if (isReorganized) {
+          // 기존 utterances 삭제
+          await supabase
+            .from("utterances")
+            .delete()
+            .eq("session_id", dbSessionId)
+          
+          // 새로운 utterances 저장
+          for (const utt of utterances) {
+            const { data: uttData, error: uttError } = await supabase
+              .from("utterances")
+              .insert({
+                session_id: dbSessionId,
+                original_text: utt.original,
+                original_language: sourceLang === "auto" ? "en" : sourceLang,
+                created_at: utt.timestamp.toISOString(),
+              })
+              .select()
+              .single()
+            
+            if (!uttError && uttData && utt.translated) {
+              await supabase
+                .from("translations")
+                .insert({
+                  utterance_id: uttData.id,
+                  translated_text: utt.translated,
+                  target_language: targetLang,
+                })
+            }
+          }
+          console.log("[DB 저장] AI 재정리본 업데이트 완료")
+        }
       } else {
         // 새 세션 생성
         const { data: session, error: sessionError } = await supabase

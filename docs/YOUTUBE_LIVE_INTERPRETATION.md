@@ -325,6 +325,32 @@ const { data: sharedSession } = await supabase
 - 음성 인식 비용 절약 (Deepgram API 호출 불필요)
 - 즉시 제공 가능
 
+### AI 재정리본 우선 검색
+
+비용 절감을 위해 AI 재정리본을 우선적으로 검색하여 제공합니다.
+
+```typescript
+// 1. AI 재정리본 우선 검색 (제목에 [AI 재정리] 포함)
+const { data: reorgSession } = await supabase
+  .from("translation_sessions")
+  .select("id, youtube_title, ...")
+  .eq("youtube_video_id", videoId)
+  .ilike("title", "%[AI 재정리]%")  // AI 재정리본 우선
+  .order("total_utterances", { ascending: false })
+  .limit(1)
+  .single()
+
+// 2. AI 재정리본이 없으면 일반 데이터 검색
+if (!reorgSession) {
+  // 일반 공유 데이터 검색...
+}
+```
+
+**장점:**
+- Google 번역 API 호출 불필요 (AI가 이미 정제한 데이터)
+- 더 자연스러운 문장 제공
+- 비용 대폭 절감
+
 ### 3단계: 원본 활용 다른 언어 번역
 
 같은 영상의 원본 텍스트가 있으면, 새 언어로 번역하여 제공합니다.
@@ -445,6 +471,72 @@ const processUtterance = async (text: string, detectedLang?: string) => {
 **기능:**
 - 다른 참가자의 발언: 자동 감지 → 내 언어로 통역
 - 내 발언: 내 언어 → 참가자별 설정 언어로 음성 합성
+
+---
+
+## AI 재정리 시스템
+
+### 개요
+
+AI 재정리는 실시간 통역 결과를 더 자연스럽고 정확한 문장으로 개선합니다.
+
+### AI 재정리 동작 방식
+
+```
+1. 원본 텍스트(original) → Gemini AI → 재정리된 원본
+2. 재정리된 원본 → Google Translate → 새 번역
+3. 원본 startTime 보존 (동기화 유지)
+4. 로컬 + DB 동시 저장
+```
+
+### DB 저장 정책
+
+| 상황 | 동작 |
+|------|------|
+| 최초 저장 | 새 세션 생성 |
+| AI 재정리 후 저장 | **기존 세션 업데이트** (utterances 교체) |
+| 여러 번 재정리 | 기존 세션에 덮어쓰기 (최종본 유지) |
+
+```typescript
+// AI 재정리 시 기존 utterances 삭제 후 새로 저장
+if (isReorganized) {
+  // 기존 utterances 삭제
+  await supabase.from("utterances").delete().eq("session_id", dbSessionId)
+  
+  // 새로운 utterances 저장
+  for (const utt of utterances) {
+    await supabase.from("utterances").insert({...})
+  }
+}
+```
+
+### 제목 규칙
+
+```
+일반 통역: "영상제목 (영어 → 한국어)"
+AI 재정리: "영상제목 (영어 → 한국어) [AI 재정리]"
+```
+
+### 비용 절감 효과
+
+```
+┌─────────────────────────────────────────────┐
+│ 사용자 A: 영상 X 통역 + AI 재정리           │
+│           → DB에 "[AI 재정리]" 데이터 저장   │
+├─────────────────────────────────────────────┤
+│ 사용자 B: 동일 영상 X, 동일 언어            │
+│           → AI 재정리본 자동 제공            │
+│           → Deepgram 호출 X                  │
+│           → Google 번역 X                    │
+│           → 비용 0원                         │
+├─────────────────────────────────────────────┤
+│ 사용자 C: 동일 영상 X, 다른 언어            │
+│           → 저장된 원본으로 새 언어 번역     │
+│           → Deepgram 호출 X                  │
+│           → Google 번역만 호출               │
+│           → 비용 대폭 절감                   │
+└─────────────────────────────────────────────┘
+```
 
 ---
 
@@ -605,7 +697,29 @@ target_language: text
 
 ## 변경 이력
 
-### 2024-12-04
+### 2024-12-04 (오후)
+
+#### AI 재정리 시스템 개선
+
+1. **AI 재정리본 DB 저장**
+   - AI 재정리 후 로컬 + DB 동시 저장
+   - 제목에 `[AI 재정리]` 표시
+
+2. **AI 재정리 시 기존 세션 업데이트**
+   - 여러 번 재정리해도 새 레코드 생성 X
+   - 기존 utterances 삭제 후 새 데이터로 교체
+
+3. **AI 재정리본 우선 검색**
+   - 공유 데이터 검색 시 AI 재정리본 우선
+   - Google 번역 비용 절감
+
+4. **정확한 startTime 측정**
+   - YouTube `getCurrentTime()` 사용
+   - 실제 영상 재생 시간 기반 타이밍
+
+---
+
+### 2024-12-04 (오전)
 
 #### 추가된 기능
 
