@@ -273,7 +273,7 @@ await supabase.from('translation_sessions').upsert({
 
 ---
 
-## 다국어 캐싱 시스템 (계획)
+## 다국어 캐싱 시스템 (구현 완료 ✅)
 
 ### 개요
 
@@ -342,20 +342,33 @@ await supabase.from('translation_sessions').upsert({
 CREATE TABLE video_subtitles_cache (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   video_id VARCHAR NOT NULL,              -- YouTube 비디오 ID
+  video_title VARCHAR,                    -- YouTube 제목 (oEmbed API로 추출)
   original_lang VARCHAR NOT NULL,         -- 원본 언어 (en, ko, etc.)
   subtitles JSONB NOT NULL,               -- 원본 자막 데이터
   translations JSONB DEFAULT '{}',        -- {ko: [...], zh: [...], th: [...]}
+  summaries JSONB DEFAULT '{}',           -- {ko: "요약...", zh: "摘要..."}
   video_duration INTEGER,                 -- 영상 길이 (ms)
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
+  last_text_time INTEGER,                 -- 마지막 자막 시간 (ms)
+  last_viewed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(), -- 시청 시각
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   
   UNIQUE(video_id)
 );
+
+-- 인덱스 (시청순 정렬 성능 향상)
+CREATE INDEX idx_video_subtitles_cache_last_viewed_at 
+ON video_subtitles_cache(last_viewed_at DESC NULLS LAST);
 
 -- 번역본 추가 예시
 UPDATE video_subtitles_cache 
 SET translations = translations || '{"ko": [...]}'::jsonb,
     updated_at = NOW()
+WHERE video_id = 'xxx';
+
+-- 시청 시각 업데이트
+UPDATE video_subtitles_cache 
+SET last_viewed_at = NOW()
 WHERE video_id = 'xxx';
 ```
 
@@ -447,12 +460,18 @@ interface SavedSession {
 // 다국어 캐시 데이터 구조
 interface VideoSubtitleCache {
   videoId: string
+  videoTitle?: string            // YouTube 제목 (oEmbed API)
   originalLang: string
   subtitles: Utterance[]         // 원본 자막
   translations: {                 // 언어별 번역본
     [langCode: string]: Utterance[]
   }
+  summaries: {                    // 언어별 요약
+    [langCode: string]: string
+  }
   videoDuration?: number
+  lastTextTime?: number
+  lastViewedAt?: string          // 시청 시각 (로컬 시간 표시용)
   createdAt: string
   updatedAt: string
 }

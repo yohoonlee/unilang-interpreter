@@ -281,6 +281,71 @@ NAVER_CLIENT_SECRET=...
 
 ---
 
+## 6. Supabase 데이터베이스 설정
+
+### 필수 테이블
+
+#### `video_subtitles_cache` (YouTube 다국어 캐시)
+
+```sql
+-- docs/supabase/video_subtitles_cache.sql 참조
+CREATE TABLE video_subtitles_cache (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  video_id VARCHAR NOT NULL UNIQUE,
+  video_title VARCHAR,
+  original_lang VARCHAR NOT NULL,
+  subtitles JSONB NOT NULL,
+  translations JSONB DEFAULT '{}',
+  summaries JSONB DEFAULT '{}',
+  video_duration INTEGER,
+  last_text_time INTEGER,
+  last_viewed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 인덱스 (시청순 정렬)
+CREATE INDEX idx_video_subtitles_cache_last_viewed_at 
+ON video_subtitles_cache(last_viewed_at DESC NULLS LAST);
+```
+
+#### `translation_sessions` (실시간 통역 세션)
+
+```sql
+CREATE TABLE translation_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id),
+  session_type VARCHAR DEFAULT 'mic',
+  source_language VARCHAR,
+  target_language VARCHAR,
+  started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  ended_at TIMESTAMP WITH TIME ZONE,
+  summary TEXT
+);
+```
+
+#### `utterances` (발화 기록)
+
+```sql
+CREATE TABLE utterances (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id UUID REFERENCES translation_sessions(id) ON DELETE CASCADE,
+  original_text TEXT,
+  translated_text TEXT,
+  start_time INTEGER,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+### SQL 파일 위치
+
+| 파일 | 설명 |
+|------|------|
+| `docs/supabase/video_subtitles_cache.sql` | YouTube 캐시 테이블 |
+| `docs/supabase/add_last_viewed_at.sql` | 시청 시각 컬럼 추가 |
+
+---
+
 ## 트러블슈팅
 
 ### Railway 배포 실패

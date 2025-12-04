@@ -232,6 +232,144 @@ AI 요약 생성 (Google AI)
 
 ---
 
+### POST /api/gemini/translate-batch
+배치 번역 (다수 문장 한번에 번역)
+
+**요청:**
+```json
+{
+  "texts": ["문장1", "문장2", "문장3", ...],
+  "targetLang": "ko",
+  "sourceLang": "en"  // 선택사항
+}
+```
+
+**응답:**
+```json
+{
+  "translations": ["번역1", "번역2", "번역3", ...]
+}
+```
+
+**특징:**
+- 50개 문장씩 배치 처리
+- 기존 개별 번역 대비 **10배 이상 속도 향상**
+
+---
+
+### GET /api/cache/subtitle
+캐시된 자막/번역 조회
+
+**파라미터:**
+| 이름 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `videoId` | string | ✅ | YouTube 비디오 ID |
+| `lang` | string | ❌ | 조회할 언어 코드 |
+
+**응답 (캐시 있음):**
+```json
+{
+  "exists": true,
+  "cached": true,
+  "isOriginal": false,
+  "videoId": "xxx",
+  "language": "ko",
+  "utterances": [...],
+  "summary": "요약...",
+  "videoDuration": 180000,
+  "cachedAt": "2024-12-04T..."
+}
+```
+
+**응답 (캐시 없음):**
+```json
+{
+  "exists": false,
+  "cached": false,
+  "videoId": "xxx"
+}
+```
+
+---
+
+### POST /api/cache/subtitle
+자막/번역 캐시 저장
+
+**요청:**
+```json
+{
+  "videoId": "xxx",
+  "videoTitle": "YouTube 제목",
+  "originalLang": "en",
+  "subtitles": [...],
+  "translations": {
+    "ko": [...],
+    "zh": [...]
+  },
+  "summaries": {
+    "ko": "한국어 요약...",
+    "zh": "中文摘要..."
+  },
+  "videoDuration": 180000,
+  "lastTextTime": 175000
+}
+```
+
+**응답:**
+```json
+{
+  "success": true,
+  "action": "created"  // 또는 "updated"
+}
+```
+
+---
+
+### PUT /api/cache/subtitle
+특정 언어 번역 추가
+
+**요청:**
+```json
+{
+  "videoId": "xxx",
+  "lang": "th",
+  "utterances": [...],
+  "summary": "태국어 요약..."
+}
+```
+
+**응답:**
+```json
+{
+  "success": true,
+  "lang": "th"
+}
+```
+
+---
+
+### POST /api/cache/background-translate
+백그라운드 멀티 번역 시작
+
+**요청:**
+```json
+{
+  "videoId": "xxx",
+  "originalLang": "en",
+  "targetLangs": ["ko", "zh", "ja", "es"]
+}
+```
+
+**응답:**
+```json
+{
+  "success": true,
+  "message": "백그라운드 번역 시작"
+}
+```
+
+---
+
 ## 3. 외부 API 연동
 
 ### Deepgram (실시간 음성인식)
