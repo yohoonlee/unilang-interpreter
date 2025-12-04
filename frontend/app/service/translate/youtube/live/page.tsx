@@ -1117,14 +1117,52 @@ function YouTubeLivePageContent() {
       
       setSummary(result.summary)
       setShowSummary(true)
-      // 요약 후 자동 저장
-      setTimeout(() => autoSaveToStorage(), 500)
+      
+      // 요약 후 로컬 + DB 저장
+      setTimeout(async () => {
+        autoSaveToStorage()
+        // DB에 요약 저장
+        await saveSummaryToDatabase(result.summary)
+      }, 500)
       
     } catch (err) {
       console.error("요약 생성 오류:", err)
       setError(err instanceof Error ? err.message : "요약 생성 중 오류가 발생했습니다.")
     } finally {
       setIsSummarizing(false)
+    }
+  }
+
+  // 요약을 DB에 저장
+  const saveSummaryToDatabase = async (summaryText: string) => {
+    if (!dbSessionId) {
+      console.log("[요약 저장] 세션 ID 없음 - 먼저 세션 저장 필요")
+      // 세션이 없으면 먼저 저장
+      await saveToDatabase()
+    }
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user || !dbSessionId) return
+      
+      // translation_sessions 테이블에 summary 필드가 있다면 업데이트
+      // 없다면 별도 테이블 사용 (여기서는 title에 요약 여부 표시)
+      const { error } = await supabase
+        .from("translation_sessions")
+        .update({
+          // summary 필드가 있다면: summary: summaryText
+          // 없다면 제목에 표시
+          title: youtubeTitle 
+            ? `${youtubeTitle} (${LANGUAGES[sourceLang] || sourceLang} → ${LANGUAGES[targetLang] || targetLang})${isReorganized ? " [AI 재정리]" : ""} [요약완료]`
+            : `YouTube 통역 - ${new Date().toLocaleString("ko-KR")}${isReorganized ? " [AI 재정리]" : ""} [요약완료]`,
+        })
+        .eq("id", dbSessionId)
+      
+      if (!error) {
+        console.log("[요약 저장] DB 저장 완료")
+      }
+    } catch (err) {
+      console.error("[요약 저장] 실패:", err)
     }
   }
 
@@ -1665,31 +1703,45 @@ function YouTubeLivePageContent() {
           </span>
           
           <div className="flex items-center gap-3">
+            {/* AI 재정리 버튼 - 완료 시 비활성화 */}
             <button
               onClick={reorganizeWithAI}
-              disabled={isReorganizing || utterances.length === 0}
-              className="px-5 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2"
+              disabled={isReorganizing || utterances.length === 0 || isReorganized}
+              className={`px-5 py-3 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2 ${
+                isReorganized 
+                  ? 'bg-purple-900 opacity-70 cursor-not-allowed' 
+                  : 'bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:opacity-50'
+              }`}
             >
               {isReorganizing ? (
                 <>
                   <span className="animate-spin">⏳</span>
                   처리 중...
                 </>
+              ) : isReorganized ? (
+                <>✅ AI 재정리 완료</>
               ) : (
                 <>✨ AI 재정리</>
               )}
             </button>
             
+            {/* 요약 버튼 - 완료 시 "요약본 완료" + 클릭 시 보기 */}
             <button
-              onClick={generateSummary}
+              onClick={() => summary ? setShowSummary(true) : generateSummary()}
               disabled={isSummarizing || utterances.length === 0}
-              className="px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2"
+              className={`px-5 py-3 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2 ${
+                summary 
+                  ? 'bg-green-600 hover:bg-green-700' 
+                  : 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-50'
+              }`}
             >
               {isSummarizing ? (
                 <>
                   <span className="animate-spin">⏳</span>
                   생성 중...
                 </>
+              ) : summary ? (
+                <>✅ 요약본 보기</>
               ) : (
                 <>📝 요약</>
               )}
