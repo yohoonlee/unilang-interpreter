@@ -484,7 +484,7 @@ function YouTubeTranslatePageContent() {
     }
   }
 
-  // 번역 함수
+  // 단일 번역 함수 (실시간 용)
   const translateTextForWorkflow = async (text: string, from: string, to: string): Promise<string> => {
     if (from === to || to === "none") {
       console.log("⏭️ 번역 건너뜀 (같은 언어):", from, to)
@@ -507,6 +507,43 @@ function YouTubeTranslatePageContent() {
     } catch (err) {
       console.error("번역 오류:", err)
       return text
+    }
+  }
+
+  // 배치 번역 함수 (자막 일괄 번역용 - 훨씬 빠름!)
+  const translateBatchForWorkflow = async (
+    texts: string[], 
+    sourceLang: string, 
+    targetLang: string
+  ): Promise<string[]> => {
+    if (sourceLang === targetLang || targetLang === "none") {
+      console.log("⏭️ 배치 번역 건너뜀 (같은 언어):", sourceLang, targetLang)
+      return texts
+    }
+    try {
+      console.log(`🚀 배치 번역 시작: ${texts.length}개 텍스트, ${sourceLang} → ${targetLang}`)
+      const startTime = Date.now()
+      
+      const response = await fetch("/api/gemini/translate-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texts, sourceLang, targetLang }),
+      })
+      
+      if (!response.ok) {
+        console.error("배치 번역 API 실패:", response.status)
+        return texts // 실패 시 원본 반환
+      }
+      
+      const data = await response.json()
+      const elapsed = Date.now() - startTime
+      
+      console.log(`✅ 배치 번역 완료: ${texts.length}개, ${elapsed}ms (${(elapsed/texts.length).toFixed(1)}ms/개)`)
+      
+      return data.translatedTexts || texts
+    } catch (err) {
+      console.error("배치 번역 오류:", err)
+      return texts
     }
   }
 
@@ -677,28 +714,36 @@ function YouTubeTranslatePageContent() {
           startTime: Math.floor(item.start), // 이미 ms 단위
         }))
         
-        // 3단계: 번역 수행
-        if (targetLanguage !== "none" && targetLanguage !== sourceLanguage) {
+        // 3단계: 배치 번역 수행 (훨씬 빠름!)
+        const detectedLang = data.language || sourceLanguage
+        
+        if (targetLanguage !== "none" && targetLanguage !== detectedLang) {
           setProgress(30)
-          let translatedCount = 0
+          setProgressText(`번역 준비 중... (${convertedUtterances.length}개 자막)`)
           
-          for (const utterance of convertedUtterances) {
-            try {
-              const translated = await translateTextForWorkflow(
-                utterance.original, 
-                data.language || sourceLanguage, 
-                targetLanguage
-              )
-              utterance.translated = translated
-              translatedCount++
-              const progressValue = 30 + Math.floor((translatedCount / convertedUtterances.length) * 30)
-              setProgress(progressValue)
-              setProgressText(`번역 중... (${translatedCount}/${convertedUtterances.length})`)
-            } catch (err) {
-              console.error("번역 오류:", err)
-              utterance.translated = utterance.original
+          // 모든 원본 텍스트를 배열로 추출
+          const originalTexts = convertedUtterances.map(u => u.original)
+          
+          // 배치 번역 수행 (한 번에 모든 텍스트 번역)
+          setProgress(40)
+          setProgressText(`배치 번역 중... (${convertedUtterances.length}개)`)
+          
+          const translatedTexts = await translateBatchForWorkflow(
+            originalTexts,
+            detectedLang,
+            targetLanguage
+          )
+          
+          // 번역 결과를 utterances에 적용
+          translatedTexts.forEach((translated, index) => {
+            if (convertedUtterances[index]) {
+              convertedUtterances[index].translated = translated
             }
-          }
+          })
+          
+          setProgress(60)
+          setProgressText("번역 완료!")
+          console.log(`✅ ${convertedUtterances.length}개 자막 번역 완료`)
         } else {
           // 번역이 필요없으면 원본을 translated에도 복사
           convertedUtterances.forEach(u => { u.translated = u.original })

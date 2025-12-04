@@ -19,8 +19,9 @@ const LANGUAGE_CODES: Record<string, string> = {
   vi: "vi",
 }
 
-// 백그라운드 번역 대상 언어 (우선순위 순)
-const BACKGROUND_LANGUAGES = ["zh", "th", "ja", "vi"]
+// 백그라운드 자동 번역 대상 언어 (주요 언어만 - 비용 절감)
+// 사용자가 직접 요청한 언어는 자동으로 캐시에 저장됨
+const AUTO_TRANSLATE_LANGUAGES = ["ko", "en", "zh", "ja"]  // 한국어, 영어, 중국어, 일본어
 
 interface Utterance {
   id: string
@@ -137,7 +138,7 @@ export async function POST(request: NextRequest) {
     const existingTranslations = cache.translations || {}
 
     // 번역할 언어 목록 (이미 있는 언어 제외)
-    const langsToTranslate = BACKGROUND_LANGUAGES.filter(
+    const langsToTranslate = AUTO_TRANSLATE_LANGUAGES.filter(
       lang => lang !== originalLang && 
               lang !== excludeLang && 
               !existingTranslations[lang]
