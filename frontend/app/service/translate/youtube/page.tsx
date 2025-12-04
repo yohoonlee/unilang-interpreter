@@ -564,7 +564,7 @@ function YouTubeTranslatePageContent() {
     setError(null)
     setIsProcessing(true)
     setProgress(0)
-    setProgressText("기존 데이터 확인 중...")
+    setProgressText("캐시 확인 중...")
 
     // 팝업 창 설정
     const width = Math.floor(window.screen.width * 0.9)
@@ -572,34 +572,79 @@ function YouTubeTranslatePageContent() {
     const left = Math.floor((window.screen.width - width) / 2)
     const top = Math.floor((window.screen.height - height) / 2)
 
+    // 팝업 열기 헬퍼 함수
+    const openLivePlayer = (sessionData: SavedSession) => {
+      sessionStorage.setItem('unilang_saved_session', JSON.stringify(sessionData))
+      const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true`
+      const liveWindow = window.open(
+        liveUrl,
+        "unilang_live",
+        `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+      )
+      if (!liveWindow) {
+        window.open(liveUrl, "_blank")
+      }
+    }
+
     try {
-      // 0단계: 기존 저장 데이터 확인 (98% 이상이면 바로 재생)
+      // ========================================
+      // 0단계: 서버 캐시(Supabase) 확인 - 다른 사용자가 이미 번역했을 수 있음
+      // ========================================
+      setProgress(3)
+      setProgressText("서버 캐시 확인 중...")
+      
+      try {
+        const cacheResponse = await fetch(`/api/cache/subtitle?videoId=${videoId}&lang=${targetLanguage}`)
+        const cacheData = await cacheResponse.json()
+        
+        if (cacheData.exists && cacheData.cached && cacheData.utterances) {
+          console.log("🎯 서버 캐시 적중!", cacheData)
+          setProgress(100)
+          setProgressText(`캐시 발견! (${cacheData.isOriginal ? '원본' : '번역'}) 바로 재생합니다...`)
+          
+          // 캐시 데이터를 세션 형식으로 변환
+          const cachedSession: SavedSession = {
+            videoId: videoId,
+            sourceLang: cacheData.isOriginal ? targetLanguage : sourceLanguage,
+            targetLang: targetLanguage,
+            utterances: cacheData.utterances,
+            savedAt: cacheData.cachedAt,
+            summary: cacheData.summary || "",
+            isReorganized: true,
+            videoDuration: cacheData.videoDuration,
+            lastTextTime: cacheData.lastTextTime,
+          }
+          
+          // LocalStorage에도 저장 (오프라인 사용 가능)
+          localStorage.setItem(getStorageKey(videoId), JSON.stringify(cachedSession))
+          
+          openLivePlayer(cachedSession)
+          return
+        }
+        
+        console.log("📦 서버 캐시:", cacheData.exists ? "원본만 있음" : "없음")
+      } catch (err) {
+        console.log("⚠️ 서버 캐시 확인 실패, 계속 진행:", err)
+      }
+      
+      // ========================================
+      // 1단계: LocalStorage 확인 (98% 이상이면 바로 재생)
+      // ========================================
       setProgress(5)
+      setProgressText("로컬 데이터 확인 중...")
+      
       const { exists, coverage, data: savedData } = checkExistingSavedData(videoId)
       
       if (exists && coverage >= 98 && savedData) {
         setProgress(100)
-        setProgressText(`기존 데이터 발견! (${coverage.toFixed(1)}% 완성) 바로 재생합니다...`)
-        
-        // 기존 데이터를 sessionStorage에 저장하고 바로 재생 모드로
-        sessionStorage.setItem('unilang_saved_session', JSON.stringify(savedData))
-        
-        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true`
-        
-        const liveWindow = window.open(
-          liveUrl,
-          "unilang_live",
-          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
-        )
-        
-        if (!liveWindow) {
-          window.open(liveUrl, "_blank")
-        }
-        
+        setProgressText(`로컬 데이터 발견! (${coverage.toFixed(1)}% 완성) 바로 재생합니다...`)
+        openLivePlayer(savedData)
         return
       }
       
-      // 1단계: 자막 추출 시도
+      // ========================================
+      // 2단계: 자막 추출 시도
+      // ========================================
       setProgress(10)
       setProgressText("YouTube 자막 추출 시도 중...")
       
@@ -733,23 +778,60 @@ function YouTubeTranslatePageContent() {
         // LocalStorage에 저장
         localStorage.setItem(getStorageKey(videoId), JSON.stringify(sessionData))
         
+        // 서버 캐시(Supabase)에 저장 - 백그라운드로 처리
+        setProgressText("서버 캐시 저장 중...")
+        try {
+          // 원본 자막 + 번역 저장
+          const originalUtterances = convertedUtterances.map(u => ({
+            id: u.id,
+            original: u.original,
+            translated: u.original, // 원본용
+            timestamp: u.timestamp,
+            startTime: u.startTime,
+          }))
+          
+          const originalLang = data.language || sourceLanguage
+          
+          await fetch("/api/cache/subtitle", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              videoId: videoId,
+              originalLang: originalLang,
+              subtitles: originalUtterances,
+              translations: targetLanguage !== originalLang ? {
+                [targetLanguage]: convertedUtterances
+              } : {},
+              summaries: summary ? { [targetLanguage]: summary } : {},
+              videoDuration: videoDuration,
+              lastTextTime: lastTextTime,
+            }),
+          })
+          console.log("✅ 서버 캐시 저장 완료")
+          
+          // 백그라운드 멀티 번역 시작 (비동기 - 응답 대기 안함)
+          fetch("/api/cache/background-translate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              videoId: videoId,
+              originalLang: originalLang,
+              excludeLang: targetLanguage, // 이미 번역된 언어 제외
+            }),
+          }).then(() => {
+            console.log("🔄 백그라운드 멀티 번역 요청됨")
+          }).catch(err => {
+            console.log("⚠️ 백그라운드 번역 요청 실패 (무시):", err)
+          })
+        } catch (err) {
+          console.error("⚠️ 서버 캐시 저장 실패 (무시):", err)
+        }
+        
         // 7단계: 플레이어 열기 (저장된 데이터로)
         setProgress(95)
         setProgressText("플레이어 열기...")
         
-        sessionStorage.setItem('unilang_saved_session', JSON.stringify(sessionData))
-        
-        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true`
-        
-        const liveWindow = window.open(
-          liveUrl,
-          "unilang_live",
-          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
-        )
-        
-        if (!liveWindow) {
-          window.open(liveUrl, "_blank")
-        }
+        openLivePlayer(sessionData)
         
         setProgress(100)
         setProgressText("완료!")
