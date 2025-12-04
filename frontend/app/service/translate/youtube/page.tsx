@@ -26,6 +26,7 @@ import {
   List,
   Trash2,
   Calendar,
+  Upload,
 } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -1028,14 +1029,25 @@ function YouTubeTranslatePageContent() {
                 📺 YouTube 통역
               </h1>
             </div>
-            <Button 
-              variant="outline" 
-              onClick={() => setShowHistory(!showHistory)}
-              className={`border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-900/50 ${showHistory ? 'bg-purple-100 dark:bg-purple-900/50' : ''}`}
-            >
-              <List className="h-4 w-4 mr-1" />
-              📋 기록
-            </Button>
+            <div className="flex items-center gap-2">
+              <Link href="/service/translate/youtube/upload">
+                <Button 
+                  variant="outline" 
+                  className="border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/50"
+                >
+                  <Upload className="h-4 w-4 mr-1" />
+                  📁 자막 업로드
+                </Button>
+              </Link>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowHistory(!showHistory)}
+                className={`border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-900/50 ${showHistory ? 'bg-purple-100 dark:bg-purple-900/50' : ''}`}
+              >
+                <List className="h-4 w-4 mr-1" />
+                📋 기록
+              </Button>
+            </div>
           </div>
         </header>
       )}

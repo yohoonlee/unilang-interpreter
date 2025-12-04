@@ -14,55 +14,66 @@ function extractVideoId(url: string): string | null {
   return null
 }
 
-// YouTube innertube API를 사용하여 자막 가져오기
+// YouTube 자막 직접 가져오기
 async function fetchYouTubeTranscript(videoId: string): Promise<{
   transcript: Array<{ text: string; offset: number; duration: number; lang?: string }>;
   availableLanguages: string[];
 } | null> {
+  console.log(`🎬 YouTube 전사 시작: ${videoId}`)
+  
   try {
-    console.log(`🔍 YouTube innertube API로 자막 가져오기: ${videoId}`)
+    // YouTube 영상 페이지 가져오기
+    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`
+    console.log(`🔍 YouTube 페이지 요청: ${watchUrl}`)
     
-    // innertube API 호출 (키 없이 호출 - Android 클라이언트 사용)
-    const innertubeResponse = await fetch('https://www.youtube.com/youtubei/v1/player', {
-      method: 'POST',
+    const response = await fetch(watchUrl, {
       headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
-        'X-Goog-Api-Format-Version': '2',
-      },
-      body: JSON.stringify({
-        context: {
-          client: {
-            clientName: 'ANDROID',
-            clientVersion: '17.36.4',
-            androidSdkVersion: 31,
-            hl: 'ko',
-            gl: 'KR',
-          }
-        },
-        videoId: videoId,
-        contentCheckOk: true,
-        racyCheckOk: true
-      })
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+      }
     })
     
-    if (!innertubeResponse.ok) {
-      console.log(`❌ innertube API 실패: ${innertubeResponse.status}`)
+    if (!response.ok) {
+      console.log(`❌ YouTube 페이지 요청 실패: ${response.status}`)
       return null
     }
     
-    const playerData = await innertubeResponse.json()
+    const html = await response.text()
+    console.log(`📄 HTML 길이: ${html.length}`)
     
-    const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks
+    // captionTracks 찾기
+    const captionTracksMatch = html.match(/"captionTracks":\s*(\[[\s\S]*?\])/)
+    if (!captionTracksMatch) {
+      console.log("❌ captionTracks를 찾을 수 없음")
+      console.log("captions 키워드 존재:", html.includes("captions"))
+      console.log("captionTracks 키워드 존재:", html.includes("captionTracks"))
+      return null
+    }
+    
+    let captionTracks
+    try {
+      captionTracks = JSON.parse(captionTracksMatch[1])
+    } catch (e) {
+      console.log("❌ captionTracks JSON 파싱 실패")
+      return null
+    }
+    
     if (!captionTracks || captionTracks.length === 0) {
-      console.log("❌ 자막 트랙이 없음")
-      console.log("captions 객체:", JSON.stringify(playerData?.captions || {}).substring(0, 500))
+      console.log("❌ 자막 트랙이 비어있음")
       return null
     }
     
     console.log(`📋 사용 가능한 자막: ${captionTracks.map((t: any) => t.languageCode).join(', ')}`)
     
-    // 언어 우선순위
+    // 언어 우선순위에 따라 자막 선택
     const languagePriority = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'de']
     let selectedTrack = captionTracks[0]
     
@@ -74,12 +85,20 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
       }
     }
     
-    console.log(`🎯 선택된 자막: ${selectedTrack.languageCode} (${selectedTrack.name?.simpleText || 'unknown'})`)
+    console.log(`🎯 선택된 자막: ${selectedTrack.languageCode}`)
     
-    // 자막 URL에서 실제 자막 데이터 가져오기
+    // 자막 URL에서 데이터 가져오기
     const captionUrl = selectedTrack.baseUrl
+    console.log(`📥 자막 URL 요청...`)
+    
     const captionResponse = await fetch(captionUrl)
+    if (!captionResponse.ok) {
+      console.log(`❌ 자막 URL 요청 실패: ${captionResponse.status}`)
+      return null
+    }
+    
     const captionXml = await captionResponse.text()
+    console.log(`📝 자막 XML 길이: ${captionXml.length}`)
     
     // XML 파싱
     const textMatches = captionXml.matchAll(/<text start="([\d.]+)" dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g)
@@ -94,6 +113,7 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
         .replace(/&gt;/g, '>')
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, ' ')
         .replace(/<[^>]+>/g, '')
         .trim()
       
@@ -107,12 +127,14 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
       }
     }
     
+    console.log(`✅ 자막 ${transcript.length}개 파싱 완료`)
+    
     return {
       transcript,
       availableLanguages: captionTracks.map((t: any) => t.languageCode)
     }
-  } catch (error) {
-    console.error("innertube API 자막 가져오기 오류:", error)
+  } catch (error: any) {
+    console.error("❌ 자막 가져오기 오류:", error.message)
     return null
   }
 }
@@ -145,8 +167,9 @@ export async function POST(request: NextRequest) {
       console.error("YouTube 자막 가져오기 실패")
       return NextResponse.json({ 
         success: false, 
-        error: "이 동영상에는 자막이 없거나 자막을 가져올 수 없습니다. 자막이 활성화된 동영상을 시도해주세요.",
-        hint: "실시간 통역 모드로 영상을 재생하면서 음성을 번역할 수 있습니다."
+        error: "서버에서 자막을 가져올 수 없습니다. YouTube가 서버 요청을 차단하고 있습니다.",
+        hint: "실시간 통역 모드로 영상을 재생하면서 음성을 번역할 수 있습니다.",
+        useRealtimeMode: true
       }, { status: 400 })
     }
     
