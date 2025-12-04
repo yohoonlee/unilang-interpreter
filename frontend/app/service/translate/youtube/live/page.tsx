@@ -1600,42 +1600,34 @@ function YouTubeLivePageContent() {
               {isFullscreen ? "⛶ 창모드" : "⛶ 전체화면"}
             </button>
             
-            {/* 크게보기/작게보기 토글 */}
+            {/* 자막 크게보기/작게보기 토글 */}
             <button
               onClick={() => setIsLargeView(!isLargeView)}
               className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white text-xs font-medium rounded transition-colors"
             >
-              {isLargeView ? "작게보기" : "크게보기"}
+              {isLargeView ? "자막 작게보기" : "자막 크게보기"}
             </button>
             
+            {/* 실시간 통역 모드에서만 시작/중단 버튼 표시 */}
             {!isReplayMode && (
               !isReady ? (
                 <button
                   onClick={startCapture}
                   className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded transition-colors"
                 >
-                  🎧 새로 통역
+                  🎧 통역 시작
                 </button>
               ) : (
                 <button
-                  onClick={stopCapture}
+                  onClick={() => {
+                    stopCapture()
+                    window.close() // 창 닫기
+                  }}
                   className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded transition-colors"
                 >
-                  공유 중지
+                  ⏹ 통역 중단
                 </button>
               )
-            )}
-            
-            {isReplayMode && (
-              <button
-                onClick={() => {
-                  setIsReplayMode(false)
-                  setUtterances([])
-                }}
-                className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded transition-colors"
-              >
-                🎤 새로 통역
-              </button>
             )}
           </div>
         </div>
@@ -1797,20 +1789,23 @@ function YouTubeLivePageContent() {
               )}
             </button>
             
-            <button
-              onClick={manualSave}
-              disabled={isSaving || utterances.length === 0}
-              className="px-5 py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-800 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2"
-            >
-              {isSaving ? (
-                <>
-                  <span className="animate-spin">⏳</span>
-                  저장 중...
-                </>
-              ) : (
-                <>💾 저장</>
-              )}
-            </button>
+            {/* 저장 버튼 - 리플레이 모드에서는 숨김 */}
+            {!isReplayMode && (
+              <button
+                onClick={manualSave}
+                disabled={isSaving || utterances.length === 0}
+                className="px-5 py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-800 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2"
+              >
+                {isSaving ? (
+                  <>
+                    <span className="animate-spin">⏳</span>
+                    저장 중...
+                  </>
+                ) : (
+                  <>💾 저장</>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>
