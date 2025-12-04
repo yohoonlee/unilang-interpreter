@@ -763,16 +763,29 @@ function YouTubeLivePageContent() {
       // localStorage에서 영구 저장된 세션 데이터 로드
       const storageKey = getStorageKey()
       console.log("🔍 저장 키:", storageKey)
+      console.log("🔍 videoId:", videoId, "sourceLang:", sourceLang, "targetLang:", targetLang)
+      
+      // localStorage의 모든 키 출력 (디버그용)
+      console.log("📦 localStorage 키 목록:")
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key?.startsWith("unilang_")) {
+          console.log("  -", key)
+        }
+      }
       
       const savedSessionStr = localStorage.getItem(storageKey)
       if (!savedSessionStr) {
-        console.error("저장된 세션 데이터를 찾을 수 없습니다:", storageKey)
+        console.error("❌ 저장된 세션 데이터를 찾을 수 없습니다:", storageKey)
         setShouldLoadSavedSession(false)
+        // 실시간 모드로 전환
+        setConnectionStatus("저장된 데이터 없음 - 대기 중")
         return
       }
       
       const savedSession = JSON.parse(savedSessionStr)
       console.log("✅ 저장된 세션 로드됨:", savedSession)
+      console.log("✅ utterances 수:", savedSession.utterances?.length)
       
       // utterances 타입 변환 (timestamp를 Date로 변환)
       const convertedUtterances: Utterance[] = savedSession.utterances.map((u: {

@@ -611,16 +611,25 @@ function YouTubeTranslatePageContent() {
 
     // 팝업 열기 헬퍼 함수 (저장된 세션으로 재생)
     const openLivePlayer = () => {
-      // 이미 localStorage에 영구 저장되어 있으므로 바로 새 창 열기
-      const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true`
-      const liveWindow = window.open(
-        liveUrl,
-        "unilang_live",
-        `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
-      )
-      if (!liveWindow) {
-        window.open(liveUrl, "_blank")
-      }
+      // 저장 완료 확인 후 새 창 열기
+      const storageKey = getStorageKey(videoId)
+      console.log("🔑 저장 키 확인:", storageKey)
+      console.log("💾 저장된 데이터 확인:", localStorage.getItem(storageKey) ? "있음" : "없음")
+      
+      // 저장 완료를 보장하기 위해 약간의 지연 후 새 창 열기
+      setTimeout(() => {
+        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true`
+        console.log("🚀 새 창 열기:", liveUrl)
+        
+        const liveWindow = window.open(
+          liveUrl,
+          "unilang_live",
+          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+        )
+        if (!liveWindow) {
+          window.open(liveUrl, "_blank")
+        }
+      }, 100)
     }
 
     try {
