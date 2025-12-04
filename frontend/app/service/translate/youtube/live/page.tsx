@@ -267,8 +267,10 @@ function YouTubeLivePageContent() {
           console.log(`[YouTube] 영상 길이: ${Math.floor(duration/1000)}초`)
         },
         onStateChange: (event) => {
-          // 재생 상태 변경 시
-          if (event.data === window.YT.PlayerState.PLAYING && isReplayMode) {
+          // 재생 상태 변경 시 - ref를 사용하여 최신 상태 참조
+          console.log("[YouTube] 상태 변경:", event.data, "isReplayMode:", isReplayModeRef.current)
+          if (event.data === window.YT.PlayerState.PLAYING && isReplayModeRef.current) {
+            console.log("[YouTube] 재생 시작 - 동기화 타이머 시작")
             startSyncTimer()
           } else if (event.data === window.YT.PlayerState.PAUSED) {
             stopSyncTimer()
@@ -282,7 +284,7 @@ function YouTubeLivePageContent() {
         }
       }
     })
-  }, [videoId, isReplayMode])
+  }, [videoId])
   
   // 현재 동기화 인덱스를 ref로 관리 (closure 문제 해결)
   const currentSyncIndexRef = useRef(currentSyncIndex)
@@ -1335,6 +1337,13 @@ function YouTubeLivePageContent() {
   useEffect(() => {
     isPlayerReadyRef.current = isPlayerReady
   }, [isPlayerReady])
+  
+  // isReplayMode를 ref로 관리 (closure 문제 해결)
+  const isReplayModeRef = useRef(isReplayMode)
+  useEffect(() => {
+    isReplayModeRef.current = isReplayMode
+    console.log("[ref 업데이트] isReplayMode:", isReplayMode)
+  }, [isReplayMode])
 
   const loadSavedData = async () => {
     let data: SavedSession | null = null
