@@ -14,86 +14,45 @@ function extractVideoId(url: string): string | null {
   return null
 }
 
-// YouTube 자막 직접 가져오기 (innertube API 사용)
+// YouTube innertube API를 사용하여 자막 가져오기
 async function fetchYouTubeTranscript(videoId: string): Promise<{
   transcript: Array<{ text: string; offset: number; duration: number; lang?: string }>;
   availableLanguages: string[];
 } | null> {
   try {
-    // 1. 먼저 영상 페이지에서 자막 정보 가져오기
-    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`
-    const response = await fetch(watchUrl, {
+    console.log(`🔍 YouTube innertube API로 자막 가져오기: ${videoId}`)
+    
+    // innertube API 호출
+    const innertubeResponse = await fetch('https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8', {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-      }
+      },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: 'WEB',
+            clientVersion: '2.20231219.04.00',
+            hl: 'ko',
+            gl: 'KR',
+          }
+        },
+        videoId: videoId
+      })
     })
     
-    const html = await response.text()
-    console.log(`📄 HTML 길이: ${html.length}`)
-    
-    // ytInitialPlayerResponse에서 자막 정보 추출 (여러 패턴 시도)
-    let playerResponse = null
-    
-    // 패턴 1: 기본 패턴
-    let playerResponseMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*(?:var|const|let|<\/script>)/s)
-    
-    // 패턴 2: 더 넓은 범위
-    if (!playerResponseMatch) {
-      playerResponseMatch = html.match(/var\s+ytInitialPlayerResponse\s*=\s*(\{[\s\S]*?\});\s*var/)
-    }
-    
-    // 패턴 3: 스크립트 태그 내에서 찾기
-    if (!playerResponseMatch) {
-      const scriptMatch = html.match(/<script[^>]*>[\s\S]*?ytInitialPlayerResponse\s*=\s*(\{[\s\S]*?\});[\s\S]*?<\/script>/)
-      if (scriptMatch) {
-        playerResponseMatch = scriptMatch
-      }
-    }
-    
-    if (!playerResponseMatch) {
-      console.log("❌ ytInitialPlayerResponse를 찾을 수 없음")
-      // 디버그: HTML에 관련 키워드가 있는지 확인
-      console.log("captionTracks 포함:", html.includes("captionTracks"))
-      console.log("playerCaptionsTracklistRenderer 포함:", html.includes("playerCaptionsTracklistRenderer"))
+    if (!innertubeResponse.ok) {
+      console.log(`❌ innertube API 실패: ${innertubeResponse.status}`)
       return null
     }
     
-    try {
-      // JSON 문자열 정리 (마지막 세미콜론 제거 등)
-      let jsonStr = playerResponseMatch[1].trim()
-      if (jsonStr.endsWith(';')) {
-        jsonStr = jsonStr.slice(0, -1)
-      }
-      playerResponse = JSON.parse(jsonStr)
-    } catch (e) {
-      console.log("❌ playerResponse 파싱 실패:", e)
-      
-      // 대안: captionTracks를 직접 찾기
-      const captionTracksMatch = html.match(/"captionTracks":\s*(\[[\s\S]*?\])/)
-      if (captionTracksMatch) {
-        try {
-          const captionTracks = JSON.parse(captionTracksMatch[1])
-          console.log("✅ captionTracks 직접 파싱 성공")
-          playerResponse = {
-            captions: {
-              playerCaptionsTracklistRenderer: {
-                captionTracks
-              }
-            }
-          }
-        } catch (e2) {
-          console.log("❌ captionTracks 직접 파싱도 실패")
-          return null
-        }
-      } else {
-        return null
-      }
-    }
+    const playerData = await innertubeResponse.json()
     
-    const captionTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks
+    const captionTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks
     if (!captionTracks || captionTracks.length === 0) {
       console.log("❌ 자막 트랙이 없음")
+      console.log("captions 객체:", JSON.stringify(playerData?.captions || {}).substring(0, 500))
       return null
     }
     
@@ -101,9 +60,8 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
     
     // 언어 우선순위
     const languagePriority = ['ko', 'en', 'ja', 'zh', 'es', 'fr', 'de']
-    let selectedTrack = captionTracks[0] // 기본값: 첫 번째 자막
+    let selectedTrack = captionTracks[0]
     
-    // 우선순위에 따라 자막 선택
     for (const lang of languagePriority) {
       const track = captionTracks.find((t: any) => t.languageCode === lang)
       if (track) {
@@ -124,7 +82,7 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
     const transcript: Array<{ text: string; offset: number; duration: number; lang?: string }> = []
     
     for (const match of textMatches) {
-      const start = parseFloat(match[1]) * 1000 // 초 -> 밀리초
+      const start = parseFloat(match[1]) * 1000
       const dur = parseFloat(match[2]) * 1000
       let text = match[3]
         .replace(/&amp;/g, '&')
@@ -132,7 +90,7 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
         .replace(/&gt;/g, '>')
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
-        .replace(/<[^>]+>/g, '') // HTML 태그 제거
+        .replace(/<[^>]+>/g, '')
         .trim()
       
       if (text) {
@@ -150,7 +108,7 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
       availableLanguages: captionTracks.map((t: any) => t.languageCode)
     }
   } catch (error) {
-    console.error("자막 가져오기 오류:", error)
+    console.error("innertube API 자막 가져오기 오류:", error)
     return null
   }
 }
