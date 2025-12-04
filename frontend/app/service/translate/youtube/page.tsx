@@ -649,21 +649,27 @@ function YouTubeTranslatePageContent() {
 
     try {
       // ========================================
-      // 0단계: 서버 캐시(Supabase) 확인 - 다른 사용자가 이미 번역했을 수 있음
+      // 0단계: 서버 캐시(Supabase) 확인
       // ========================================
       setProgress(3)
       setProgressText("서버 캐시 확인 중...")
       
+      let cachedOriginalSubtitles: SavedUtterance[] | null = null
+      let cachedOriginalLang: string | null = null
+      let cachedVideoDuration: number | null = null
+      let cachedLastTextTime: number | null = null
+      
       try {
+        // 먼저 해당 언어 번역이 있는지 확인
         const cacheResponse = await fetch(`/api/cache/subtitle?videoId=${videoId}&lang=${targetLanguage}`)
         const cacheData = await cacheResponse.json()
         
         if (cacheData.exists && cacheData.cached && cacheData.utterances) {
-          console.log("🎯 서버 캐시 적중!", cacheData)
+          // ✅ 해당 언어 번역이 캐시에 있음 → 바로 재생!
+          console.log("🎯 서버 캐시 적중! (번역본)", cacheData)
           setProgress(100)
           setProgressText(`캐시 발견! (${cacheData.isOriginal ? '원본' : '번역'}) 바로 재생합니다...`)
           
-          // 캐시 데이터를 세션 형식으로 변환
           const cachedSession: SavedSession = {
             videoId: videoId,
             sourceLang: cacheData.isOriginal ? targetLanguage : sourceLanguage,
@@ -676,14 +682,37 @@ function YouTubeTranslatePageContent() {
             lastTextTime: cacheData.lastTextTime,
           }
           
-          // LocalStorage에 저장 (오프라인 사용 가능)
           localStorage.setItem(getStorageKey(videoId), JSON.stringify(cachedSession))
-          
           openLivePlayer()
           return
         }
         
-        console.log("📦 서버 캐시:", cacheData.exists ? "원본만 있음" : "없음")
+        // 번역본은 없지만 원본이 있는지 확인
+        if (cacheData.exists && cacheData.hasOriginal) {
+          console.log("📦 서버 캐시: 원본 자막 발견! (번역본 없음)")
+          
+          // 원본 자막 가져오기
+          const originalResponse = await fetch(`/api/cache/subtitle?videoId=${videoId}`)
+          const originalData = await originalResponse.json()
+          
+          if (originalData.exists) {
+            // 원본 자막을 캐시에서 로드 (YouTube 다운로드 스킵!)
+            const originalLangResponse = await fetch(`/api/cache/subtitle?videoId=${videoId}&lang=${originalData.originalLang}`)
+            const originalLangData = await originalLangResponse.json()
+            
+            if (originalLangData.cached && originalLangData.utterances) {
+              console.log("✅ 원본 자막 캐시에서 로드 (YouTube 다운로드 스킵!)")
+              cachedOriginalSubtitles = originalLangData.utterances
+              cachedOriginalLang = originalData.originalLang
+              cachedVideoDuration = originalLangData.videoDuration
+              cachedLastTextTime = originalLangData.lastTextTime
+            }
+          }
+        }
+        
+        if (!cachedOriginalSubtitles) {
+          console.log("📦 서버 캐시: 없음")
+        }
       } catch (err) {
         console.log("⚠️ 서버 캐시 확인 실패, 계속 진행:", err)
       }
@@ -704,228 +733,253 @@ function YouTubeTranslatePageContent() {
       }
       
       // ========================================
-      // 2단계: 자막 추출 시도
+      // 2단계: 원본 자막 확보 (캐시 또는 YouTube)
       // ========================================
-      setProgress(10)
-      setProgressText("YouTube 자막 추출 시도 중...")
+      let convertedUtterances: SavedUtterance[]
+      let detectedLang: string
+      let videoDuration: number
+      let lastTextTime: number
       
-      const response = await fetch("/api/youtube/transcript", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          youtubeUrl,
-          targetLanguage: targetLanguage !== "none" ? targetLanguage : null,
-        }),
-      })
-
-      const data = await response.json()
-      
-      if (data.success && data.utterances?.length > 0) {
-        // ============================================
-        // 자막이 있는 경우: 메인 페이지에서 모든 처리 완료 후 재생
-        // ============================================
+      if (cachedOriginalSubtitles && cachedOriginalLang) {
+        // ✅ 캐시에서 원본 자막 사용 (YouTube 다운로드 스킵!)
+        setProgress(15)
+        setProgressText("캐시된 원본 자막 사용 중...")
+        console.log("🚀 캐시된 원본 자막 사용 - YouTube 다운로드 스킵!")
         
-        // 2단계: 자막을 Utterance 형식으로 변환
+        convertedUtterances = cachedOriginalSubtitles.map((item, index) => ({
+          id: `subtitle-${index}`,
+          original: item.original || item.translated,
+          translated: "",
+          timestamp: new Date().toISOString(),
+          startTime: item.startTime || 0,
+        }))
+        detectedLang = cachedOriginalLang
+        videoDuration = cachedVideoDuration || 0
+        lastTextTime = cachedLastTextTime || 0
+        
+      } else {
+        // YouTube에서 자막 다운로드
+        setProgress(10)
+        setProgressText("YouTube 자막 추출 시도 중...")
+        
+        const response = await fetch("/api/youtube/transcript", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            youtubeUrl,
+            targetLanguage: targetLanguage !== "none" ? targetLanguage : null,
+          }),
+        })
+
+        const data = await response.json()
+        
+        if (!data.success || !data.utterances?.length) {
+          // 자막 없음 → 실시간 통역 모드
+          setProgress(50)
+          setProgressText("자막 없음 - 실시간 통역 모드로 전환...")
+          
+          const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true&realtimeMode=true`
+          const liveWindow = window.open(
+            liveUrl,
+            "unilang_live",
+            `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+          )
+          if (!liveWindow) {
+            window.open(liveUrl, "_blank")
+          }
+          setProgress(100)
+          setProgressText("실시간 통역 모드 시작!")
+          return
+        }
+        
+        // 자막 변환
         setProgress(20)
         setProgressText("자막 변환 중...")
         
-        // start는 이미 밀리초 (route.ts에서 변환됨)
-        const convertedUtterances: SavedUtterance[] = data.utterances.map((item: { start: number; text: string }, index: number) => ({
+        convertedUtterances = data.utterances.map((item: { start: number; text: string }, index: number) => ({
           id: `subtitle-${index}`,
           original: item.text,
           translated: "",
           timestamp: new Date().toISOString(),
-          startTime: Math.floor(item.start), // 이미 ms 단위
+          startTime: Math.floor(item.start),
         }))
-        
-        // 3단계: 배치 번역 수행 (훨씬 빠름!)
-        const detectedLang = data.language || sourceLanguage
-        
-        if (targetLanguage !== "none" && targetLanguage !== detectedLang) {
-          setProgress(30)
-          setProgressText(`번역 준비 중... (${convertedUtterances.length}개 자막)`)
-          
-          // 모든 원본 텍스트를 배열로 추출
-          const originalTexts = convertedUtterances.map(u => u.original)
-          
-          // 배치 번역 수행 (한 번에 모든 텍스트 번역)
-          setProgress(40)
-          setProgressText(`배치 번역 중... (${convertedUtterances.length}개)`)
-          
-          const translatedTexts = await translateBatchForWorkflow(
-            originalTexts,
-            detectedLang,
-            targetLanguage
-          )
-          
-          // 번역 결과를 utterances에 적용
-          translatedTexts.forEach((translated, index) => {
-            if (convertedUtterances[index]) {
-              convertedUtterances[index].translated = translated
-            }
-          })
-          
-          setProgress(60)
-          setProgressText("번역 완료!")
-          console.log(`✅ ${convertedUtterances.length}개 자막 번역 완료`)
-        } else {
-          // 번역이 필요없으면 원본을 translated에도 복사
-          convertedUtterances.forEach(u => { u.translated = u.original })
-        }
-        
-        // 4단계: AI 재처리 (선택적 - 번역 결과를 다듬음)
-        setProgress(65)
-        setProgressText("AI 재정리 중...")
-        
-        // 번역된 텍스트 백업
-        const translatedBackup = convertedUtterances.map(u => u.translated)
-        console.log("🔄 AI 재처리 전 번역 백업:", translatedBackup.slice(0, 3))
-        
-        try {
-          const textToReorganize = convertedUtterances.map(u => u.translated).join("\n")
-          const reorganizedText = await reorganizeTextForWorkflow(textToReorganize, targetLanguage)
-          
-          // 재정리된 텍스트를 utterances에 반영 (줄 수가 맞을 때만)
-          if (reorganizedText) {
-            const lines = reorganizedText.split("\n").filter((l: string) => l.trim())
-            console.log("📝 재처리 결과 줄 수:", lines.length, "/ 원본:", convertedUtterances.length)
-            
-            // 줄 수가 비슷할 때만 적용 (±10%)
-            if (lines.length >= convertedUtterances.length * 0.9 && lines.length <= convertedUtterances.length * 1.1) {
-              lines.forEach((line: string, index: number) => {
-                if (convertedUtterances[index]) {
-                  convertedUtterances[index].translated = line
-                }
-              })
-              console.log("✅ AI 재처리 적용됨")
-            } else {
-              console.log("⚠️ 줄 수 불일치로 재처리 건너뜀, 원본 번역 유지")
-            }
-          }
-        } catch (err) {
-          console.error("AI 재처리 오류, 원본 번역 유지:", err)
-        }
-        
-        // 5단계: 요약 생성
-        setProgress(80)
-        setProgressText("요약 생성 중...")
-        
-        const textToSummarize = convertedUtterances.map(u => u.translated).join("\n")
-        const summary = await summarizeTextForWorkflow(textToSummarize, targetLanguage)
-        
-        // 6단계: 저장
-        setProgress(90)
-        setProgressText("저장 중...")
-        
-        const videoDuration = data.duration ? data.duration * 1000 : 0
-        const lastTextTime = convertedUtterances.length > 0 
+        detectedLang = data.language || sourceLanguage
+        videoDuration = data.duration ? data.duration * 1000 : 0
+        lastTextTime = convertedUtterances.length > 0 
           ? convertedUtterances[convertedUtterances.length - 1].startTime 
           : 0
+      }
+      
+      // ========================================
+      // 3단계: 배치 번역 수행
+      // ========================================
+      if (targetLanguage !== "none" && targetLanguage !== detectedLang) {
+        setProgress(30)
+        setProgressText(`번역 준비 중... (${convertedUtterances.length}개 자막)`)
         
-        const sessionData: SavedSession = {
-          videoId: videoId,
-          sourceLang: sourceLanguage,
-          targetLang: targetLanguage,
-          utterances: convertedUtterances,
-          savedAt: new Date().toISOString(),
-          summary: summary,
-          isReorganized: true,
-          videoDuration: videoDuration,
-          lastTextTime: lastTextTime,
-        }
+        // 모든 원본 텍스트를 배열로 추출
+        const originalTexts = convertedUtterances.map(u => u.original)
         
-        // 디버그: 저장 전 데이터 확인
-        console.log("💾 저장할 데이터:")
-        console.log("- utterances 수:", convertedUtterances.length)
-        console.log("- 첫 번째:", convertedUtterances[0])
-        console.log("- summary 길이:", summary?.length || 0)
-        console.log("- translated 샘플:", convertedUtterances.slice(0, 3).map(u => ({
-          original: u.original?.substring(0, 30),
-          translated: u.translated?.substring(0, 30)
-        })))
+        // 배치 번역 수행 (한 번에 모든 텍스트 번역)
+        setProgress(40)
+        setProgressText(`배치 번역 중... (${convertedUtterances.length}개)`)
         
-        // LocalStorage에 저장
-        localStorage.setItem(getStorageKey(videoId), JSON.stringify(sessionData))
-        
-        // 서버 캐시(Supabase)에 저장 - 백그라운드로 처리
-        setProgressText("서버 캐시 저장 중...")
-        try {
-          // 원본 자막 + 번역 저장
-          const originalUtterances = convertedUtterances.map(u => ({
-            id: u.id,
-            original: u.original,
-            translated: u.original, // 원본용
-            timestamp: u.timestamp,
-            startTime: u.startTime,
-          }))
-          
-          const originalLang = data.language || sourceLanguage
-          
-          await fetch("/api/cache/subtitle", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              videoId: videoId,
-              originalLang: originalLang,
-              subtitles: originalUtterances,
-              translations: targetLanguage !== originalLang ? {
-                [targetLanguage]: convertedUtterances
-              } : {},
-              summaries: summary ? { [targetLanguage]: summary } : {},
-              videoDuration: videoDuration,
-              lastTextTime: lastTextTime,
-            }),
-          })
-          console.log("✅ 서버 캐시 저장 완료")
-          
-          // 백그라운드 멀티 번역 시작 (비동기 - 응답 대기 안함)
-          fetch("/api/cache/background-translate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              videoId: videoId,
-              originalLang: originalLang,
-              excludeLang: targetLanguage, // 이미 번역된 언어 제외
-            }),
-          }).then(() => {
-            console.log("🔄 백그라운드 멀티 번역 요청됨")
-          }).catch(err => {
-            console.log("⚠️ 백그라운드 번역 요청 실패 (무시):", err)
-          })
-        } catch (err) {
-          console.error("⚠️ 서버 캐시 저장 실패 (무시):", err)
-        }
-        
-        // 7단계: 플레이어 열기 (저장된 데이터로)
-        setProgress(95)
-        setProgressText("플레이어 열기...")
-        
-        openLivePlayer()
-        
-        setProgress(100)
-        setProgressText("완료!")
-        
-      } else {
-        // 자막이 없는 경우: 실시간 통역 모드로 전환
-        setProgress(50)
-        setProgressText("자막 없음 - 실시간 통역 모드로 전환...")
-        
-        // 실시간 통역 모드로 live 페이지 열기
-        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true&realtimeMode=true`
-        
-        const liveWindow = window.open(
-          liveUrl,
-          "unilang_live",
-          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+        const translatedTexts = await translateBatchForWorkflow(
+          originalTexts,
+          detectedLang,
+          targetLanguage
         )
         
-        if (!liveWindow) {
-          window.open(liveUrl, "_blank")
-        }
+        // 번역 결과를 utterances에 적용
+        translatedTexts.forEach((translated, index) => {
+          if (convertedUtterances[index]) {
+            convertedUtterances[index].translated = translated
+          }
+        })
         
-        setProgress(100)
-        setProgressText("실시간 통역 시작!")
+        setProgress(60)
+        setProgressText("번역 완료!")
+        console.log(`✅ ${convertedUtterances.length}개 자막 번역 완료`)
+      } else {
+        // 번역이 필요없으면 원본을 translated에도 복사
+        convertedUtterances.forEach(u => { u.translated = u.original })
       }
+      
+      // ========================================
+      // 4단계: AI 재처리 (선택적)
+      // ========================================
+      setProgress(65)
+      setProgressText("AI 재정리 중...")
+      
+      const translatedBackup = convertedUtterances.map(u => u.translated)
+      console.log("🔄 AI 재처리 전 번역 백업:", translatedBackup.slice(0, 3))
+      
+      try {
+        const textToReorganize = convertedUtterances.map(u => u.translated).join("\n")
+        const reorganizedText = await reorganizeTextForWorkflow(textToReorganize, targetLanguage)
+        
+        if (reorganizedText) {
+          const lines = reorganizedText.split("\n").filter((l: string) => l.trim())
+          console.log("📝 재처리 결과 줄 수:", lines.length, "/ 원본:", convertedUtterances.length)
+          
+          if (lines.length >= convertedUtterances.length * 0.9 && lines.length <= convertedUtterances.length * 1.1) {
+            lines.forEach((line: string, index: number) => {
+              if (convertedUtterances[index]) {
+                convertedUtterances[index].translated = line
+              }
+            })
+            console.log("✅ AI 재처리 적용됨")
+          } else {
+            console.log("⚠️ 줄 수 불일치로 재처리 건너뜀, 원본 번역 유지")
+          }
+        }
+      } catch (err) {
+        console.error("AI 재처리 오류, 원본 번역 유지:", err)
+      }
+      
+      // ========================================
+      // 5단계: 요약 생성
+      // ========================================
+      setProgress(80)
+      setProgressText("요약 생성 중...")
+      
+      const textToSummarize = convertedUtterances.map(u => u.translated).join("\n")
+      const summary = await summarizeTextForWorkflow(textToSummarize, targetLanguage)
+      
+      // ========================================
+      // 6단계: 저장
+      // ========================================
+      setProgress(90)
+      setProgressText("저장 중...")
+      
+      // videoDuration, lastTextTime은 이미 위에서 설정됨
+      
+      const sessionData: SavedSession = {
+        videoId: videoId,
+        sourceLang: sourceLanguage,
+        targetLang: targetLanguage,
+        utterances: convertedUtterances,
+        savedAt: new Date().toISOString(),
+        summary: summary,
+        isReorganized: true,
+        videoDuration: videoDuration,
+        lastTextTime: lastTextTime,
+      }
+      
+      // 디버그: 저장 전 데이터 확인
+      console.log("💾 저장할 데이터:")
+      console.log("- utterances 수:", convertedUtterances.length)
+      console.log("- 첫 번째:", convertedUtterances[0])
+      console.log("- summary 길이:", summary?.length || 0)
+      console.log("- translated 샘플:", convertedUtterances.slice(0, 3).map(u => ({
+        original: u.original?.substring(0, 30),
+        translated: u.translated?.substring(0, 30)
+      })))
+      
+      // LocalStorage에 저장
+      localStorage.setItem(getStorageKey(videoId), JSON.stringify(sessionData))
+      
+      // 서버 캐시(Supabase)에 저장 - 백그라운드로 처리
+      setProgressText("서버 캐시 저장 중...")
+      try {
+        // 원본 자막 + 번역 저장
+        const originalUtterances = convertedUtterances.map(u => ({
+          id: u.id,
+          original: u.original,
+          translated: u.original, // 원본용
+          timestamp: u.timestamp,
+          startTime: u.startTime,
+        }))
+        
+        // detectedLang 사용 (캐시에서 로드한 경우에도 올바른 값)
+        const originalLang = detectedLang
+        
+        await fetch("/api/cache/subtitle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videoId: videoId,
+            originalLang: originalLang,
+            subtitles: originalUtterances,
+            translations: targetLanguage !== originalLang ? {
+              [targetLanguage]: convertedUtterances
+            } : {},
+            summaries: summary ? { [targetLanguage]: summary } : {},
+            videoDuration: videoDuration,
+            lastTextTime: lastTextTime,
+          }),
+        })
+        console.log("✅ 서버 캐시 저장 완료")
+        
+        // 백그라운드 멀티 번역 시작 (비동기 - 응답 대기 안함)
+        fetch("/api/cache/background-translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videoId: videoId,
+            originalLang: originalLang,
+            excludeLang: targetLanguage,
+          }),
+        }).then(() => {
+          console.log("🔄 백그라운드 멀티 번역 요청됨")
+        }).catch(err => {
+          console.log("⚠️ 백그라운드 번역 요청 실패 (무시):", err)
+        })
+      } catch (err) {
+        console.error("⚠️ 서버 캐시 저장 실패 (무시):", err)
+      }
+      
+      // ========================================
+      // 7단계: 플레이어 열기
+      // ========================================
+      setProgress(95)
+      setProgressText("플레이어 열기...")
+      
+      openLivePlayer()
+      
+      setProgress(100)
+      setProgressText("완료!")
+      
     } catch (err) {
       console.error("통합 워크플로우 오류:", err)
       // 에러 발생 시에도 실시간 통역 모드로 전환
