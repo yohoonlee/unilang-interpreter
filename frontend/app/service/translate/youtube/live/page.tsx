@@ -162,24 +162,50 @@ function YouTubeLivePageContent() {
   useEffect(() => {
     if (!videoId) return
     
+    const loadPlayer = () => {
+      // DOM 요소가 준비될 때까지 대기
+      const checkAndInit = () => {
+        const playerElement = document.getElementById("youtube-player")
+        if (playerElement && !playerRef.current) {
+          initializePlayer()
+        } else if (!playerElement) {
+          // DOM이 아직 준비되지 않았으면 재시도
+          setTimeout(checkAndInit, 100)
+        }
+      }
+      checkAndInit()
+    }
+    
     // API가 이미 로드되어 있으면 플레이어 초기화
     if (window.YT && window.YT.Player) {
-      initializePlayer()
+      loadPlayer()
       return
     }
     
     // API 로드
-    const tag = document.createElement("script")
-    tag.src = "https://www.youtube.com/iframe_api"
-    const firstScriptTag = document.getElementsByTagName("script")[0]
-    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag)
+    const existingScript = document.querySelector('script[src="https://www.youtube.com/iframe_api"]')
+    if (!existingScript) {
+      const tag = document.createElement("script")
+      tag.src = "https://www.youtube.com/iframe_api"
+      const firstScriptTag = document.getElementsByTagName("script")[0]
+      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag)
+    }
     
     // API 로드 완료 시 플레이어 초기화
     window.onYouTubeIframeAPIReady = () => {
-      initializePlayer()
+      loadPlayer()
     }
     
+    // API가 이미 로드되었는데 콜백이 이미 호출된 경우
+    const checkAPILoaded = setInterval(() => {
+      if (window.YT && window.YT.Player) {
+        clearInterval(checkAPILoaded)
+        loadPlayer()
+      }
+    }, 100)
+    
     return () => {
+      clearInterval(checkAPILoaded)
       if (playerRef.current) {
         playerRef.current.destroy()
         playerRef.current = null
