@@ -213,12 +213,12 @@ function YouTubeTranslatePageContent() {
         return
       }
 
-      // youtube_video_id가 있는 세션만 조회 (session_type 관계없이)
+      // youtube_video_id 또는 youtube_title이 있는 세션 조회
       const { data, error } = await supabase
         .from("translation_sessions")
         .select("*")
         .eq("user_id", user.id)
-        .not("youtube_video_id", "is", null)
+        .or("youtube_video_id.neq.null,youtube_title.neq.null")
         .order("started_at", { ascending: false })
         .limit(20)
 
@@ -1850,9 +1850,7 @@ function YouTubeTranslatePageContent() {
           </div>
         )}
 
-        {/* URL 입력 */}
-        {!showHistory && (
-        /* URL 입력 */
+        {/* URL 입력 - 항상 표시 (패널 뒤에 흐릿하게 보임) */}
         <Card className="border-red-200 dark:border-red-800 bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 relative">
           {/* 우상단 햄버거 메뉴 버튼 */}
           <Button 
@@ -1990,7 +1988,6 @@ function YouTubeTranslatePageContent() {
             )}
           </CardContent>
         </Card>
-        )}
 
         {/* 에러 */}
         {error && (
