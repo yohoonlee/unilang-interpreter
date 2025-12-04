@@ -1029,12 +1029,11 @@ function YouTubeTranslatePageContent() {
             </div>
             <Button 
               variant="outline" 
-              size="icon"
               onClick={() => setShowHistory(!showHistory)}
-              className={`border-red-300 text-red-600 hover:bg-red-50 ${showHistory ? 'bg-red-100' : ''}`}
-              title="통역 기록"
+              className={`border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-900/50 ${showHistory ? 'bg-purple-100 dark:bg-purple-900/50' : ''}`}
             >
-              <List className="h-5 w-5" />
+              <List className="h-4 w-4 mr-1" />
+              📋 기록
             </Button>
           </div>
         </header>

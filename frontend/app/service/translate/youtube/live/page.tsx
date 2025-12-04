@@ -4,6 +4,40 @@ import { useState, useEffect, useRef, Suspense, useCallback } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 
+// YouTube IFrame API 타입 정의
+declare global {
+  interface Window {
+    YT: {
+      Player: new (
+        elementId: string,
+        options: {
+          videoId: string
+          playerVars?: Record<string, number | string>
+          events?: {
+            onReady?: (event: { target: YTPlayer }) => void
+            onStateChange?: (event: { data: number; target: YTPlayer }) => void
+          }
+        }
+      ) => YTPlayer
+      PlayerState: {
+        PLAYING: number
+        PAUSED: number
+        ENDED: number
+      }
+    }
+    onYouTubeIframeAPIReady?: () => void
+  }
+}
+
+interface YTPlayer {
+  playVideo: () => void
+  pauseVideo: () => void
+  seekTo: (seconds: number, allowSeekAhead?: boolean) => void
+  getCurrentTime: () => number
+  getDuration: () => number
+  destroy: () => void
+}
+
 // 지원 언어 목록
 const LANGUAGES: Record<string, string> = {
   "ko": "한국어",
@@ -105,9 +139,130 @@ function YouTubeLivePageContent() {
   // 전체화면 모드
   const [isFullscreen, setIsFullscreen] = useState(false)
   const fullscreenContainerRef = useRef<HTMLDivElement>(null)
+  
+  // YouTube Player API
+  const playerRef = useRef<YTPlayer | null>(null)
+  const [isPlayerReady, setIsPlayerReady] = useState(false)
+  const [currentVideoTime, setCurrentVideoTime] = useState(0)
+  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const [currentSyncIndex, setCurrentSyncIndex] = useState(-1)
 
   // 저장된 데이터 키
   const getStorageKey = () => `unilang_youtube_${videoId}_${sourceLang}_${targetLang}`
+  
+  // 시간 포맷 (ms → mm:ss)
+  const formatTime = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
+  }
+
+  // YouTube IFrame API 로드
+  useEffect(() => {
+    if (!videoId) return
+    
+    // API가 이미 로드되어 있으면 플레이어 초기화
+    if (window.YT && window.YT.Player) {
+      initializePlayer()
+      return
+    }
+    
+    // API 로드
+    const tag = document.createElement("script")
+    tag.src = "https://www.youtube.com/iframe_api"
+    const firstScriptTag = document.getElementsByTagName("script")[0]
+    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag)
+    
+    // API 로드 완료 시 플레이어 초기화
+    window.onYouTubeIframeAPIReady = () => {
+      initializePlayer()
+    }
+    
+    return () => {
+      if (playerRef.current) {
+        playerRef.current.destroy()
+        playerRef.current = null
+      }
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current)
+      }
+    }
+  }, [videoId])
+  
+  // 플레이어 초기화
+  const initializePlayer = useCallback(() => {
+    if (!videoId || playerRef.current) return
+    
+    const playerElement = document.getElementById("youtube-player")
+    if (!playerElement) return
+    
+    playerRef.current = new window.YT.Player("youtube-player", {
+      videoId: videoId,
+      playerVars: {
+        autoplay: 1,
+        rel: 0,
+        enablejsapi: 1,
+        modestbranding: 1,
+      },
+      events: {
+        onReady: (event) => {
+          console.log("[YouTube] Player ready")
+          setIsPlayerReady(true)
+        },
+        onStateChange: (event) => {
+          // 재생 상태 변경 시
+          if (event.data === window.YT.PlayerState.PLAYING && isReplayMode) {
+            startSyncTimer()
+          } else if (event.data === window.YT.PlayerState.PAUSED) {
+            stopSyncTimer()
+          }
+        }
+      }
+    })
+  }, [videoId, isReplayMode])
+  
+  // 동기화 타이머 시작
+  const startSyncTimer = useCallback(() => {
+    if (syncIntervalRef.current) clearInterval(syncIntervalRef.current)
+    
+    syncIntervalRef.current = setInterval(() => {
+      if (playerRef.current && isReplayMode) {
+        const currentTime = playerRef.current.getCurrentTime() * 1000 // ms로 변환
+        setCurrentVideoTime(currentTime)
+        
+        // 현재 시간에 해당하는 자막 찾기
+        const index = utterances.findIndex((utt, idx) => {
+          const nextUtt = utterances[idx + 1]
+          if (nextUtt) {
+            return utt.startTime <= currentTime && currentTime < nextUtt.startTime
+          }
+          return utt.startTime <= currentTime
+        })
+        
+        if (index !== -1 && index !== currentSyncIndex) {
+          setCurrentSyncIndex(index)
+        }
+      }
+    }, 200) // 200ms 간격으로 동기화
+  }, [utterances, currentSyncIndex, isReplayMode])
+  
+  // 동기화 타이머 정지
+  const stopSyncTimer = () => {
+    if (syncIntervalRef.current) {
+      clearInterval(syncIntervalRef.current)
+      syncIntervalRef.current = null
+    }
+  }
+  
+  // 자막 클릭 시 해당 시간으로 이동
+  const seekToUtterance = (utt: Utterance) => {
+    if (playerRef.current && isReplayMode && utt.startTime) {
+      const seekTime = utt.startTime / 1000 // 초로 변환
+      playerRef.current.seekTo(seekTime, true)
+      playerRef.current.playVideo()
+    }
+  }
 
   // 사용자 정보 및 YouTube 제목 가져오기
   useEffect(() => {
@@ -159,12 +314,21 @@ function YouTubeLivePageContent() {
     }
   }, [autostart, videoId, showReplayChoice])
 
-  // 자동 스크롤
+  // 자동 스크롤 (실시간 모드: 최신으로, 재생 모드: 현재 자막으로)
   useEffect(() => {
-    if (utterancesEndRef.current && !isLargeView) {
+    if (isLargeView) return
+    
+    if (isReplayMode && currentSyncIndex >= 0) {
+      // 재생 모드: 현재 동기화된 자막으로 스크롤
+      const element = document.querySelector(`[data-sync-index="${currentSyncIndex}"]`)
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "center" })
+      }
+    } else if (utterancesEndRef.current) {
+      // 실시간 모드: 최신 자막으로 스크롤
       utterancesEndRef.current.scrollIntoView({ behavior: "smooth" })
     }
-  }, [utterances, isLargeView])
+  }, [utterances, isLargeView, currentSyncIndex, isReplayMode])
 
   // 번역 함수
   const translateText = useCallback(async (text: string, from: string, to: string): Promise<string> => {
@@ -434,15 +598,29 @@ function YouTubeLivePageContent() {
     if (saved) {
       try {
         const data: SavedSession = JSON.parse(saved)
-        setUtterances(data.utterances.map(u => ({
+        const loadedUtterances = data.utterances.map(u => ({
           ...u,
           timestamp: new Date(u.timestamp),
-        })))
+        }))
+        setUtterances(loadedUtterances)
         if (data.summary) {
           setSummary(data.summary)
         }
         setShowReplayChoice(false)
         setIsReplayMode(true)
+        setCurrentSyncIndex(-1)
+        
+        // 첫 번째 자막 시간으로 YouTube 이동
+        if (loadedUtterances.length > 0 && loadedUtterances[0].startTime > 0) {
+          setTimeout(() => {
+            if (playerRef.current) {
+              const seekTime = loadedUtterances[0].startTime / 1000
+              playerRef.current.seekTo(seekTime, true)
+              playerRef.current.playVideo()
+              startSyncTimer()
+            }
+          }, 500)
+        }
       } catch (err) {
         console.error("[불러오기] 실패:", err)
         setError("저장된 데이터를 불러올 수 없습니다.")
@@ -829,8 +1007,10 @@ function YouTubeLivePageContent() {
     ? utterances.slice(-2) 
     : utterances
 
-  // 최신 완성된 자막 (원어 + 번역)
-  const latestUtterance = utterances.length > 0 ? utterances[utterances.length - 1] : null
+  // 전체화면에서 표시할 자막 (동기화 모드면 현재 자막, 아니면 최신 자막)
+  const displayedSubtitle = isReplayMode && currentSyncIndex >= 0 
+    ? utterances[currentSyncIndex] 
+    : (utterances.length > 0 ? utterances[utterances.length - 1] : null)
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
@@ -840,26 +1020,30 @@ function YouTubeLivePageContent() {
         className={`relative ${isFullscreen ? 'bg-black' : ''}`}
         style={{ height: isFullscreen ? "100vh" : (isLargeView ? "50vh" : "55vh") }}
       >
-        {/* YouTube 영상 */}
-        <iframe
-          src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&enablejsapi=1`}
+        {/* YouTube 영상 (IFrame API) */}
+        <div 
+          id="youtube-player" 
           className="absolute inset-0 w-full h-full"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
         />
         
         {/* 전체화면 하단 자막 오버레이 */}
-        {isFullscreen && latestUtterance && (
+        {isFullscreen && displayedSubtitle && (
           <div className="absolute bottom-0 left-0 right-0 z-50 pointer-events-none">
             <div className="bg-gradient-to-t from-black/90 via-black/70 to-transparent pt-16 pb-8 px-8">
+              {/* 재생 시간 표시 (동기화 모드) */}
+              {isReplayMode && displayedSubtitle.startTime > 0 && (
+                <p className="text-blue-300 text-sm text-center mb-2 opacity-70">
+                  ⏱ {formatTime(displayedSubtitle.startTime)}
+                </p>
+              )}
               {/* 원어 */}
               <p className="text-white text-xl md:text-2xl text-center mb-2 drop-shadow-lg">
-                {latestUtterance.original}
+                {displayedSubtitle.original}
               </p>
               {/* 번역어 */}
-              {latestUtterance.translated && (
+              {displayedSubtitle.translated && (
                 <p className="text-green-400 text-2xl md:text-3xl font-bold text-center drop-shadow-lg">
-                  {latestUtterance.translated}
+                  {displayedSubtitle.translated}
                 </p>
               )}
             </div>
@@ -1028,34 +1212,55 @@ function YouTubeLivePageContent() {
           </p>
         ) : (
           <>
-            {displayUtterances.map((utt, idx) => (
-              <div 
-                key={utt.id} 
-                className={`rounded-xl p-4 border transition-all ${
-                  isLargeView 
-                    ? 'bg-slate-800 border-slate-600' 
-                    : 'bg-slate-800/50 border-slate-700'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  {!isLargeView && (
-                    <span className="text-slate-500 text-xs font-mono bg-slate-700 px-2 py-1 rounded">
-                      #{(isReplayMode ? idx : utterances.indexOf(utt)) + 1}
-                    </span>
-                  )}
-                  <div className="flex-1">
-                    <p className={`text-white ${isLargeView ? 'text-xl leading-relaxed' : 'text-sm'}`}>
-                      {utt.original}
-                    </p>
-                    {utt.translated && (
-                      <p className={`text-green-400 mt-2 ${isLargeView ? 'text-2xl font-bold leading-relaxed' : 'text-sm'}`}>
-                        {utt.translated}
+            {displayUtterances.map((utt, idx) => {
+              const actualIndex = utterances.indexOf(utt)
+              const isCurrentSync = isReplayMode && actualIndex === currentSyncIndex
+              
+              return (
+                <div 
+                  key={utt.id}
+                  data-sync-index={actualIndex}
+                  onClick={() => isReplayMode && seekToUtterance(utt)}
+                  className={`rounded-xl p-4 border transition-all ${
+                    isCurrentSync
+                      ? 'bg-blue-900/70 border-blue-500 ring-2 ring-blue-400/50 scale-[1.02]'
+                      : isLargeView 
+                        ? 'bg-slate-800 border-slate-600' 
+                        : 'bg-slate-800/50 border-slate-700'
+                  } ${isReplayMode ? 'cursor-pointer hover:bg-slate-700/70' : ''}`}
+                >
+                  <div className="flex items-start gap-3">
+                    {!isLargeView && (
+                      <div className="flex flex-col items-center gap-1">
+                        <span className={`text-xs font-mono px-2 py-1 rounded ${
+                          isCurrentSync ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-500'
+                        }`}>
+                          #{actualIndex + 1}
+                        </span>
+                        {isReplayMode && utt.startTime > 0 && (
+                          <span className="text-slate-500 text-xs">
+                            {formatTime(utt.startTime)}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex-1">
+                      <p className={`${isCurrentSync ? 'text-white' : 'text-white'} ${isLargeView ? 'text-xl leading-relaxed' : 'text-sm'}`}>
+                        {utt.original}
                       </p>
+                      {utt.translated && (
+                        <p className={`mt-2 ${isCurrentSync ? 'text-green-300' : 'text-green-400'} ${isLargeView ? 'text-2xl font-bold leading-relaxed' : 'text-sm'}`}>
+                          {utt.translated}
+                        </p>
+                      )}
+                    </div>
+                    {isCurrentSync && (
+                      <span className="text-blue-400 text-xs animate-pulse">▶ 재생 중</span>
                     )}
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
             <div ref={utterancesEndRef} />
           </>
         )}
