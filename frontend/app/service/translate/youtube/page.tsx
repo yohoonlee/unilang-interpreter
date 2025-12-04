@@ -91,16 +91,19 @@ interface TranscriptResult {
   speakerStats: Record<string, { count: number; duration: number }>
 }
 
-// YouTube 통역 기록 인터페이스
+// YouTube 통역 기록 인터페이스 (video_subtitles_cache 테이블)
 interface YouTubeSession {
   id: string
-  title: string
-  youtube_video_id: string
-  youtube_title: string
-  source_language: string
-  target_languages: string[]
-  started_at: string
-  total_utterances: number
+  video_id: string
+  video_title: string | null
+  original_lang: string
+  subtitles: unknown
+  translations: Record<string, unknown>
+  summaries: Record<string, string>
+  video_duration: number | null
+  last_text_time: number | null
+  created_at: string
+  updated_at: string
 }
 
 // 저장된 세션 데이터 (LocalStorage)
@@ -213,16 +216,14 @@ function YouTubeTranslatePageContent() {
         return
       }
 
-      // youtube_video_id 또는 youtube_title이 있는 세션 조회
+      // video_subtitles_cache 테이블에서 조회 (모든 사용자 공유)
       const { data, error } = await supabase
-        .from("translation_sessions")
+        .from("video_subtitles_cache")
         .select("*")
-        .eq("user_id", user.id)
-        .or("youtube_video_id.neq.null,youtube_title.neq.null")
-        .order("started_at", { ascending: false })
+        .order("updated_at", { ascending: false })
         .limit(20)
 
-      console.log("📋 YouTube 세션 목록 결과:", { count: data?.length, error, data: data?.slice(0, 2) })
+      console.log("📋 YouTube 캐시 목록 결과:", { count: data?.length, error })
       
       if (error) {
         console.error("YouTube 기록 로드 실패:", error)
@@ -236,13 +237,13 @@ function YouTubeTranslatePageContent() {
     }
   }
 
-  // 기록 삭제
+  // 기록 삭제 (video_subtitles_cache에서)
   const deleteSession = async (sessionId: string) => {
     if (!confirm("이 통역 기록을 삭제하시겠습니까?")) return
 
     try {
       const { error } = await supabase
-        .from("translation_sessions")
+        .from("video_subtitles_cache")
         .delete()
         .eq("id", sessionId)
 
@@ -259,7 +260,9 @@ function YouTubeTranslatePageContent() {
 
   // 기록에서 다시보기
   const playFromHistory = (session: YouTubeSession) => {
-    const liveUrl = `/service/translate/youtube/live?v=${session.youtube_video_id}&source=${session.source_language}&target=${session.target_languages[0] || "ko"}`
+    // 첫 번째 번역 언어 가져오기
+    const targetLang = Object.keys(session.translations || {})[0] || "ko"
+    const liveUrl = `/service/translate/youtube/live?v=${session.video_id}&source=${session.original_lang}&target=${targetLang}&loadSaved=true&autostart=true`
     
     const width = Math.floor(window.screen.width * 0.9)
     const height = Math.floor(window.screen.height * 0.9)
@@ -280,63 +283,61 @@ function YouTubeTranslatePageContent() {
   const viewSummaryFromHistory = async (session: YouTubeSession) => {
     setIsLoadingSummary(true)
     try {
-      // 세션의 요약 정보 가져오기
-      const { data: summaryData, error: summaryError } = await supabase
-        .from("session_summaries")
-        .select("summary_text")
-        .eq("session_id", session.id)
-        .single()
+      // summaries 객체에서 첫 번째 요약 가져오기
+      const summaryKeys = Object.keys(session.summaries || {})
       
-      if (summaryError || !summaryData?.summary_text) {
-        // 요약이 없으면 발화 데이터로 새로 생성
-        const { data: utterances, error: uttError } = await supabase
-          .from("utterances")
-          .select("original_text, translated_text")
-          .eq("session_id", session.id)
-          .order("start_time", { ascending: true })
+      if (summaryKeys.length > 0) {
+        const firstLang = summaryKeys[0]
+        const summaryText = session.summaries[firstLang]
         
-        if (uttError || !utterances?.length) {
-          alert("이 세션에 저장된 내용이 없습니다.")
+        if (summaryText) {
+          setViewingSummary({
+            title: session.video_title || session.video_id,
+            summary: summaryText
+          })
           setIsLoadingSummary(false)
           return
         }
-        
-        // AI 요약 생성
-        const textToSummarize = utterances
-          .map(u => u.translated_text || u.original_text)
-          .join("\n")
-        
-        const response = await fetch("/api/gemini/summarize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: textToSummarize,
-            targetLanguage: session.target_languages?.[0] || "ko",
-          }),
-        })
-        
-        const result = await response.json()
-        
-        if (result.success) {
-          setViewingSummary({
-            title: session.youtube_title || session.title,
-            summary: result.summary
-          })
-          
-          // 요약 저장
-          await supabase.from("session_summaries").upsert({
-            session_id: session.id,
-            summary_text: result.summary,
-            language: session.target_languages?.[0] || "ko",
-          })
-        } else {
-          alert("요약 생성에 실패했습니다.")
-        }
-      } else {
+      }
+      
+      // 요약이 없으면 자막 데이터로 새로 생성
+      if (!Array.isArray(session.subtitles) || session.subtitles.length === 0) {
+        alert("이 세션에 저장된 내용이 없습니다.")
+        setIsLoadingSummary(false)
+        return
+      }
+      
+      // AI 요약 생성
+      const targetLang = Object.keys(session.translations || {})[0] || "ko"
+      const textToSummarize = (session.subtitles as Array<{original?: string, text?: string}>)
+        .map(s => s.original || s.text || "")
+        .join("\n")
+      
+      const response = await fetch("/api/gemini/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: textToSummarize,
+          targetLanguage: targetLang,
+        }),
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
         setViewingSummary({
-          title: session.youtube_title || session.title,
-          summary: summaryData.summary_text
+          title: session.video_title || session.video_id,
+          summary: result.summary
         })
+        
+        // 요약 저장 (video_subtitles_cache 업데이트)
+        const updatedSummaries = { ...session.summaries, [targetLang]: result.summary }
+        await supabase
+          .from("video_subtitles_cache")
+          .update({ summaries: updatedSummaries })
+          .eq("video_id", session.video_id)
+      } else {
+        alert("요약 생성에 실패했습니다.")
       }
     } catch (err) {
       console.error("요약 로드 오류:", err)
@@ -1782,7 +1783,7 @@ function YouTubeTranslatePageContent() {
                             onClick={() => playFromHistory(session)}
                           >
                             <img 
-                              src={`https://img.youtube.com/vi/${session.youtube_video_id}/mqdefault.jpg`}
+                              src={`https://img.youtube.com/vi/${session.video_id}/mqdefault.jpg`}
                               alt="썸네일"
                               className="w-full h-full object-cover"
                             />
@@ -1792,21 +1793,23 @@ function YouTubeTranslatePageContent() {
                             </div>
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-medium text-sm truncate">{session.youtube_title || session.title}</h4>
+                            <h4 className="font-medium text-sm truncate">{session.video_title || session.video_id}</h4>
                             <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
                               <Calendar className="h-3 w-3" />
-                              {new Date(session.started_at).toLocaleDateString("ko-KR")}
+                              {new Date(session.updated_at || session.created_at).toLocaleDateString("ko-KR")}
                               <span>•</span>
-                              <span>{session.total_utterances || 0}문장</span>
+                              <span>{Array.isArray(session.subtitles) ? session.subtitles.length : 0}문장</span>
                             </div>
                             {/* 원어 → 번역어 표시 */}
                             <div className="flex items-center gap-1 mt-1.5">
                               <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                                {LANGUAGES.find(l => l.code === session.source_language)?.name || session.source_language || '자동'}
+                                {LANGUAGES.find(l => l.code === session.original_lang)?.name || session.original_lang || '자동'}
                               </span>
                               <span className="text-slate-400 text-xs">→</span>
                               <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">
-                                {LANGUAGES.find(l => l.code === session.target_languages?.[0])?.name || session.target_languages?.[0] || '한국어'}
+                                {Object.keys(session.translations || {}).length > 0 
+                                  ? LANGUAGES.find(l => l.code === Object.keys(session.translations)[0])?.name || Object.keys(session.translations)[0]
+                                  : '번역 없음'}
                               </span>
                             </div>
                           </div>
