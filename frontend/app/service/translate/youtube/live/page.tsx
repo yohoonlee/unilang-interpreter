@@ -125,6 +125,12 @@ function YouTubeLivePageContent() {
   // 크게보기/작게보기 토글
   const [isLargeView, setIsLargeView] = useState(false)
   
+  // 자막 영역 높이 (사용자 조절 가능)
+  const [subtitleHeight, setSubtitleHeight] = useState(200) // px
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartY = useRef(0)
+  const dragStartHeight = useRef(0)
+  
   // AI 재정리 여부
   const [isReorganized, setIsReorganized] = useState(false)
   
@@ -355,6 +361,37 @@ function YouTubeLivePageContent() {
       playerRef.current.playVideo()
     }
   }
+
+  // 자막 영역 높이 드래그 조절
+  const handleDragStart = (e: React.MouseEvent) => {
+    setIsDragging(true)
+    dragStartY.current = e.clientY
+    dragStartHeight.current = subtitleHeight
+    e.preventDefault()
+  }
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return
+      const diff = dragStartY.current - e.clientY
+      const newHeight = Math.max(100, Math.min(500, dragStartHeight.current + diff))
+      setSubtitleHeight(newHeight)
+    }
+
+    const handleMouseUp = () => {
+      setIsDragging(false)
+    }
+
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging])
 
   // 사용자 정보 및 YouTube 제목 가져오기
   useEffect(() => {
@@ -1650,11 +1687,24 @@ function YouTubeLivePageContent() {
         </div>
       )}
 
+      {/* 자막 높이 조절 드래그 핸들 - 전체화면 아닐 때만 */}
+      {!isFullscreen && (
+        <div 
+          onMouseDown={handleDragStart}
+          className={`h-3 bg-slate-700 hover:bg-slate-600 cursor-ns-resize flex items-center justify-center border-y border-slate-600 transition-colors ${isDragging ? 'bg-blue-600' : ''}`}
+        >
+          <div className="flex gap-1">
+            <span className="w-8 h-0.5 bg-slate-500 rounded"></span>
+            <span className="w-8 h-0.5 bg-slate-500 rounded"></span>
+          </div>
+        </div>
+      )}
+
       {/* 자막 히스토리 영역 - 전체화면 아닐 때만 */}
       {!isFullscreen && (
       <div 
-        className={`flex-1 overflow-y-auto px-4 py-3 space-y-3 ${isLargeView ? 'flex flex-col justify-center' : ''}`}
-        style={{ maxHeight: isLargeView ? "40vh" : "30vh" }}
+        className={`flex-1 overflow-y-auto px-4 py-3 space-y-3 ${isLargeView ? 'flex flex-col justify-center items-center' : ''}`}
+        style={{ height: isLargeView ? 'auto' : `${subtitleHeight}px`, minHeight: isLargeView ? '120px' : '100px', maxHeight: isLargeView ? '200px' : `${subtitleHeight}px` }}
       >
         {displayUtterances.length === 0 ? (
           <p className="text-slate-500 text-center text-sm py-4">
