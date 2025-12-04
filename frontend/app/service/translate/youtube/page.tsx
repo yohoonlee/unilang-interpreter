@@ -1291,7 +1291,7 @@ function YouTubeTranslatePageContent() {
           </div>
         )}
 
-        {/* 자막이 없는 경우 - 실시간 모드 제안 */}
+        {/* 자막이 없는 경우 - 대안 제안 */}
         {noSubtitleError && !isLiveMode && (
           <Card className="border-amber-300 dark:border-amber-700 bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20">
             <CardContent className="p-6">
@@ -1301,24 +1301,45 @@ function YouTubeTranslatePageContent() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-amber-800 dark:text-amber-200">
-                    자막이 없는 영상입니다
+                    서버에서 자막을 가져올 수 없습니다
                   </h3>
                   <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
-                    실시간 통역 모드로 영상을 재생하면서 음성을 번역할 수 있습니다.
+                    YouTube가 서버 요청을 차단합니다. 아래 대안을 사용해주세요.
                   </p>
                 </div>
                 
-                {/* 시스템 오디오 캡처 버튼 (권장) */}
                 <div className="space-y-3">
+                  {/* 자막 업로드 (권장) */}
+                  <Link href={`/service/translate/youtube/upload?url=${encodeURIComponent(youtubeUrl)}`}>
+                    <Button className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600">
+                      <Upload className="h-5 w-5 mr-2" />
+                      📁 자막 파일 직접 업로드 (권장)
+                    </Button>
+                  </Link>
+                  <p className="text-xs text-orange-600">
+                    ✨ <a href="https://downsub.com" target="_blank" className="underline">DownSub.com</a>에서 자막 다운로드 → 업로드
+                  </p>
+                  
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-amber-300"></div>
+                    </div>
+                    <div className="relative flex justify-center text-xs">
+                      <span className="px-2 bg-amber-50 dark:bg-amber-900/20 text-amber-500">또는</span>
+                    </div>
+                  </div>
+                  
+                  {/* 시스템 오디오 캡처 */}
                   <Button
                     onClick={startSystemAudioCapture}
-                    className="w-full bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600"
+                    variant="outline"
+                    className="w-full border-green-400 text-green-700 hover:bg-green-100"
                   >
                     <Volume2 className="h-5 w-5 mr-2" />
-                    🎧 시스템 오디오 캡처 (권장)
+                    🎧 시스템 오디오 캡처 (실시간 통역)
                   </Button>
                   <p className="text-xs text-green-600">
-                    ✨ 버튼 클릭 → YouTube 탭 선택 → "오디오 공유" 체크
+                    버튼 클릭 → YouTube 탭 선택 → "오디오 공유" 체크
                   </p>
                   
                   <div className="relative">
@@ -1338,9 +1359,6 @@ function YouTubeTranslatePageContent() {
                     <Mic className="h-5 w-5 mr-2" />
                     마이크 모드 (스피커 소리를 마이크로 캡처)
                   </Button>
-                  <p className="text-xs text-amber-500">
-                    💡 스피커 소리가 마이크에 들어가야 합니다
-                  </p>
                 </div>
               </div>
             </CardContent>
