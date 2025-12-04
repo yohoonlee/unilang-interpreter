@@ -1617,12 +1617,14 @@ function YouTubeLivePageContent() {
   }
 
   // 표시할 utterances
-  // - 크게보기: 최근 2개만
-  // - 저장된 내용 보기 (replayMode): 전체 표시
-  // - 일반 모드: 전체 표시
-  const displayUtterances = isLargeView 
-    ? utterances.slice(-2) 
-    : utterances
+  // - 크게보기: 최근 2개 (큰 폰트)
+  // - 작게보기: 최근 4개 (작은 폰트)
+  // - 저장된 내용 보기 (replayMode): 전체 스크롤 가능
+  const displayUtterances = isReplayMode 
+    ? utterances 
+    : isLargeView 
+      ? utterances.slice(-2) 
+      : utterances.slice(-4)
 
   // 전체화면에서 표시할 자막 (동기화 모드면 현재 자막, 아니면 최신 자막)
   const displayedSubtitle = isReplayMode && currentSyncIndex >= 0 
@@ -1630,12 +1632,12 @@ function YouTubeLivePageContent() {
     : (utterances.length > 0 ? utterances[utterances.length - 1] : null)
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col">
+    <div className="h-screen bg-slate-900 flex flex-col overflow-hidden">
       {/* 전체화면 컨테이너 (YouTube + 자막 오버레이) */}
       <div 
         ref={fullscreenContainerRef}
-        className={`relative ${isFullscreen ? 'bg-black' : ''}`}
-        style={{ height: isFullscreen ? "100vh" : (isLargeView ? "50vh" : "55vh") }}
+        className={`relative flex-1 ${isFullscreen ? 'bg-black' : ''}`}
+        style={{ minHeight: isFullscreen ? "100vh" : (isLargeView ? "60%" : "50%") }}
       >
         {/* YouTube 영상 (IFrame API) */}
         <div 
@@ -1809,24 +1811,19 @@ function YouTubeLivePageContent() {
         </div>
       )}
 
-      {/* 자막 높이 조절 드래그 핸들 - 전체화면 아닐 때만 */}
+      {/* 자막 영역 구분선 - 전체화면 아닐 때만 */}
       {!isFullscreen && (
-        <div 
-          onMouseDown={handleDragStart}
-          className={`h-3 bg-slate-700 hover:bg-slate-600 cursor-ns-resize flex items-center justify-center border-y border-slate-600 transition-colors ${isDragging ? 'bg-blue-600' : ''}`}
-        >
-          <div className="flex gap-1">
-            <span className="w-8 h-0.5 bg-slate-500 rounded"></span>
-            <span className="w-8 h-0.5 bg-slate-500 rounded"></span>
-          </div>
-        </div>
+        <div className="h-1 bg-slate-700 border-t border-slate-600" />
       )}
 
       {/* 자막 히스토리 영역 - 전체화면 아닐 때만 */}
       {!isFullscreen && (
       <div 
-        className={`flex-1 overflow-y-auto px-4 py-3 space-y-3 ${isLargeView ? 'flex flex-col justify-center items-center' : ''}`}
-        style={{ height: isLargeView ? 'auto' : `${subtitleHeight}px`, minHeight: isLargeView ? '120px' : '100px', maxHeight: isLargeView ? '200px' : `${subtitleHeight}px` }}
+        className={`overflow-y-auto px-4 py-2 space-y-2 ${isLargeView ? 'flex flex-col justify-center' : ''}`}
+        style={{ 
+          height: isLargeView ? '160px' : '200px',  // 크게보기: 2개, 작게보기: 4개
+          flexShrink: 0 
+        }}
       >
         {displayUtterances.length === 0 ? (
           <p className="text-slate-500 text-center text-sm py-4">
@@ -1906,9 +1903,9 @@ function YouTubeLivePageContent() {
       </div>
       )}
 
-      {/* 하단 액션 바 - 전체화면 아닐 때만 */}
+      {/* 하단 액션 바 - 전체화면 아닐 때만, 맨 아래 고정 */}
       {!isFullscreen && (
-      <div className="px-4 py-4 bg-slate-800 border-t border-slate-700">
+      <div className="px-4 py-3 bg-slate-800 border-t border-slate-700 flex-shrink-0">
         <div className="flex items-center justify-between">
           <span className="text-slate-400 text-sm">
             총 {utterances.length}개 문장 
