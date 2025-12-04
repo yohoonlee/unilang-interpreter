@@ -213,15 +213,16 @@ function YouTubeTranslatePageContent() {
         return
       }
 
+      // youtube_video_id가 있는 세션만 조회 (session_type 관계없이)
       const { data, error } = await supabase
         .from("translation_sessions")
         .select("*")
         .eq("user_id", user.id)
-        .eq("session_type", "youtube")
+        .not("youtube_video_id", "is", null)
         .order("started_at", { ascending: false })
         .limit(20)
 
-      console.log("📋 YouTube 세션 목록 결과:", { count: data?.length, error })
+      console.log("📋 YouTube 세션 목록 결과:", { count: data?.length, error, data: data?.slice(0, 2) })
       
       if (error) {
         console.error("YouTube 기록 로드 실패:", error)
@@ -1721,6 +1722,16 @@ function YouTubeTranslatePageContent() {
             {/* 사이드 패널 */}
             <div className="w-full max-w-md bg-white dark:bg-slate-900 shadow-2xl overflow-hidden flex flex-col animate-slide-in-right">
               <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20">
+                {/* 돌아가기 버튼 */}
+                <Button 
+                  variant="ghost" 
+                  onClick={() => setShowHistory(false)}
+                  className="mb-3 text-slate-600 hover:text-slate-900 hover:bg-slate-100 -ml-2"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  돌아가기
+                </Button>
+                
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-bold flex items-center gap-2">
                     <List className="h-5 w-5 text-purple-500" />

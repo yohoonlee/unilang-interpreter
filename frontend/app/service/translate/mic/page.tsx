@@ -1742,25 +1742,37 @@ function MicTranslatePageContent() {
       </header>
       )}
 
-      {/* Session List Modal */}
+      {/* Session List Panel - YouTube와 동일한 슬라이드 패널 */}
       {showSessionList && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
-            <div className="p-6 border-b border-slate-200 dark:border-slate-700">
+        <div className="fixed inset-0 z-50 flex">
+          {/* 오버레이 - 클릭하면 닫힘 */}
+          <div 
+            className="flex-1 bg-black/30 backdrop-blur-sm"
+            onClick={() => setShowSessionList(false)}
+          />
+          {/* 사이드 패널 */}
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 shadow-2xl overflow-hidden flex flex-col animate-slide-in-right">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/20">
+              {/* 돌아가기 버튼 */}
+              <Button 
+                variant="ghost" 
+                onClick={() => setShowSessionList(false)}
+                className="mb-3 text-slate-600 hover:text-slate-900 hover:bg-slate-100 -ml-2"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                돌아가기
+              </Button>
+              
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500">
-                    <FileText className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">통역 기록</h2>
-                    <p className="text-sm text-slate-500">저장된 통역 세션 목록</p>
-                  </div>
-                </div>
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <List className="h-5 w-5 text-teal-500" />
+                  통역 기록
+                </h2>
                 <Button variant="ghost" size="icon" onClick={() => setShowSessionList(false)}>
                   <X className="h-5 w-5" />
                 </Button>
               </div>
+              <p className="text-sm text-slate-500 mt-1">저장된 통역 세션 목록</p>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
