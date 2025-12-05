@@ -1959,22 +1959,21 @@ function YouTubeTranslatePageContent() {
 
   return (
     <div className="h-screen flex flex-col bg-slate-50 dark:bg-slate-900 overflow-hidden">
-      {/* 1. 상단 타이틀바 - 민트 그라데이션 */}
-      <header className="shrink-0 z-50 bg-gradient-to-r from-teal-500 to-cyan-500 text-white">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
-            <Youtube className="h-6 w-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold">YouTube 실시간 통역</h1>
-            <p className="text-sm text-white/80">YouTube를 언어에 상관없이 마음껏 감상해 보세요</p>
-          </div>
-        </div>
-      </header>
-
-      {/* 메인 콘텐츠 - 스크롤바 1개만 */}
+      {/* 메인 콘텐츠 - 스크롤바 1개만 (타이틀 포함) */}
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-4 py-2 space-y-2">
+          {/* 1. 상단 타이틀바 - 컨텐츠 안에 포함 (스크롤과 함께 움직임) */}
+          <div className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-lg">
+            <div className="px-4 py-4 flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+                <Youtube className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold">YouTube 실시간 통역</h1>
+                <p className="text-sm text-white/80">YouTube를 언어에 상관없이 마음껏 감상해 보세요</p>
+              </div>
+            </div>
+          </div>
         {/* 기록 목록 (슬라이드 패널) */}
         {showHistory && (
           <div className="fixed inset-0 z-50 flex">
@@ -2765,8 +2764,7 @@ function YouTubeTranslatePageContent() {
               </div>
             )}
           </div>
-          
-          {/* 테이블 바디 */}
+          {/* 테이블 바디 - 배경색 div 바로 아래 (빈공간 없음) */}
           {isLoadingHistory ? (
             <div className="flex items-center justify-center py-10">
               <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
