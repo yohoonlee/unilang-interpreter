@@ -305,27 +305,20 @@ function YouTubeLivePageContent() {
           if (event.data === window.YT.PlayerState.PLAYING && isReplayModeRef.current) {
             console.log("[YouTube] 재생 시작 - 동기화 타이머 시작")
             startSyncTimer()
-            // 재생 재시작 시 TTS 강제 트리거 (번역 음성 모드일 때만)
-            if (lastSpokenIndexRef.current === -1 && audioModeRef.current === "translated") {
-              const currentIdx = currentSyncIndexRef.current
-              const currentUtts = utterancesRef.current
-              if (currentIdx >= 0 && currentUtts[currentIdx]) {
-                lastSpokenIndexRef.current = currentIdx
-                const text = currentUtts[currentIdx].translated || currentUtts[currentIdx].original
-                console.log("[YouTube] TTS 강제 재시작:", currentIdx, text.substring(0, 20))
-                // 직접 TTS 호출
-                setTimeout(() => {
-                  if (!isSpeakingRef.current) {
-                    playTTS(text, targetLang)
-                  }
-                }, 100)
+            // 재생 재시작 시: 번역 음성 모드이면 TTS 재개 시도
+            if (audioModeRef.current === "translated") {
+              // 일시정지된 오디오가 있으면 이어서 재생
+              if (resumeTTS()) {
+                console.log("[YouTube] TTS 이어서 재생")
+              } else {
+                console.log("[YouTube] 재생 재시작 - 다음 자막 대기")
               }
             }
           } else if (event.data === window.YT.PlayerState.PAUSED) {
             stopSyncTimer()
-            stopTTS()  // 정지 시 TTS도 중지
+            pauseTTS()  // 일시정지: 오디오 위치 유지
           } else if (event.data === window.YT.PlayerState.ENDED) {
-            stopTTS()  // 종료 시 TTS도 중지
+            stopTTS()  // 종료: 완전 초기화
             // 영상 종료 시 빠른 요약 모드이면 자동 처리
             if (quickSummaryMode && isQuickSummaryRunning) {
               console.log("[빠른 요약] 영상 종료 - 자동 AI 재정리 시작")
@@ -415,10 +408,13 @@ function YouTubeLivePageContent() {
           const indexDiff = Math.abs(newIndex - currentSyncIndexRef.current)
           if (indexDiff > 1) {
             console.log(`[동기화] 시간 이동 감지 (${currentSyncIndexRef.current} → ${newIndex}) - TTS 초기화`)
-            // TTS 큐 비우기 및 현재 재생 중지
+            // TTS 완전 초기화 (시간 이동)
             ttsQueueRef.current = []
             if (audioRef.current) {
               audioRef.current.pause()
+              if (audioRef.current.src) {
+                URL.revokeObjectURL(audioRef.current.src)
+              }
               audioRef.current = null
             }
             isSpeakingRef.current = false
@@ -459,7 +455,7 @@ function YouTubeLivePageContent() {
   // 자막 클릭 시 해당 시간으로 이동
   const seekToUtterance = (utt: Utterance) => {
     if (playerRef.current && isReplayMode && utt.startTime) {
-      stopTTS()  // 시간 이동 시 TTS 중지 및 큐 초기화
+      stopTTS()  // 시간 이동: 완전 초기화
       const seekTime = utt.startTime / 1000 // 초로 변환
       playerRef.current.seekTo(seekTime, true)
       playerRef.current.playVideo()
@@ -1987,14 +1983,32 @@ function YouTubeLivePageContent() {
     })
   }
   
-  // TTS 완전 중지 (큐 비우기 + 현재 재생 중지)
+  // TTS 일시정지 (오디오 유지, 위치 기억)
+  const pauseTTS = () => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      console.log(`⏸️ TTS 일시정지 (위치: ${audioRef.current.currentTime.toFixed(1)}초)`)
+    }
+  }
+  
+  // TTS 재개 (일시정지 위치에서 계속)
+  const resumeTTS = () => {
+    if (audioRef.current && audioRef.current.paused) {
+      audioRef.current.play()
+      console.log(`▶️ TTS 재개 (위치: ${audioRef.current.currentTime.toFixed(1)}초)`)
+      return true
+    }
+    return false
+  }
+  
+  // TTS 완전 중지 (큐 비우기 + 오디오 삭제)
   const stopTTS = () => {
     // 큐 비우기
     ttsQueueRef.current = []
     isSpeakingRef.current = false
-    lastSpokenIndexRef.current = -1  // 인덱스 리셋
+    lastSpokenIndexRef.current = -1
     
-    // 현재 재생 중인 오디오 중지
+    // 현재 재생 중인 오디오 삭제
     if (audioRef.current) {
       audioRef.current.pause()
       if (audioRef.current.src) {
@@ -2002,7 +2016,7 @@ function YouTubeLivePageContent() {
       }
       audioRef.current = null
     }
-    console.log("🔇 TTS 중지 및 큐 초기화")
+    console.log("🔇 TTS 완전 중지 및 초기화")
   }
   
   // TTS 큐에서 다음 항목 재생
