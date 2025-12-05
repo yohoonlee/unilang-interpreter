@@ -2055,31 +2055,9 @@ function YouTubeLivePageContent() {
     }
   }, [])
 
-  // 전체화면 모드 자동 진입 (fullscreen=true 파라미터)
+  // 전체화면 모드 자동 진입 비활성화 (브라우저 보안 정책으로 인해 사용자 상호작용 없이 불가능)
+  // 사용자가 직접 "전체화면 전환" 버튼을 클릭해야 함
   const hasAutoFullscreened = useRef(false)
-  
-  // 데이터 로드 완료 후 전체화면 진입
-  useEffect(() => {
-    if (startFullscreen && !hasAutoFullscreened.current && utterances.length > 0 && isPlayerReady) {
-      hasAutoFullscreened.current = true
-      console.log("🎬 자동 전체화면 진입 시도 (데이터 로드 완료)...")
-      // 브라우저 렌더링 완료 대기 후 전체화면 진입
-      setTimeout(() => {
-        enterFullscreen()
-      }, 500)
-    }
-  }, [startFullscreen, utterances.length, isPlayerReady])
-  
-  // 플레이어 준비되면 즉시 전체화면 시도 (새 창에서 열릴 때)
-  useEffect(() => {
-    if (startFullscreen && !hasAutoFullscreened.current && isPlayerReady && !showReplayChoice) {
-      hasAutoFullscreened.current = true
-      console.log("🎬 자동 전체화면 진입 시도 (플레이어 준비 완료)...")
-      setTimeout(() => {
-        enterFullscreen()
-      }, 300)
-    }
-  }, [startFullscreen, isPlayerReady, showReplayChoice])
 
   // 컴포넌트 언마운트 시 정리
   useEffect(() => {

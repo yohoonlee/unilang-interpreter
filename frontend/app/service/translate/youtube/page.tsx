@@ -503,7 +503,7 @@ function YouTubeTranslatePageContent() {
     localStorage.setItem(storageKey, JSON.stringify(sessionData))
     console.log("📦 캐시 데이터 저장:", storageKey, { utterances: utterances.length })
     
-    const liveUrl = `/service/translate/youtube/live?v=${session.video_id}&source=${session.original_lang}&target=${targetLang}&loadSaved=true&autostart=true&fullscreen=true`
+    const liveUrl = `/service/translate/youtube/live?v=${session.video_id}&source=${session.original_lang}&target=${targetLang}&loadSaved=true&autostart=true`
     
     const width = Math.floor(window.screen.width * 0.9)
     const height = Math.floor(window.screen.height * 0.9)
@@ -891,7 +891,7 @@ function YouTubeTranslatePageContent() {
       
       // 저장 완료를 보장하기 위해 약간의 지연 후 새 창 열기
       setTimeout(() => {
-        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true&fullscreen=true`
+        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true`
         console.log("🚀 새 창 열기:", liveUrl)
         
         const liveWindow = window.open(
