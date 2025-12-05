@@ -1922,7 +1922,7 @@ function YouTubeLivePageContent() {
     }
   }
 
-  // TTS로 텍스트 읽기
+  // TTS로 텍스트 읽기 (성별에 따른 음성 선택 포함)
   const speakText = (text: string, lang: string) => {
     if (!window.speechSynthesis) return
     
@@ -1930,9 +1930,24 @@ function YouTubeLivePageContent() {
     window.speechSynthesis.cancel()
     
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = lang === "ko" ? "ko-KR" : lang === "en" ? "en-US" : lang === "ja" ? "ja-JP" : lang === "zh" ? "zh-CN" : lang
+    
+    // 언어 코드 매핑
+    const langMap: Record<string, string> = {
+      ko: "ko-KR", en: "en-US", ja: "ja-JP", zh: "zh-CN",
+      es: "es-ES", de: "de-DE", fr: "fr-FR", it: "it-IT",
+      pt: "pt-BR", ru: "ru-RU", ar: "ar-SA", hi: "hi-IN",
+      th: "th-TH", vi: "vi-VN", id: "id-ID", tr: "tr-TR"
+    }
+    utterance.lang = langMap[lang] || lang
     utterance.rate = 1.0
     utterance.pitch = 1.0
+    
+    // 사용 가능한 음성 중 해당 언어 음성 선택
+    const voices = window.speechSynthesis.getVoices()
+    const langVoice = voices.find(v => v.lang.startsWith(utterance.lang.split('-')[0]))
+    if (langVoice) {
+      utterance.voice = langVoice
+    }
     
     speechSynthRef.current = utterance
     window.speechSynthesis.speak(utterance)
@@ -1943,17 +1958,21 @@ function YouTubeLivePageContent() {
     const newMode = audioMode === "original" ? "translated" : "original"
     setAudioMode(newMode)
     
-    // YouTube 플레이어 음소거 제어
+    // YouTube 플레이어 음소거 제어 (IFrame API mute/unMute 사용)
     if (playerRef.current) {
-      const iframe = document.getElementById("youtube-player") as HTMLIFrameElement
-      if (iframe && iframe.contentWindow) {
-        // YouTube IFrame API로 음소거 제어
+      try {
         if (newMode === "translated") {
           // 번역 음성 모드: YouTube 음소거
-          playerRef.current.pauseVideo?.()
-          setTimeout(() => playerRef.current?.playVideo?.(), 100)  // 재생 유지, 음소거 효과
-          // iframe을 통한 음소거는 제한적이므로 볼륨 컨트롤 안내
+          playerRef.current.mute?.()
+          console.log("🔇 YouTube 음소거 (번역 음성 모드)")
+        } else {
+          // 원본 음성 모드: YouTube 음소거 해제, TTS 중지
+          playerRef.current.unMute?.()
+          window.speechSynthesis?.cancel()
+          console.log("🔊 YouTube 음소거 해제 (원본 음성 모드)")
         }
+      } catch (err) {
+        console.error("음소거 제어 실패:", err)
       }
     }
     
@@ -2019,14 +2038,24 @@ function YouTubeLivePageContent() {
   // 전체화면 모드 자동 진입 (fullscreen=true 파라미터)
   const hasAutoFullscreened = useRef(false)
   useEffect(() => {
-    if (startFullscreen && !hasAutoFullscreened.current && isPlayerReady && !showReplayChoice) {
+    // 전체화면 진입 조건: 
+    // 1. startFullscreen=true
+    // 2. 플레이어 준비됨 (isPlayerReady)
+    // 3. 리플레이 모드(저장된 데이터) 또는 실시간 통역 모드(isListening)
+    const isReadyForFullscreen = startFullscreen && 
+      !hasAutoFullscreened.current && 
+      isPlayerReady && 
+      (isReplayMode || isListening || !showReplayChoice)
+    
+    if (isReadyForFullscreen) {
       hasAutoFullscreened.current = true
-      // 약간의 지연 후 전체화면 진입 (사용자 상호작용 없이는 실패할 수 있음)
+      // 약간의 지연 후 전체화면 진입
       setTimeout(() => {
+        console.log("🎬 자동 전체화면 진입 시도...")
         enterFullscreen()
-      }, 500)
+      }, 300)
     }
-  }, [startFullscreen, isPlayerReady, showReplayChoice])
+  }, [startFullscreen, isPlayerReady, isReplayMode, isListening, showReplayChoice])
 
   // 컴포넌트 언마운트 시 정리
   useEffect(() => {

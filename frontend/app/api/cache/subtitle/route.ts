@@ -71,6 +71,7 @@ export async function GET(request: NextRequest) {
           cached: true,
           isOriginal: true,
           videoId,
+          videoTitle: data.video_title,  // 제목 추가
           language: lang,
           utterances: data.subtitles,
           summary: summaries[lang] || null,
@@ -88,6 +89,7 @@ export async function GET(request: NextRequest) {
           cached: true,
           isOriginal: false,
           videoId,
+          videoTitle: data.video_title,  // 제목 추가
           language: lang,
           utterances: translations[lang],
           summary: summaries[lang] || null,
@@ -157,14 +159,22 @@ export async function POST(request: NextRequest) {
       const updatedTranslations = { ...(existing.translations || {}), ...(translations || {}) }
       const updatedSummaries = { ...(existing.summaries || {}), ...(summaries || {}) }
 
+      // videoTitle이 있으면 업데이트, 없으면 기존 유지
+      const updateData: Record<string, unknown> = {
+        translations: updatedTranslations,
+        summaries: updatedSummaries,
+        video_duration: videoDuration,
+        last_text_time: lastTextTime,
+        last_viewed_at: new Date().toISOString(), // 시청 시각 업데이트
+      }
+      
+      if (videoTitle) {
+        updateData.video_title = videoTitle
+      }
+
       const { error } = await supabase
         .from("video_subtitles_cache")
-        .update({
-          translations: updatedTranslations,
-          summaries: updatedSummaries,
-          video_duration: videoDuration,
-          last_text_time: lastTextTime,
-        })
+        .update(updateData)
         .eq("video_id", videoId)
 
       if (error) {
@@ -172,7 +182,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Cache update failed" }, { status: 500 })
       }
 
-      console.log(`✅ 캐시 업데이트 완료: ${videoId}`)
+      console.log(`✅ 캐시 업데이트 완료: ${videoId}, title: ${videoTitle || '기존 유지'}`)
       return NextResponse.json({ success: true, action: "updated" })
     }
 
