@@ -200,6 +200,7 @@ function YouTubeLivePageContent() {
   
   // 오디오 모드 (화자 목소리 vs 번역 음성)
   const [audioMode, setAudioMode] = useState<"original" | "translated">("original")
+  const audioModeRef = useRef<"original" | "translated">("original")  // closure 문제 해결용
   const audioRef = useRef<HTMLAudioElement | null>(null)  // Google Cloud TTS 오디오
   const lastSpokenIndexRef = useRef(-1)
   const isSpeakingRef = useRef(false)  // TTS 진행 중 여부
@@ -304,6 +305,22 @@ function YouTubeLivePageContent() {
           if (event.data === window.YT.PlayerState.PLAYING && isReplayModeRef.current) {
             console.log("[YouTube] 재생 시작 - 동기화 타이머 시작")
             startSyncTimer()
+            // 재생 재시작 시 TTS 강제 트리거 (번역 음성 모드일 때만)
+            if (lastSpokenIndexRef.current === -1 && audioModeRef.current === "translated") {
+              const currentIdx = currentSyncIndexRef.current
+              const currentUtts = utterancesRef.current
+              if (currentIdx >= 0 && currentUtts[currentIdx]) {
+                lastSpokenIndexRef.current = currentIdx
+                const text = currentUtts[currentIdx].translated || currentUtts[currentIdx].original
+                console.log("[YouTube] TTS 강제 재시작:", currentIdx, text.substring(0, 20))
+                // 직접 TTS 호출
+                setTimeout(() => {
+                  if (!isSpeakingRef.current) {
+                    playTTS(text, targetLang)
+                  }
+                }, 100)
+              }
+            }
           } else if (event.data === window.YT.PlayerState.PAUSED) {
             stopSyncTimer()
             stopTTS()  // 정지 시 TTS도 중지
@@ -2088,6 +2105,7 @@ function YouTubeLivePageContent() {
   const toggleAudioMode = () => {
     const newMode = audioMode === "original" ? "translated" : "original"
     setAudioMode(newMode)
+    audioModeRef.current = newMode  // ref도 업데이트
     
     // YouTube 플레이어 음소거 제어 (IFrame API mute/unMute 사용)
     if (playerRef.current) {
