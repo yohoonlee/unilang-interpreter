@@ -2913,7 +2913,6 @@ function YouTubeTranslatePageContent() {
                     ) : null}
                   </div>
                 </div>
-              </div>
             )}
         </Card>
         </div>
