@@ -1061,7 +1061,7 @@ function YouTubeTranslatePageContent() {
           setProgress(50)
           setProgressText("자막 없음 - 실시간 통역 모드로 전환...")
           
-          const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true&realtimeMode=true`
+          const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true&realtimeMode=true&fullscreen=true`
           const liveWindow = window.open(
             liveUrl,
             "unilang_live",
@@ -1273,7 +1273,7 @@ function YouTubeTranslatePageContent() {
       // 에러 발생 시에도 실시간 통역 모드로 전환
       setProgressText("자막 추출 실패 - 실시간 통역 모드로 전환...")
       
-      const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true&realtimeMode=true`
+      const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true&realtimeMode=true&fullscreen=true`
       
       const liveWindow = window.open(
         liveUrl,
@@ -1307,7 +1307,7 @@ function YouTubeTranslatePageContent() {
     const top = Math.floor((window.screen.height - height) / 2)
     
     // quickSummary 모드: 빠른 요약 모드로 실행
-    const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true${quickSummary ? '&quickSummary=true' : ''}`
+    const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&autostart=true&fullscreen=true${quickSummary ? '&quickSummary=true' : ''}`
     
     const liveWindow = window.open(
       liveUrl,
