@@ -205,6 +205,7 @@ function YouTubeLivePageContent() {
   const lastSpokenIndexRef = useRef(-1)
   const isSpeakingRef = useRef(false)  // TTS 진행 중 여부
   const ttsQueueRef = useRef<{text: string, lang: string}[]>([])  // TTS 대기 큐
+  const seekSpeedMultiplierRef = useRef(1.0)  // 시간 이동 시 속도 배수 (1.0 = 기본, 1.5 = 빠르게)
 
   // 저장된 데이터 키
   const getStorageKey = () => `unilang_youtube_${videoId}_${sourceLang}_${targetLang}`
@@ -404,11 +405,18 @@ function YouTubeLivePageContent() {
         
         // ref를 사용하여 비교 (closure 문제 해결)
         if (newIndex !== -1 && newIndex !== currentSyncIndexRef.current) {
-          // 인덱스가 2 이상 차이나면 시간 이동(seek)으로 간주 - TTS 중지
+          // 인덱스가 2 이상 차이나면 시간 이동(seek)으로 간주
           const indexDiff = Math.abs(newIndex - currentSyncIndexRef.current)
           if (indexDiff > 1) {
-            console.log(`[동기화] 시간 이동 감지 (${currentSyncIndexRef.current} → ${newIndex}) - TTS 초기화`)
-            // TTS 완전 초기화 (시간 이동)
+            // 현재 자막의 남은 시간 계산 (다음 자막 시작 시간 - 현재 영상 시간)
+            const nextUtterance = currentUtterances[newIndex + 1]
+            const currentUtterance = currentUtterances[newIndex]
+            const endTime = nextUtterance?.startTime || (currentUtterance?.startTime || 0) + 10000 // 다음 자막 없으면 10초 가정
+            const remainingTime = endTime - currentTime
+            
+            console.log(`[동기화] 시간 이동 감지 (${currentSyncIndexRef.current} → ${newIndex}), 남은시간: ${Math.floor(remainingTime/1000)}초`)
+            
+            // TTS 중지 및 큐 비우기
             ttsQueueRef.current = []
             if (audioRef.current) {
               audioRef.current.pause()
@@ -418,7 +426,18 @@ function YouTubeLivePageContent() {
               audioRef.current = null
             }
             isSpeakingRef.current = false
-            lastSpokenIndexRef.current = -1
+            
+            // 옵션 C: 남은 시간에 따라 처리
+            if (remainingTime < 3000) {
+              // 남은 시간 < 3초: 현재 자막 건너뛰기 (다음 자막부터 TTS)
+              console.log(`[동기화] 남은시간 ${Math.floor(remainingTime/1000)}초 < 3초 → 건너뛰기`)
+              lastSpokenIndexRef.current = newIndex // 현재 자막은 읽은 것으로 처리
+            } else {
+              // 남은 시간 >= 3초: 빠른 속도로 TTS 재생 (speedMultiplier 적용)
+              console.log(`[동기화] 남은시간 ${Math.floor(remainingTime/1000)}초 >= 3초 → 1.5x 속도로 읽기`)
+              lastSpokenIndexRef.current = newIndex - 1 // 현재 자막 읽도록 설정
+              seekSpeedMultiplierRef.current = 1.5 // 시간 이동 시 속도 증가
+            }
           }
           setCurrentSyncIndex(newIndex)
           console.log(`[동기화] 자막 ${newIndex + 1}/${currentUtterances.length}, 영상시간: ${Math.floor(currentTime/1000)}초, startTime: ${currentUtterances[newIndex]?.startTime}`)
@@ -2087,8 +2106,15 @@ function YouTubeLivePageContent() {
   const playTTS = async (text: string, lang: string) => {
     isSpeakingRef.current = true
     
+    // 시간 이동 시 속도 배수 적용 (1.0 = 기본, 1.5 = 빠르게)
+    const speedMultiplier = seekSpeedMultiplierRef.current
+    const effectiveSpeed = ttsSpeed * speedMultiplier
+    
+    // 속도 배수 리셋 (한 번만 적용)
+    seekSpeedMultiplierRef.current = 1.0
+    
     try {
-      console.log(`🎤 Cloud TTS 요청: ${text.substring(0, 30)}...`)
+      console.log(`🎤 Cloud TTS 요청: ${text.substring(0, 30)}... (속도: ${effectiveSpeed.toFixed(1)}x)`)
       
       const response = await fetch("/api/tts", {
         method: "POST",
@@ -2096,8 +2122,8 @@ function YouTubeLivePageContent() {
         body: JSON.stringify({
           text,
           languageCode: lang,
-          speed: ttsSpeed,
-          voiceName: selectedVoice || undefined,  // 선택된 음성 (없으면 기본값)
+          speed: effectiveSpeed,  // 시간 이동 시 빠른 속도 적용
+          voiceName: selectedVoice || undefined,
         }),
       })
       
