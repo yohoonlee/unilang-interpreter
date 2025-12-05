@@ -2017,11 +2017,8 @@ function YouTubeLivePageContent() {
     
     isSpeakingRef.current = true
     
-    // Chrome 버그 방지: paused 상태 해제
+    // Chrome 버그 방지: 완전 초기화
     window.speechSynthesis.cancel()
-    window.speechSynthesis.resume()
-    
-    const utterance = new SpeechSynthesisUtterance(text)
     
     // 언어 코드 매핑
     const langMap: Record<string, string> = {
@@ -2031,17 +2028,14 @@ function YouTubeLivePageContent() {
       th: "th-TH", vi: "vi-VN", id: "id-ID", tr: "tr-TR"
     }
     const targetLangCode = langMap[lang] || lang
-    utterance.lang = targetLangCode
-    utterance.rate = ttsSpeed  // 사용자 설정 속도 적용
-    utterance.pitch = ttsGender === "female" ? 1.0 : 0.9  // 여성은 기본, 남성은 낮게
     
-    // 사용 가능한 음성 중 선택
+    // 사용 가능한 음성 선택
     const voices = window.speechSynthesis.getVoices()
     const langVoices = voices.filter(v => v.lang.startsWith(targetLangCode.split('-')[0]))
     
+    let voiceToUse: SpeechSynthesisVoice | undefined
+    
     if (langVoices.length > 0) {
-      let voiceToUse: SpeechSynthesisVoice | undefined
-      
       // 1. 사용자가 선택한 음성이 있으면 우선 사용
       if (selectedVoiceName) {
         voiceToUse = langVoices.find(v => v.name === selectedVoiceName)
@@ -2062,9 +2056,22 @@ function YouTubeLivePageContent() {
           voiceToUse = langVoices[ttsGender === "female" ? 0 : Math.min(1, langVoices.length - 1)]
         }
       }
-      
+    }
+    
+    // 워밍업: 무음 utterance를 먼저 재생하여 Chrome 버그 방지
+    const warmupUtterance = new SpeechSynthesisUtterance(" ")
+    warmupUtterance.volume = 0
+    warmupUtterance.rate = 10  // 최대 속도로 빠르게 끝내기
+    if (voiceToUse) warmupUtterance.voice = voiceToUse
+    
+    // 실제 utterance
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = targetLangCode
+    utterance.rate = ttsSpeed
+    utterance.pitch = ttsGender === "female" ? 1.0 : 0.9
+    if (voiceToUse) {
       utterance.voice = voiceToUse
-      console.log(`🎤 TTS 재생: ${text.substring(0, 30)}... (${voiceToUse?.name || '기본'})`)
+      console.log(`🎤 TTS 재생: ${text.substring(0, 30)}... (${voiceToUse.name})`)
     }
     
     // 발화 완료 시 다음 큐 처리
@@ -2079,10 +2086,10 @@ function YouTubeLivePageContent() {
     
     speechSynthRef.current = utterance
     
-    // Chrome 버그 방지: 약간의 딜레이 후 재생
-    setTimeout(() => {
-      window.speechSynthesis.speak(utterance)
-    }, 100)
+    // 워밍업 후 실제 재생
+    window.speechSynthesis.resume()
+    window.speechSynthesis.speak(warmupUtterance)
+    window.speechSynthesis.speak(utterance)
   }
   
   // TTS로 텍스트 읽기 (큐 기반 - 이전 발화 완료 후 다음 재생)
