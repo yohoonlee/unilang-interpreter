@@ -97,7 +97,7 @@ export default function ServicePage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
+    <div className="h-screen flex flex-col bg-white overflow-hidden">
       {/* Header */}
       <header className="shrink-0 z-50 bg-white border-b border-slate-200 shadow-sm">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
