@@ -32,26 +32,26 @@ export async function POST(request: NextRequest) {
     const isKorean = /[가-힣]/.test(firstText)
     const sourceLangName = isKorean ? "한국어" : "영어"
 
-    const prompt = `당신은 실시간 음성인식 텍스트를 재정리하는 전문가입니다.
+    const prompt = `You are an expert at reorganizing fragmented subtitle text into complete sentences.
 
-아래는 실시간 음성인식으로 생성된 ${sourceLangName} 문장들입니다. 각 문장은 [번호] 형식으로 시작합니다.
-불완전하거나 연결된 문장들을 자연스러운 문장으로 재정리해주세요.
+Below are ${sourceLangName} subtitle segments. Each segment starts with [number].
+Merge incomplete or related segments into natural, complete sentences.
 
-규칙:
-1. 의미가 연결되는 문장들은 하나로 합칠 수 있습니다
-2. 문법적으로 올바른 ${sourceLangName} 문장으로 만들어주세요
-3. 원래 의미를 유지하되 자연스럽게 다듬어주세요
-4. 입력된 순서를 유지해주세요 (merged_from의 첫 번째 번호 기준 오름차순)
-5. 반드시 JSON 배열 형식으로만 응답하세요
-6. 입력 언어(${sourceLangName})를 그대로 유지하세요. 번역하지 마세요.
+**CRITICAL RULES:**
+1. **DO NOT TRANSLATE.** Keep the EXACT same language as input.
+2. If input is English, output MUST be English.
+3. If input is Korean, output MUST be Korean.
+4. Merge related segments that form incomplete sentences.
+5. Keep the original order (sort by first number in merged_from).
+6. Output ONLY a JSON array. No explanations.
 
-입력:
+Input (${sourceLangName}):
 ${utteranceText}
 
-응답 형식 (JSON 배열만, 순서 유지):
+Output format (JSON array only):
 [
-  {"merged_from": [1, 2], "text": "합쳐진 문장 (${sourceLangName})"},
-  {"merged_from": [3], "text": "단독 문장 (${sourceLangName})"},
+  {"merged_from": [1, 2], "text": "merged sentence in ${sourceLangName}"},
+  {"merged_from": [3], "text": "single sentence in ${sourceLangName}"},
   ...
 ]`
 
