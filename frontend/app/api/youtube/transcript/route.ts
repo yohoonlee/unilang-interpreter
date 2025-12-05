@@ -34,6 +34,36 @@ async function fetchYouTubeTitle(videoId: string): Promise<string | null> {
 // 외부 자막 API 서버 URL (Railway 등에 배포)
 const SUBTITLE_API_URL = process.env.SUBTITLE_API_URL
 
+// Google Translation API로 텍스트의 언어 감지
+async function detectLanguage(text: string): Promise<string | null> {
+  const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY
+  if (!googleApiKey || !text) return null
+  
+  try {
+    const response = await fetch(
+      `https://translation.googleapis.com/language/translate/v2/detect?key=${googleApiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ q: text.substring(0, 500) }), // 최대 500자만 분석
+      }
+    )
+    
+    if (response.ok) {
+      const data = await response.json()
+      const detections = data.data?.detections?.[0]
+      if (detections && detections.length > 0) {
+        const detected = detections[0]
+        console.log(`🔍 언어 감지: ${detected.language} (신뢰도: ${(detected.confidence * 100).toFixed(1)}%)`)
+        return detected.language
+      }
+    }
+  } catch (err) {
+    console.error("언어 감지 오류:", err)
+  }
+  return null
+}
+
 // YouTube 자막 가져오기 (외부 API 서버 사용)
 async function fetchYouTubeTranscript(videoId: string): Promise<{
   transcript: Array<{ text: string; offset: number; duration: number; lang?: string }>;
@@ -54,19 +84,30 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
       if (response.ok) {
         const data = await response.json()
         if (data.success && data.subtitles) {
-          // 사용 가능한 언어 목록 확인하여 원본 언어 추정
           const availableLangs = data.available_languages || []
-          // 자동 생성 자막이 있는 언어가 대체로 원본 언어
-          // Railway API가 반환한 language가 실제 선택된 자막 언어
-          const actualLanguage = data.language
           
-          console.log(`✅ 외부 API에서 자막 ${data.subtitles.length}개 가져옴 (언어: ${actualLanguage}, 가능: ${availableLangs.join(', ')})`)
+          // 1차: Railway 서버가 감지한 원본 언어 (자동 생성 자막 기준)
+          let originalLanguage = data.original_language || data.language
+          
+          // 2차: 자막 텍스트로 언어 감지 (더 정확함)
+          if (data.subtitles.length > 0) {
+            // 처음 5개 자막 텍스트를 합쳐서 언어 감지
+            const sampleText = data.subtitles.slice(0, 5).map((s: any) => s.text).join(' ')
+            const detectedLang = await detectLanguage(sampleText)
+            
+            if (detectedLang) {
+              console.log(`🎯 텍스트 기반 언어 감지: ${detectedLang} (기존: ${originalLanguage})`)
+              originalLanguage = detectedLang  // 텍스트 감지 결과 우선
+            }
+          }
+          
+          console.log(`✅ 외부 API에서 자막 ${data.subtitles.length}개 가져옴 (원본언어: ${originalLanguage}, 가능: ${availableLangs.join(', ')})`)
           return {
             transcript: data.subtitles.map((s: any) => ({
               text: s.text,
               offset: s.start * 1000,
               duration: s.duration * 1000,
-              lang: actualLanguage  // Railway API가 실제로 선택한 언어
+              lang: originalLanguage  // 정확하게 감지된 원본 언어
             })),
             availableLanguages: availableLangs
           }

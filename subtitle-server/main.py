@@ -45,7 +45,8 @@ class SubtitleItem(BaseModel):
 class SubtitleResponse(BaseModel):
     success: bool
     video_id: str
-    language: str
+    language: str  # 실제로 가져온 자막의 언어
+    original_language: str  # 영상의 원본 언어 (자동 생성 자막 기준)
     subtitles: List[SubtitleItem]
     available_languages: List[str]
     error: Optional[str] = None
@@ -86,12 +87,24 @@ def get_subtitles(video_id: str, languages: List[str]) -> Optional[dict]:
         # 새로운 API: list() 사용
         transcript_list = ytt_api.list(video_id)
         
-        # 사용 가능한 언어 목록
+        # 사용 가능한 언어 목록 및 원본 언어 찾기
         available_languages = []
+        original_language = None  # 자동 생성 자막의 언어 = 원본 언어
+        
         for transcript in transcript_list:
             available_languages.append(transcript.language_code)
+            # is_generated가 True면 자동 생성 자막 = 원본 언어
+            if hasattr(transcript, 'is_generated') and transcript.is_generated:
+                original_language = transcript.language_code
+                print(f"🎯 원본 언어 감지 (자동 생성 자막): {original_language}")
+        
+        # 자동 생성 자막이 없으면 첫 번째 자막을 원본으로 가정
+        if original_language is None and available_languages:
+            original_language = available_languages[0]
+            print(f"🎯 원본 언어 추정 (첫 번째 자막): {original_language}")
         
         print(f"📋 사용 가능한 자막: {available_languages}")
+        print(f"🌐 원본 언어: {original_language}")
         
         # 우선순위에 따라 자막 선택
         selected_transcript = None
@@ -134,6 +147,7 @@ def get_subtitles(video_id: str, languages: List[str]) -> Optional[dict]:
         
         return {
             "language": selected_language,
+            "original_language": original_language or selected_language,  # 원본 언어
             "subtitles": subtitles,
             "available_languages": available_languages
         }
@@ -187,12 +201,13 @@ def api_get_subtitles(request: SubtitleRequest):
             detail="자막을 찾을 수 없습니다. 영상에 자막이 없거나, YouTube가 요청을 차단했을 수 있습니다."
         )
     
-    print(f"\n✅ 최종 결과: {len(result['subtitles'])}개 자막 ({result['language']})")
+    print(f"\n✅ 최종 결과: {len(result['subtitles'])}개 자막 (선택: {result['language']}, 원본: {result.get('original_language')})")
     
     return SubtitleResponse(
         success=True,
         video_id=video_id,
         language=result["language"],
+        original_language=result.get("original_language", result["language"]),
         subtitles=[SubtitleItem(**s) for s in result["subtitles"]],
         available_languages=result.get("available_languages", [])
     )
