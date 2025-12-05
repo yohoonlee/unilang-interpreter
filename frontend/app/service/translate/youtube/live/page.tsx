@@ -1954,50 +1954,6 @@ function YouTubeLivePageContent() {
     })
   }
   
-  // 사용 가능한 TTS 음성 목록
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
-  const [selectedVoiceName, setSelectedVoiceName] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('unilang_tts_voice') || ''
-    }
-    return ''
-  })
-  const [showVoiceSelector, setShowVoiceSelector] = useState(false)
-  
-  // 음성 목록 로드
-  useEffect(() => {
-    const loadVoices = () => {
-      const voices = window.speechSynthesis?.getVoices() || []
-      setAvailableVoices(voices)
-    }
-    
-    loadVoices()
-    window.speechSynthesis?.addEventListener('voiceschanged', loadVoices)
-    
-    return () => {
-      window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices)
-    }
-  }, [])
-  
-  // 현재 언어에 맞는 음성 필터링
-  const getVoicesForLanguage = (lang: string) => {
-    const langMap: Record<string, string> = {
-      ko: "ko", en: "en", ja: "ja", zh: "zh",
-      es: "es", de: "de", fr: "fr", it: "it",
-      pt: "pt", ru: "ru", ar: "ar", hi: "hi",
-      th: "th", vi: "vi", id: "id", tr: "tr"
-    }
-    const langCode = langMap[lang] || lang
-    return availableVoices.filter(v => v.lang.startsWith(langCode))
-  }
-  
-  // 음성 선택 변경
-  const selectVoice = (voiceName: string) => {
-    setSelectedVoiceName(voiceName)
-    localStorage.setItem('unilang_tts_voice', voiceName)
-    setShowVoiceSelector(false)
-  }
-  
   // TTS 큐에서 다음 항목 재생
   const processNextTTS = () => {
     if (ttsQueueRef.current.length === 0) {
@@ -2025,6 +1981,7 @@ function YouTubeLivePageContent() {
           text,
           languageCode: lang,
           speed: ttsSpeed,
+          gender: ttsGender,
         }),
       })
       
@@ -2498,41 +2455,6 @@ function YouTubeLivePageContent() {
                 >
                   {ttsGender === "female" ? "👩" : "👨"}
                 </button>
-                
-                {/* 음성 선택 버튼 */}
-                <div className="relative">
-                  <button
-                    onClick={() => setShowVoiceSelector(!showVoiceSelector)}
-                    className="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 text-white text-xs rounded transition-colors"
-                    title="음성 선택"
-                  >
-                    🎙️ {selectedVoiceName ? selectedVoiceName.split(' ')[0] : '기본'}
-                  </button>
-                  
-                  {/* 음성 선택 드롭다운 */}
-                  {showVoiceSelector && (
-                    <div className="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto min-w-[200px]">
-                      <button
-                        onClick={() => selectVoice('')}
-                        className={`w-full px-3 py-2 text-left text-xs hover:bg-slate-700 ${!selectedVoiceName ? 'bg-teal-700' : ''}`}
-                      >
-                        🔄 기본 (자동)
-                      </button>
-                      {getVoicesForLanguage(targetLang).map((voice, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => selectVoice(voice.name)}
-                          className={`w-full px-3 py-2 text-left text-xs hover:bg-slate-700 ${selectedVoiceName === voice.name ? 'bg-teal-700' : ''}`}
-                        >
-                          {voice.name} ({voice.lang})
-                        </button>
-                      ))}
-                      {getVoicesForLanguage(targetLang).length === 0 && (
-                        <p className="px-3 py-2 text-xs text-slate-400">해당 언어 음성 없음</p>
-                      )}
-                    </div>
-                  )}
-                </div>
                 
                 {/* 속도 조절 */}
                 <div className="flex items-center gap-1 bg-slate-700 rounded px-2 py-1">

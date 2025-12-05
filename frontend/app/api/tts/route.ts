@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 // Google Cloud TTS API
 export async function POST(request: NextRequest) {
   try {
-    const { text, languageCode, voiceName, speed } = await request.json()
+    const { text, languageCode, voiceName, speed, gender } = await request.json()
 
     if (!text) {
       return NextResponse.json(
@@ -30,9 +30,8 @@ export async function POST(request: NextRequest) {
     
     const targetLangCode = langMap[languageCode] || languageCode || "ko-KR"
     
-    // 음성 이름 (없으면 기본값 사용)
-    // Neural2 또는 Standard 음성 사용
-    const defaultVoices: Record<string, string> = {
+    // 성별에 따른 음성 선택 (Neural2 우선 사용)
+    const femaleVoices: Record<string, string> = {
       "ko-KR": "ko-KR-Neural2-A",  // 여성
       "en-US": "en-US-Neural2-F",  // 여성
       "ja-JP": "ja-JP-Neural2-B",  // 여성
@@ -40,9 +39,45 @@ export async function POST(request: NextRequest) {
       "es-ES": "es-ES-Neural2-A",  // 여성
       "de-DE": "de-DE-Neural2-A",  // 여성
       "fr-FR": "fr-FR-Neural2-A",  // 여성
+      "it-IT": "it-IT-Neural2-A",  // 여성
+      "pt-BR": "pt-BR-Neural2-A",  // 여성
+      "ru-RU": "ru-RU-Standard-A", // 여성 (Neural2 없음)
+      "ar-XA": "ar-XA-Standard-A", // 여성
+      "hi-IN": "hi-IN-Neural2-A",  // 여성
+      "th-TH": "th-TH-Standard-A", // 여성
+      "vi-VN": "vi-VN-Neural2-A",  // 여성
+      "id-ID": "id-ID-Standard-A", // 여성
+      "tr-TR": "tr-TR-Standard-A", // 여성
     }
     
-    const voice = voiceName || defaultVoices[targetLangCode] || `${targetLangCode}-Standard-A`
+    const maleVoices: Record<string, string> = {
+      "ko-KR": "ko-KR-Neural2-C",  // 남성
+      "en-US": "en-US-Neural2-D",  // 남성
+      "ja-JP": "ja-JP-Neural2-C",  // 남성
+      "zh-CN": "zh-CN-Neural2-B",  // 남성
+      "es-ES": "es-ES-Neural2-B",  // 남성
+      "de-DE": "de-DE-Neural2-B",  // 남성
+      "fr-FR": "fr-FR-Neural2-B",  // 남성
+      "it-IT": "it-IT-Neural2-C",  // 남성
+      "pt-BR": "pt-BR-Neural2-B",  // 남성
+      "ru-RU": "ru-RU-Standard-B", // 남성 (Neural2 없음)
+      "ar-XA": "ar-XA-Standard-B", // 남성
+      "hi-IN": "hi-IN-Neural2-B",  // 남성
+      "th-TH": "th-TH-Standard-A", // (남성 없음, 여성 사용)
+      "vi-VN": "vi-VN-Neural2-D",  // 남성
+      "id-ID": "id-ID-Standard-B", // 남성
+      "tr-TR": "tr-TR-Standard-B", // 남성
+    }
+    
+    // 음성 선택: voiceName > gender 기반 > 기본 여성
+    let voice: string
+    if (voiceName) {
+      voice = voiceName
+    } else if (gender === "male") {
+      voice = maleVoices[targetLangCode] || `${targetLangCode}-Standard-B`
+    } else {
+      voice = femaleVoices[targetLangCode] || `${targetLangCode}-Standard-A`
+    }
 
     // Google Cloud TTS API 호출
     const response = await fetch(
