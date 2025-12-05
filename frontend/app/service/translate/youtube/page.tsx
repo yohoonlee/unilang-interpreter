@@ -1958,10 +1958,10 @@ function YouTubeTranslatePageContent() {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden" style={{ backgroundColor: '#CCFBF1' }}>
-      {/* 메인 콘텐츠 - 전체 배경 민트색, 카드만 흰색 */}
+    <div className="h-screen flex flex-col overflow-hidden bg-white">
+      {/* 메인 콘텐츠 - 전체 배경 흰색 */}
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto px-4 py-2 space-y-2">
+        <div className="max-w-5xl mx-auto px-4 py-2 space-y-0">
           {/* 1. 상단 타이틀바 - 컨텐츠 안에 포함 (스크롤과 함께 움직임) */}
           <div className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-lg">
             <div className="px-4 py-4 flex items-center gap-4">
