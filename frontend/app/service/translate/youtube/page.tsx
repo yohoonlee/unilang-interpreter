@@ -1096,17 +1096,81 @@ function YouTubeTranslatePageContent() {
       }
       
       // ========================================
-      // 3단계: 배치 번역 수행
+      // 3단계: AI 재정리 (원문을 문장 단위로 정리)
+      // ========================================
+      setProgress(30)
+      setProgressText("AI 원문 재정리 중...")
+      console.log("🔄 AI 원문 재정리 시작:", convertedUtterances.length, "개 자막")
+      
+      try {
+        // 원문 자막을 API 형식으로 변환
+        const utterancesForApi = convertedUtterances.map((u, idx) => ({
+          id: idx + 1,
+          text: u.original,
+          startTime: u.startTime,
+        }))
+        
+        const reorganizeResponse = await fetch("/api/gemini/reorganize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            utterances: utterancesForApi,
+            targetLanguage: detectedLang, // 원문 언어로 재정리
+          }),
+        })
+        
+        if (reorganizeResponse.ok) {
+          const reorganizeData = await reorganizeResponse.json()
+          
+          if (reorganizeData.success && reorganizeData.data) {
+            console.log("📝 AI 재정리 결과:", reorganizeData.data.length, "개 문장")
+            
+            // 재정리된 결과로 convertedUtterances 업데이트
+            const newUtterances: typeof convertedUtterances = []
+            
+            reorganizeData.data.forEach((item: { merged_from: number[]; text: string }, newIdx: number) => {
+              // merged_from의 첫 번째 원본 자막의 startTime 사용
+              const firstOriginalIdx = item.merged_from[0] - 1 // 1-based to 0-based
+              const originalUtterance = convertedUtterances[firstOriginalIdx]
+              
+              if (originalUtterance) {
+                newUtterances.push({
+                  id: `subtitle-reorganized-${newIdx}`,
+                  original: item.text,
+                  translated: "",
+                  timestamp: originalUtterance.timestamp,
+                  startTime: originalUtterance.startTime,
+                })
+              }
+            })
+            
+            if (newUtterances.length > 0) {
+              convertedUtterances = newUtterances
+              console.log("✅ AI 원문 재정리 적용:", convertedUtterances.length, "개 문장")
+            }
+          }
+        } else {
+          console.log("⚠️ AI 재정리 API 실패, 원본 유지")
+        }
+      } catch (err) {
+        console.error("AI 재정리 오류, 원본 유지:", err)
+      }
+      
+      setProgress(45)
+      setProgressText("원문 재정리 완료!")
+      
+      // ========================================
+      // 4단계: 배치 번역 수행 (재정리된 원문 번역)
       // ========================================
       if (targetLanguage !== "none" && targetLanguage !== detectedLang) {
-        setProgress(30)
-        setProgressText(`번역 준비 중... (${convertedUtterances.length}개 자막)`)
+        setProgress(50)
+        setProgressText(`번역 준비 중... (${convertedUtterances.length}개 문장)`)
         
-        // 모든 원본 텍스트를 배열로 추출
+        // 재정리된 원본 텍스트를 배열로 추출
         const originalTexts = convertedUtterances.map(u => u.original)
         
         // 배치 번역 수행 (한 번에 모든 텍스트 번역)
-        setProgress(40)
+        setProgress(60)
         setProgressText(`배치 번역 중... (${convertedUtterances.length}개)`)
         
         const translatedTexts = await translateBatchForWorkflow(
@@ -1122,50 +1186,18 @@ function YouTubeTranslatePageContent() {
           }
         })
         
-        setProgress(60)
+        setProgress(70)
         setProgressText("번역 완료!")
-        console.log(`✅ ${convertedUtterances.length}개 자막 번역 완료`)
+        console.log(`✅ ${convertedUtterances.length}개 문장 번역 완료`)
       } else {
         // 번역이 필요없으면 원본을 translated에도 복사
         convertedUtterances.forEach(u => { u.translated = u.original })
       }
       
       // ========================================
-      // 4단계: AI 재처리 (선택적)
-      // ========================================
-      setProgress(65)
-      setProgressText("AI 재정리 중...")
-      
-      const translatedBackup = convertedUtterances.map(u => u.translated)
-      console.log("🔄 AI 재처리 전 번역 백업:", translatedBackup.slice(0, 3))
-      
-      try {
-        const textToReorganize = convertedUtterances.map(u => u.translated).join("\n")
-        const reorganizedText = await reorganizeTextForWorkflow(textToReorganize, targetLanguage)
-        
-        if (reorganizedText) {
-          const lines = reorganizedText.split("\n").filter((l: string) => l.trim())
-          console.log("📝 재처리 결과 줄 수:", lines.length, "/ 원본:", convertedUtterances.length)
-          
-          if (lines.length >= convertedUtterances.length * 0.9 && lines.length <= convertedUtterances.length * 1.1) {
-            lines.forEach((line: string, index: number) => {
-              if (convertedUtterances[index]) {
-                convertedUtterances[index].translated = line
-              }
-            })
-            console.log("✅ AI 재처리 적용됨")
-          } else {
-            console.log("⚠️ 줄 수 불일치로 재처리 건너뜀, 원본 번역 유지")
-          }
-        }
-      } catch (err) {
-        console.error("AI 재처리 오류, 원본 번역 유지:", err)
-      }
-      
-      // ========================================
       // 5단계: 요약 생성
       // ========================================
-      setProgress(80)
+      setProgress(75)
       setProgressText("요약 생성 중...")
       
       const textToSummarize = convertedUtterances.map(u => u.translated).join("\n")

@@ -1934,6 +1934,68 @@ function YouTubeLivePageContent() {
   // TTS 음성 성별 설정 (male/female)
   const [ttsGender, setTtsGender] = useState<"male" | "female">("female")
   
+  // TTS 속도 설정 (0.5 ~ 2.0, 기본 1.3)
+  const [ttsSpeed, setTtsSpeed] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('unilang_tts_speed')
+      return saved ? parseFloat(saved) : 1.3
+    }
+    return 1.3
+  })
+  
+  // TTS 속도 변경 및 저장
+  const changeTtsSpeed = (delta: number) => {
+    setTtsSpeed(prev => {
+      const newSpeed = Math.max(0.5, Math.min(2.0, prev + delta))
+      localStorage.setItem('unilang_tts_speed', newSpeed.toString())
+      return newSpeed
+    })
+  }
+  
+  // 사용 가능한 TTS 음성 목록
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [selectedVoiceName, setSelectedVoiceName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('unilang_tts_voice') || ''
+    }
+    return ''
+  })
+  const [showVoiceSelector, setShowVoiceSelector] = useState(false)
+  
+  // 음성 목록 로드
+  useEffect(() => {
+    const loadVoices = () => {
+      const voices = window.speechSynthesis?.getVoices() || []
+      setAvailableVoices(voices)
+    }
+    
+    loadVoices()
+    window.speechSynthesis?.addEventListener('voiceschanged', loadVoices)
+    
+    return () => {
+      window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices)
+    }
+  }, [])
+  
+  // 현재 언어에 맞는 음성 필터링
+  const getVoicesForLanguage = (lang: string) => {
+    const langMap: Record<string, string> = {
+      ko: "ko", en: "en", ja: "ja", zh: "zh",
+      es: "es", de: "de", fr: "fr", it: "it",
+      pt: "pt", ru: "ru", ar: "ar", hi: "hi",
+      th: "th", vi: "vi", id: "id", tr: "tr"
+    }
+    const langCode = langMap[lang] || lang
+    return availableVoices.filter(v => v.lang.startsWith(langCode))
+  }
+  
+  // 음성 선택 변경
+  const selectVoice = (voiceName: string) => {
+    setSelectedVoiceName(voiceName)
+    localStorage.setItem('unilang_tts_voice', voiceName)
+    setShowVoiceSelector(false)
+  }
+  
   // TTS로 텍스트 읽기 (성별에 따른 음성 선택 포함)
   const speakText = (text: string, lang: string) => {
     if (!window.speechSynthesis) return
@@ -1952,30 +2014,39 @@ function YouTubeLivePageContent() {
     }
     const targetLangCode = langMap[lang] || lang
     utterance.lang = targetLangCode
-    utterance.rate = 1.0
+    utterance.rate = ttsSpeed  // 사용자 설정 속도 적용
     utterance.pitch = ttsGender === "female" ? 1.2 : 0.9  // 여성은 높게, 남성은 낮게
     
-    // 사용 가능한 음성 중 성별에 맞는 음성 선택
+    // 사용 가능한 음성 중 선택
     const voices = window.speechSynthesis.getVoices()
     const langVoices = voices.filter(v => v.lang.startsWith(targetLangCode.split('-')[0]))
     
     if (langVoices.length > 0) {
-      // 성별 키워드로 음성 찾기 (일부 브라우저/OS에서만 작동)
-      const genderKeywords = ttsGender === "female" 
-        ? ["female", "woman", "여성", "여자", "Yuna", "Siri", "Samantha", "Victoria", "Karen", "Moira"]
-        : ["male", "man", "남성", "남자", "Daniel", "Alex", "Tom", "Fred", "Junior"]
+      let voiceToUse: SpeechSynthesisVoice | undefined
       
-      let selectedVoice = langVoices.find(v => 
-        genderKeywords.some(kw => v.name.toLowerCase().includes(kw.toLowerCase()))
-      )
-      
-      // 성별 음성 못 찾으면 첫 번째 음성 사용
-      if (!selectedVoice) {
-        selectedVoice = langVoices[ttsGender === "female" ? 0 : Math.min(1, langVoices.length - 1)]
+      // 1. 사용자가 선택한 음성이 있으면 우선 사용
+      if (selectedVoiceName) {
+        voiceToUse = langVoices.find(v => v.name === selectedVoiceName)
       }
       
-      utterance.voice = selectedVoice
-      console.log(`🎤 TTS 음성 선택: ${selectedVoice?.name || '기본'} (${ttsGender})`)
+      // 2. 선택한 음성이 없거나 현재 언어에 없으면 성별 기반 선택
+      if (!voiceToUse) {
+        const genderKeywords = ttsGender === "female" 
+          ? ["female", "woman", "여성", "여자", "Yuna", "Siri", "Samantha", "Victoria", "Karen", "Moira"]
+          : ["male", "man", "남성", "남자", "Daniel", "Alex", "Tom", "Fred", "Junior"]
+        
+        voiceToUse = langVoices.find(v => 
+          genderKeywords.some(kw => v.name.toLowerCase().includes(kw.toLowerCase()))
+        )
+        
+        // 성별 음성 못 찾으면 첫 번째 음성 사용
+        if (!voiceToUse) {
+          voiceToUse = langVoices[ttsGender === "female" ? 0 : Math.min(1, langVoices.length - 1)]
+        }
+      }
+      
+      utterance.voice = voiceToUse
+      console.log(`🎤 TTS 음성: ${voiceToUse?.name || '기본'} (속도: ${ttsSpeed}x)`)
     }
     
     speechSynthRef.current = utterance
@@ -2253,6 +2324,26 @@ function YouTubeLivePageContent() {
               >
                 {audioMode === "original" ? "🔊 화자음성" : "🗣️ 번역음성"}
               </button>
+              
+              {/* TTS 속도 조절 (전체화면, 번역 음성 모드) */}
+              {audioMode === "translated" && (
+                <div className="flex items-center gap-1 bg-slate-800/80 rounded-lg px-2 py-1 shadow-lg">
+                  <button
+                    onClick={() => changeTtsSpeed(-0.2)}
+                    className="w-7 h-7 bg-slate-600 hover:bg-slate-500 text-white text-sm rounded"
+                  >
+                    -
+                  </button>
+                  <span className="text-white text-xs font-mono w-10 text-center">{ttsSpeed.toFixed(1)}x</span>
+                  <button
+                    onClick={() => changeTtsSpeed(0.2)}
+                    className="w-7 h-7 bg-slate-600 hover:bg-slate-500 text-white text-sm rounded"
+                  >
+                    +
+                  </button>
+                </div>
+              )}
+              
               <button
                 onClick={exitFullscreen}
                 className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-bold shadow-lg"
@@ -2346,19 +2437,77 @@ function YouTubeLivePageContent() {
               {audioMode === "original" ? "🔊 화자음성" : "🗣️ 번역음성"}
             </button>
             
-            {/* TTS 성별 선택 버튼 (번역 음성 모드에서만 표시) */}
+            {/* TTS 설정 버튼 (번역 음성 모드에서만 표시) */}
             {audioMode === "translated" && (
-              <button
-                onClick={() => setTtsGender(prev => prev === "female" ? "male" : "female")}
-                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-                  ttsGender === "female" 
-                    ? "bg-pink-500 hover:bg-pink-600 text-white" 
-                    : "bg-blue-500 hover:bg-blue-600 text-white"
-                }`}
-                title={`현재: ${ttsGender === "female" ? "여성" : "남성"} 음성 (클릭하여 변경)`}
-              >
-                {ttsGender === "female" ? "👩 여성음성" : "👨 남성음성"}
-              </button>
+              <>
+                {/* 성별 선택 */}
+                <button
+                  onClick={() => setTtsGender(prev => prev === "female" ? "male" : "female")}
+                  className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                    ttsGender === "female" 
+                      ? "bg-pink-500 hover:bg-pink-600 text-white" 
+                      : "bg-blue-500 hover:bg-blue-600 text-white"
+                  }`}
+                  title={`현재: ${ttsGender === "female" ? "여성" : "남성"} 음성`}
+                >
+                  {ttsGender === "female" ? "👩" : "👨"}
+                </button>
+                
+                {/* 음성 선택 버튼 */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowVoiceSelector(!showVoiceSelector)}
+                    className="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 text-white text-xs rounded transition-colors"
+                    title="음성 선택"
+                  >
+                    🎙️ {selectedVoiceName ? selectedVoiceName.split(' ')[0] : '기본'}
+                  </button>
+                  
+                  {/* 음성 선택 드롭다운 */}
+                  {showVoiceSelector && (
+                    <div className="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto min-w-[200px]">
+                      <button
+                        onClick={() => selectVoice('')}
+                        className={`w-full px-3 py-2 text-left text-xs hover:bg-slate-700 ${!selectedVoiceName ? 'bg-teal-700' : ''}`}
+                      >
+                        🔄 기본 (자동)
+                      </button>
+                      {getVoicesForLanguage(targetLang).map((voice, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => selectVoice(voice.name)}
+                          className={`w-full px-3 py-2 text-left text-xs hover:bg-slate-700 ${selectedVoiceName === voice.name ? 'bg-teal-700' : ''}`}
+                        >
+                          {voice.name} ({voice.lang})
+                        </button>
+                      ))}
+                      {getVoicesForLanguage(targetLang).length === 0 && (
+                        <p className="px-3 py-2 text-xs text-slate-400">해당 언어 음성 없음</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+                
+                {/* 속도 조절 */}
+                <div className="flex items-center gap-1 bg-slate-700 rounded px-2 py-1">
+                  <button
+                    onClick={() => changeTtsSpeed(-0.2)}
+                    className="w-6 h-6 bg-slate-600 hover:bg-slate-500 text-white text-xs rounded"
+                    title="속도 감소"
+                  >
+                    -
+                  </button>
+                  <span className="text-white text-xs font-mono w-10 text-center">{ttsSpeed.toFixed(1)}x</span>
+                  <button
+                    onClick={() => changeTtsSpeed(0.2)}
+                    className="w-6 h-6 bg-slate-600 hover:bg-slate-500 text-white text-xs rounded"
+                    title="속도 증가"
+                  >
+                    +
+                  </button>
+                </div>
+              </>
+            
             )}
             
             {/* 전체화면 전환 버튼 - 빨간색으로 눈에 띄게 */}
