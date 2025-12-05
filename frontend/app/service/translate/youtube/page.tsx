@@ -1958,7 +1958,7 @@ function YouTubeTranslatePageContent() {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden">
+    <div className="h-screen flex flex-col overflow-hidden" style={{ backgroundColor: '#FFFFFF' }}>
       {/* 메인 콘텐츠 - 전체 배경 흰색 */}
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-4 py-2 space-y-2">
@@ -2742,7 +2742,7 @@ function YouTubeTranslatePageContent() {
         )}
 
         {/* YouTube 사용기록 (하단 테이블) - 테이블 바디는 흰색 배경 */}
-        <Card className="border-2 border-teal-300 overflow-hidden p-0 bg-white">
+        <Card className="border-2 overflow-hidden p-0 bg-white" style={{ borderColor: '#14B8A6' }}>
           {/* 3. 목록 상단 배경색 - 타이틀과 테이블 헤더 통합 (Card 패딩 제거) */}
           <div style={{ backgroundColor: '#CCFBF1' }}>
             {/* 타이틀 - 상단 여백 없음 */}
@@ -2780,10 +2780,11 @@ function YouTubeTranslatePageContent() {
                   {youtubeSessions.map((item) => (
                     <div 
                       key={item.key || item.history_id}
-                      className="grid grid-cols-12 gap-2 px-4 py-3 items-center transition-colors"
+                      className="grid grid-cols-12 gap-2 px-4 py-3 items-center transition-colors cursor-pointer"
                       style={{ backgroundColor: item.is_starred ? '#FFFBEB' : 'white' }}
                       onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#CCFBF1'}
                       onMouseLeave={(e) => e.currentTarget.style.backgroundColor = item.is_starred ? '#FFFBEB' : 'white'}
+                      onClick={() => playFromHistoryWithLang(item, item.target_lang)}
                     >
                       {/* 별표 */}
                       <div className="col-span-1 text-center">
