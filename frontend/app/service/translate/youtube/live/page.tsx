@@ -2570,7 +2570,7 @@ function YouTubeLivePageContent() {
                     <div className="absolute bottom-full left-0 mb-1 bg-slate-800 border border-slate-600 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto min-w-[180px]">
                       <button
                         onClick={() => selectVoice('')}
-                        className={`w-full px-3 py-2 text-left text-xs hover:bg-slate-700 ${!selectedVoice ? 'bg-teal-700' : ''}`}
+                        className={`w-full px-3 py-2 text-left text-xs text-white hover:bg-slate-700 ${!selectedVoice ? 'bg-teal-700' : ''}`}
                       >
                         🔄 기본 (자동)
                       </button>
@@ -2578,7 +2578,7 @@ function YouTubeLivePageContent() {
                         <button
                           key={idx}
                           onClick={() => selectVoice(voice.name)}
-                          className={`w-full px-3 py-2 text-left text-xs hover:bg-slate-700 ${selectedVoice === voice.name ? 'bg-teal-700' : ''}`}
+                          className={`w-full px-3 py-2 text-left text-xs text-white hover:bg-slate-700 ${selectedVoice === voice.name ? 'bg-teal-700' : ''}`}
                         >
                           {voice.gender === 'female' ? '👩' : '👨'} {voice.label}
                         </button>
