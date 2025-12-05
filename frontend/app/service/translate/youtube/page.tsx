@@ -2754,7 +2754,7 @@ function YouTubeTranslatePageContent() {
             </div>
             {/* 테이블 헤더 - 배경색 연결 (빈공간 없음) */}
             {youtubeSessions.length > 0 && (
-              <div className="grid grid-cols-12 gap-2 px-4 py-2 text-sm font-medium text-teal-700 border-b border-teal-300">
+              <div className="grid grid-cols-12 gap-2 px-4 py-2 text-sm font-medium text-white border-b border-teal-300" style={{ backgroundColor: '#14B8A6' }}>
                 <div className="col-span-1 text-center">⭐</div>
                 <div className="col-span-1">썸네일</div>
                 <div className="col-span-4">제목</div>
