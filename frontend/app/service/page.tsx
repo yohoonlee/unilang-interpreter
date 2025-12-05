@@ -97,9 +97,9 @@ export default function ServicePage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-white border-b border-slate-200 shadow-sm">
+      <header className="shrink-0 z-50 bg-white border-b border-slate-200 shadow-sm">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 shadow-md">
@@ -128,7 +128,7 @@ export default function ServicePage() {
       </header>
 
       {/* Navigation Tabs */}
-      <nav className="bg-white border-b border-slate-200">
+      <nav className="shrink-0 bg-white border-b border-slate-200">
         <div className="container mx-auto px-4">
           <div className="flex items-center gap-1">
             {menuItems.map((item) => (
@@ -149,8 +149,8 @@ export default function ServicePage() {
         </div>
       </nav>
 
-      {/* Main Content */}
-      <main className={activeMenu === "translate" ? "" : "container mx-auto px-4 py-8"}>
+      {/* Main Content - 스크롤 1개만 */}
+      <main className={`flex-1 overflow-y-auto ${activeMenu === "translate" ? "" : "container mx-auto px-4 py-8"}`}>
         {renderContent()}
       </main>
     </div>
@@ -245,7 +245,7 @@ function HomeContent({ onStartTranslation }: { onStartTranslation: () => void })
 // 실시간 통역 서비스 - iframe으로 기존 통역 페이지 로드 (embedded 모드)
 function TranslateContent() {
   return (
-    <div className="h-[calc(100vh-8rem)]">
+    <div className="h-full">
       <iframe 
         src="/service/translate/mic?embedded=true" 
         className="w-full h-full border-0"
@@ -258,7 +258,7 @@ function TranslateContent() {
 // 녹음 통역 서비스 (화자 구분 지원)
 function RecordContent() {
   return (
-    <div className="h-[calc(100vh-8rem)]">
+    <div className="h-full">
       <iframe 
         src="/service/translate/record?embedded=true" 
         className="w-full h-full border-0"
@@ -271,7 +271,7 @@ function RecordContent() {
 // YouTube 통역 서비스
 function YouTubeContent() {
   return (
-    <div className="h-[calc(100vh-8rem)]">
+    <div className="h-full">
       <iframe 
         src="/service/translate/youtube?embedded=true" 
         className="w-full h-full border-0"
@@ -284,7 +284,7 @@ function YouTubeContent() {
 // 화상회의 통역
 function VideoCallContent() {
   return (
-    <div className="h-[calc(100vh-8rem)]">
+    <div className="h-full">
       <iframe 
         src="/service/translate/meeting?embedded=true" 
         className="w-full h-full border-0"
@@ -297,7 +297,7 @@ function VideoCallContent() {
 // 통역 기록
 function HistoryContent() {
   return (
-    <div className="h-[calc(100vh-8rem)]">
+    <div className="h-full">
       <iframe 
         src="/service/history?embedded=true" 
         className="w-full h-full border-0"
