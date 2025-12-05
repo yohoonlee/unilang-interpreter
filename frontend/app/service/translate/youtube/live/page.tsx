@@ -2126,12 +2126,8 @@ function YouTubeLivePageContent() {
     
     console.log(`🎤 TTS 텍스트 분할: ${textChunks.length}개 청크`)
     
-    // 이미 재생 중이면 큐에 추가
+    // 이미 재생 중이면 큐에 추가 (제한 없음 - 모든 자막 재생)
     if (isSpeakingRef.current) {
-      // 큐가 너무 길면 오래된 것 제거
-      while (ttsQueueRef.current.length >= 3) {
-        ttsQueueRef.current.shift()
-      }
       textChunks.forEach(chunk => {
         ttsQueueRef.current.push({ text: chunk, lang })
       })
