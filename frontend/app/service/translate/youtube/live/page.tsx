@@ -2078,72 +2078,19 @@ function YouTubeLivePageContent() {
     }
   }
   
-  // TTS로 텍스트 읽기 (큐 기반 - 이전 발화 완료 후 다음 재생)
+  // TTS로 텍스트 읽기 (Google Cloud TTS - 분할 불필요)
   const speakText = (text: string, lang: string) => {
-    if (!window.speechSynthesis) return
+    if (!text.trim()) return
     
-    // 긴 텍스트를 문장 단위로 분할 (Web Speech API 버그 방지)
-    // 100자 이상이면 분할
-    const maxLength = 100
-    let textChunks: string[] = []
-    
-    if (text.length > maxLength) {
-      // 문장 부호로 분할 (. ! ? 등)
-      const sentences = text.split(/(?<=[.!?。！？])\s*/)
-      let currentChunk = ""
-      
-      for (const sentence of sentences) {
-        if ((currentChunk + sentence).length <= maxLength) {
-          currentChunk += sentence
-        } else {
-          if (currentChunk) {
-            textChunks.push(currentChunk.trim())
-          }
-          // 문장 자체가 너무 길면 강제 분할
-          if (sentence.length > maxLength) {
-            const words = sentence.split(/\s+/)
-            let wordChunk = ""
-            for (const word of words) {
-              if ((wordChunk + " " + word).length <= maxLength) {
-                wordChunk += (wordChunk ? " " : "") + word
-              } else {
-                if (wordChunk) textChunks.push(wordChunk.trim())
-                wordChunk = word
-              }
-            }
-            if (wordChunk) currentChunk = wordChunk
-          } else {
-            currentChunk = sentence
-          }
-        }
-      }
-      if (currentChunk.trim()) {
-        textChunks.push(currentChunk.trim())
-      }
-    } else {
-      textChunks = [text]
-    }
-    
-    console.log(`🎤 TTS 텍스트 분할: ${textChunks.length}개 청크`)
-    
-    // 이미 재생 중이면 큐에 추가 (제한 없음 - 모든 자막 재생)
+    // 이미 재생 중이면 큐에 추가
     if (isSpeakingRef.current) {
-      textChunks.forEach(chunk => {
-        ttsQueueRef.current.push({ text: chunk, lang })
-      })
+      ttsQueueRef.current.push({ text, lang })
       console.log(`🎤 TTS 큐 추가 (대기: ${ttsQueueRef.current.length}개)`)
       return
     }
     
-    // 첫 번째 청크는 바로 재생, 나머지는 큐에 추가
-    if (textChunks.length > 1) {
-      for (let i = 1; i < textChunks.length; i++) {
-        ttsQueueRef.current.push({ text: textChunks[i], lang })
-      }
-    }
-    
-    // 바로 재생 (playTTS 내부에서 cancel/resume 처리)
-    playTTS(textChunks[0], lang)
+    // 바로 재생
+    playTTS(text, lang)
   }
 
   // 오디오 모드 토글
