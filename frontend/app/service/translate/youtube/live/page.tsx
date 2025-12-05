@@ -1934,13 +1934,13 @@ function YouTubeLivePageContent() {
   // TTS 음성 성별 설정 (male/female)
   const [ttsGender, setTtsGender] = useState<"male" | "female">("female")
   
-  // TTS 속도 설정 (0.5 ~ 2.0, 기본 1.3)
+  // TTS 속도 설정 (0.5 ~ 2.0, 기본 1.1)
   const [ttsSpeed, setTtsSpeed] = useState<number>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('unilang_tts_speed')
-      return saved ? parseFloat(saved) : 1.3
+      return saved ? parseFloat(saved) : 1.1
     }
-    return 1.3
+    return 1.1
   })
   
   // TTS 속도 변경 및 저장
@@ -2015,7 +2015,7 @@ function YouTubeLivePageContent() {
     const targetLangCode = langMap[lang] || lang
     utterance.lang = targetLangCode
     utterance.rate = ttsSpeed  // 사용자 설정 속도 적용
-    utterance.pitch = ttsGender === "female" ? 1.2 : 0.9  // 여성은 높게, 남성은 낮게
+    utterance.pitch = ttsGender === "female" ? 1.0 : 0.9  // 여성은 기본, 남성은 낮게 (찢어지는 소리 방지)
     
     // 사용 가능한 음성 중 선택
     const voices = window.speechSynthesis.getVoices()

@@ -436,13 +436,13 @@ function YouTubeTranslatePageContent() {
     }
   }
 
-  // 기록 삭제 (user_video_history + localStorage + 선택적으로 캐시)
+  // 기록 삭제 (user_video_history + localStorage + 캐시 완전 삭제)
   const deleteSession = async (e: React.MouseEvent, historyId: string, videoId?: string, targetLang?: string, originalLang?: string) => {
     e.stopPropagation() // 부모 요소의 onClick 이벤트 전파 방지
     
     const deleteCache = confirm(
       "이 시청 기록을 삭제하시겠습니까?\n\n" +
-      "[확인] = 기록 + 캐시 모두 삭제 (새로 번역 필요)\n" +
+      "[확인] = 기록 + 캐시 완전 삭제 (YouTube에서 새로 다운로드)\n" +
       "[취소] = 삭제 안함"
     )
     
@@ -461,40 +461,31 @@ function YouTubeTranslatePageContent() {
         return
       }
       
-      // 2. localStorage 캐시 삭제
-      if (videoId && originalLang && targetLang) {
-        const storageKey = `unilang_youtube_${videoId}_${originalLang}_${targetLang}`
-        localStorage.removeItem(storageKey)
-        console.log("✅ localStorage 삭제:", storageKey)
+      // 2. localStorage 캐시 모두 삭제 (해당 videoId 관련)
+      if (videoId) {
+        // 모든 언어 조합의 localStorage 삭제
+        const keysToRemove: string[] = []
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i)
+          if (key && key.includes(`unilang_youtube_${videoId}`)) {
+            keysToRemove.push(key)
+          }
+        }
+        keysToRemove.forEach(key => {
+          localStorage.removeItem(key)
+          console.log("✅ localStorage 삭제:", key)
+        })
       }
       
-      // 3. 서버 캐시에서 해당 언어 번역 삭제
-      if (videoId && targetLang) {
+      // 3. 서버 캐시 완전 삭제 (video_subtitles_cache에서 해당 영상 삭제)
+      if (videoId) {
         try {
-          // 현재 캐시 데이터 가져오기
-          const { data: cacheData } = await supabase
+          await supabase
             .from("video_subtitles_cache")
-            .select("translations, summaries")
+            .delete()
             .eq("video_id", videoId)
-            .single()
           
-          if (cacheData) {
-            // 해당 언어의 번역과 요약 삭제
-            const updatedTranslations = { ...cacheData.translations }
-            const updatedSummaries = { ...cacheData.summaries }
-            delete updatedTranslations[targetLang]
-            delete updatedSummaries[targetLang]
-            
-            await supabase
-              .from("video_subtitles_cache")
-              .update({ 
-                translations: updatedTranslations,
-                summaries: updatedSummaries
-              })
-              .eq("video_id", videoId)
-            
-            console.log("✅ 서버 캐시에서 번역 삭제:", targetLang)
-          }
+          console.log("✅ 서버 캐시 완전 삭제:", videoId)
         } catch (cacheErr) {
           console.error("캐시 삭제 실패:", cacheErr)
         }
@@ -653,29 +644,36 @@ function YouTubeTranslatePageContent() {
     loadYoutubeHistory(true)
   }, [])
   
-  // 창 포커스 시 목록 자동 새로고침 (새 창에서 통역 완료 후 돌아올 때)
+  // Supabase 실시간 구독 (user_video_history 테이블 변경 감지)
   useEffect(() => {
-    const handleFocus = () => {
-      console.log("🔄 창 포커스 - 목록 새로고침")
-      loadYoutubeHistory(true)
-    }
-    
-    window.addEventListener('focus', handleFocus)
-    
-    // visibilitychange 이벤트도 추가 (탭 전환 시)
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        console.log("🔄 탭 활성화 - 목록 새로고침")
-        loadYoutubeHistory(true)
+    const setupRealtimeSubscription = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      
+      const channel = supabase
+        .channel('user_video_history_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // INSERT, UPDATE, DELETE 모두 감지
+            schema: 'public',
+            table: 'user_video_history',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('📡 실시간 업데이트:', payload.eventType)
+            // 목록 새로고침
+            loadYoutubeHistory(true)
+          }
+        )
+        .subscribe()
+      
+      return () => {
+        supabase.removeChannel(channel)
       }
     }
     
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    
-    return () => {
-      window.removeEventListener('focus', handleFocus)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
+    setupRealtimeSubscription()
   }, [])
 
   // 전사 시작
