@@ -1965,13 +1965,13 @@ function YouTubeLivePageContent() {
   // TTS 음성 성별 설정 (male/female)
   const [ttsGender, setTtsGender] = useState<"male" | "female">("female")
   
-  // TTS 속도 설정 (0.5 ~ 2.0, 기본 1.1)
+  // TTS 속도 설정 (0.5 ~ 2.0, 기본 1.3)
   const [ttsSpeed, setTtsSpeed] = useState<number>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('unilang_tts_speed')
-      return saved ? parseFloat(saved) : 1.1
+      return saved ? parseFloat(saved) : 1.3
     }
-    return 1.1
+    return 1.3
   })
   
   // TTS 속도 변경 및 저장
