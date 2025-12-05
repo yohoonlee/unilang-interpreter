@@ -2741,8 +2741,8 @@ function YouTubeTranslatePageContent() {
           </div>
         )}
 
-        {/* YouTube 사용기록 (하단 테이블) */}
-        <Card className="border-2 border-teal-300 overflow-hidden p-0">
+        {/* YouTube 사용기록 (하단 테이블) - 테이블 바디는 흰색 배경 */}
+        <Card className="border-2 border-teal-300 overflow-hidden p-0 bg-white">
           {/* 3. 목록 상단 배경색 - 타이틀과 테이블 헤더 통합 (Card 패딩 제거) */}
           <div style={{ backgroundColor: '#CCFBF1' }}>
             {/* 타이틀 - 상단 여백 없음 */}
