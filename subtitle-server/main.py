@@ -1,11 +1,26 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
 import os
 import re
+import sys
+import traceback
 
-print("🚀 서버 시작 중...", flush=True)
+print("=" * 50, flush=True)
+print("🚀 YouTube Subtitle Server 시작", flush=True)
+print(f"📁 Working Directory: {os.getcwd()}", flush=True)
+print(f"🐍 Python Version: {sys.version}", flush=True)
+print(f"🔧 PORT: {os.getenv('PORT', 'not set')}", flush=True)
+print("=" * 50, flush=True)
+
+# FastAPI 임포트
+try:
+    from fastapi import FastAPI, HTTPException
+    from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel
+    from typing import List, Optional
+    print("✅ FastAPI 로드 성공", flush=True)
+except Exception as e:
+    print(f"❌ FastAPI 로드 실패: {e}", flush=True)
+    traceback.print_exc()
+    sys.exit(1)
 
 # youtube-transcript-api 로드 (버전에 따라 다르게 처리)
 YouTubeTranscriptApi = None
@@ -17,6 +32,7 @@ try:
     print("✅ YouTubeTranscriptApi 로드 성공", flush=True)
 except Exception as e:
     print(f"⚠️ YouTubeTranscriptApi 로드 실패: {e}", flush=True)
+    traceback.print_exc()
 
 # 프록시 설정 (선택적)
 try:
@@ -24,7 +40,7 @@ try:
     WebshareProxyConfig = WSProxyConfig
     print("✅ WebshareProxyConfig 로드 성공", flush=True)
 except Exception as e:
-    print(f"⚠️ WebshareProxyConfig 로드 실패 (프록시 없이 진행): {e}", flush=True)
+    print(f"⚠️ WebshareProxyConfig 없음 (프록시 없이 진행)", flush=True)
 
 print("📦 FastAPI 앱 초기화...", flush=True)
 app = FastAPI(title="YouTube Subtitle API")
