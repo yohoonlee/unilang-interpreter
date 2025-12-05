@@ -2017,6 +2017,10 @@ function YouTubeLivePageContent() {
     
     isSpeakingRef.current = true
     
+    // Chrome 버그 방지: paused 상태 해제
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.resume()
+    
     const utterance = new SpeechSynthesisUtterance(text)
     
     // 언어 코드 매핑
@@ -2074,7 +2078,11 @@ function YouTubeLivePageContent() {
     }
     
     speechSynthRef.current = utterance
-    window.speechSynthesis.speak(utterance)
+    
+    // Chrome 버그 방지: 약간의 딜레이 후 재생
+    setTimeout(() => {
+      window.speechSynthesis.speak(utterance)
+    }, 100)
   }
   
   // TTS로 텍스트 읽기 (큐 기반 - 이전 발화 완료 후 다음 재생)
@@ -2145,13 +2153,8 @@ function YouTubeLivePageContent() {
       }
     }
     
-    // 재생 전 이전 상태 확실히 초기화
-    window.speechSynthesis.cancel()
-    
-    // 약간의 딜레이 후 재생 (브라우저 버퍼 초기화 대기)
-    setTimeout(() => {
-      playTTS(textChunks[0], lang)
-    }, 50)
+    // 바로 재생 (playTTS 내부에서 cancel/resume 처리)
+    playTTS(textChunks[0], lang)
   }
 
   // 오디오 모드 토글
