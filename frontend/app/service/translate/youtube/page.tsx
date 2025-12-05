@@ -437,7 +437,9 @@ function YouTubeTranslatePageContent() {
   }
 
   // 기록 삭제 (user_video_history에서 - 개인 기록만)
-  const deleteSession = async (historyId: string) => {
+  const deleteSession = async (e: React.MouseEvent, historyId: string) => {
+    e.stopPropagation() // 부모 요소의 onClick 이벤트 전파 방지
+    
     if (!confirm("이 시청 기록을 삭제하시겠습니까?\n(캐시된 영상 데이터는 유지됩니다)")) return
 
     try {
@@ -2172,7 +2174,7 @@ function YouTubeTranslatePageContent() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => deleteSession(item.history_id)}
+                            onClick={(e) => deleteSession(e, item.history_id)}
                             className="text-red-500 hover:text-red-600 hover:bg-red-50 h-8 px-2"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -2914,7 +2916,7 @@ function YouTubeTranslatePageContent() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => deleteSession(item.history_id)}
+                          onClick={(e) => deleteSession(e, item.history_id)}
                           className="text-red-500 hover:text-red-600 hover:bg-red-50 h-7 px-2"
                         >
                           <Trash2 className="h-3 w-3" />
