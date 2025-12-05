@@ -4,18 +4,27 @@ from pydantic import BaseModel
 from typing import List, Optional
 import os
 import re
-import sys
 
 print("🚀 서버 시작 중...", flush=True)
 
-# youtube-transcript-api v1.0+ 새로운 인터페이스
+# youtube-transcript-api 로드 (버전에 따라 다르게 처리)
+YouTubeTranscriptApi = None
+WebshareProxyConfig = None
+
 try:
-    from youtube_transcript_api import YouTubeTranscriptApi
-    from youtube_transcript_api.proxies import WebshareProxyConfig
-    print("✅ youtube-transcript-api 로드 성공", flush=True)
+    from youtube_transcript_api import YouTubeTranscriptApi as YTTApi
+    YouTubeTranscriptApi = YTTApi
+    print("✅ YouTubeTranscriptApi 로드 성공", flush=True)
 except Exception as e:
-    print(f"❌ youtube-transcript-api 로드 실패: {e}", flush=True)
-    sys.exit(1)
+    print(f"⚠️ YouTubeTranscriptApi 로드 실패: {e}", flush=True)
+
+# 프록시 설정 (선택적)
+try:
+    from youtube_transcript_api.proxies import WebshareProxyConfig as WSProxyConfig
+    WebshareProxyConfig = WSProxyConfig
+    print("✅ WebshareProxyConfig 로드 성공", flush=True)
+except Exception as e:
+    print(f"⚠️ WebshareProxyConfig 로드 실패 (프록시 없이 진행): {e}", flush=True)
 
 print("📦 FastAPI 앱 초기화...", flush=True)
 app = FastAPI(title="YouTube Subtitle API")
@@ -65,14 +74,21 @@ def extract_video_id(url: str) -> Optional[str]:
 
 def get_youtube_transcript_api():
     """Webshare 프록시가 설정되어 있으면 프록시 사용, 아니면 일반 API 반환"""
-    if WEBSHARE_PROXY_USERNAME and WEBSHARE_PROXY_PASSWORD:
-        print(f"🌐 Webshare 프록시 사용 (username: {WEBSHARE_PROXY_USERNAME[:4]}...)")
-        return YouTubeTranscriptApi(
-            proxy_config=WebshareProxyConfig(
-                proxy_username=WEBSHARE_PROXY_USERNAME,
-                proxy_password=WEBSHARE_PROXY_PASSWORD
+    if YouTubeTranscriptApi is None:
+        raise HTTPException(status_code=500, detail="YouTubeTranscriptApi 로드 실패")
+    
+    if WEBSHARE_PROXY_USERNAME and WEBSHARE_PROXY_PASSWORD and WebshareProxyConfig:
+        try:
+            print(f"🌐 Webshare 프록시 사용 (username: {WEBSHARE_PROXY_USERNAME[:4]}...)")
+            return YouTubeTranscriptApi(
+                proxy_config=WebshareProxyConfig(
+                    proxy_username=WEBSHARE_PROXY_USERNAME,
+                    proxy_password=WEBSHARE_PROXY_PASSWORD
+                )
             )
-        )
+        except Exception as e:
+            print(f"⚠️ 프록시 설정 실패, 직접 연결: {e}")
+            return YouTubeTranscriptApi()
     else:
         print("⚠️ Webshare 프록시 미설정 - 직접 연결 시도")
         return YouTubeTranscriptApi()
@@ -84,8 +100,13 @@ def get_subtitles(video_id: str, languages: List[str]) -> Optional[dict]:
         
         print(f"📥 자막 목록 조회: {video_id}")
         
-        # 새로운 API: list() 사용
-        transcript_list = ytt_api.list(video_id)
+        # 새로운 API (v1.0+): list() 인스턴스 메서드
+        try:
+            transcript_list = ytt_api.list(video_id)
+        except TypeError:
+            # 구버전 API: 클래스 메서드로 호출
+            print("⚠️ 구버전 API 사용")
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
         
         # 사용 가능한 언어 목록 및 원본 언어 찾기
         available_languages = []
@@ -138,14 +159,23 @@ def get_subtitles(video_id: str, languages: List[str]) -> Optional[dict]:
         # 자막 데이터 가져오기
         subtitle_data = selected_transcript.fetch()
         
-        subtitles = [
-            {
-                "text": item.text,
-                "start": item.start,
-                "duration": item.duration
-            }
-            for item in subtitle_data
-        ]
+        # 자막 형식 변환 (새 버전과 구 버전 모두 지원)
+        subtitles = []
+        for item in subtitle_data:
+            if hasattr(item, 'text'):
+                # 새 버전 (객체)
+                subtitles.append({
+                    "text": item.text,
+                    "start": item.start,
+                    "duration": item.duration
+                })
+            elif isinstance(item, dict):
+                # 구 버전 (딕셔너리)
+                subtitles.append({
+                    "text": item.get("text", ""),
+                    "start": item.get("start", 0),
+                    "duration": item.get("duration", 0)
+                })
         
         print(f"✅ 자막 {len(subtitles)}개 로드 완료")
         
