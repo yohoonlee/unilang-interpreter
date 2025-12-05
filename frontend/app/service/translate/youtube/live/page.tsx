@@ -1537,7 +1537,14 @@ function YouTubeLivePageContent() {
       // 약간의 딜레이 후 재생 시작
       setTimeout(startPlaybackWithSync, 800)
     } else {
-      setError("저장된 데이터를 찾을 수 없습니다.")
+      // 저장된 데이터가 없으면 모달 닫고 실시간 모드로 전환
+      console.log("[불러오기] 저장된 데이터 없음 - 실시간 모드로 전환")
+      setShowReplayChoice(false)
+      setConnectionStatus("대기 중")
+      // 자동 시작 파라미터가 있으면 실시간 통역 시작
+      if (autostart || realtimeMode) {
+        setTimeout(() => startCapture(), 500)
+      }
     }
   }
 
