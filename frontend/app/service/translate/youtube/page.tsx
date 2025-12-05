@@ -652,6 +652,31 @@ function YouTubeTranslatePageContent() {
   useEffect(() => {
     loadYoutubeHistory(true)
   }, [])
+  
+  // 창 포커스 시 목록 자동 새로고침 (새 창에서 통역 완료 후 돌아올 때)
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log("🔄 창 포커스 - 목록 새로고침")
+      loadYoutubeHistory(true)
+    }
+    
+    window.addEventListener('focus', handleFocus)
+    
+    // visibilitychange 이벤트도 추가 (탭 전환 시)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log("🔄 탭 활성화 - 목록 새로고침")
+        loadYoutubeHistory(true)
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
 
   // 전사 시작
   const startTranscription = async () => {
