@@ -1959,41 +1959,22 @@ function YouTubeTranslatePageContent() {
 
   return (
     <div className="h-screen flex flex-col bg-slate-50 dark:bg-slate-900 overflow-hidden">
-      {/* 헤더 - 민트 계열 타이틀 바 (고정) */}
-      {!isEmbedded && (
-        <header className="shrink-0 z-50" style={{ backgroundColor: '#CCFBF1' }}>
-          <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Link href="/service" className="p-2 hover:bg-teal-200 rounded-lg transition-colors">
-                <ArrowLeft className="h-5 w-5 text-teal-700" />
-              </Link>
-              <h1 className="text-lg font-bold text-teal-800">
-                📺 YouTube 통역
-              </h1>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button 
-                variant="ghost" 
-                size="icon"
-                onClick={() => setShowHistory(!showHistory)}
-                className={`relative hover:bg-teal-200 ${showHistory ? 'bg-teal-200' : ''}`}
-                title="기록 목록"
-              >
-                <Menu className="h-5 w-5 text-teal-700" />
-                {youtubeSessions.length > 0 && (
-                  <span className="absolute -top-1 -right-1 h-4 w-4 bg-teal-600 text-white text-[10px] rounded-full flex items-center justify-center">
-                    {youtubeSessions.length > 9 ? '9+' : youtubeSessions.length}
-                  </span>
-                )}
-              </Button>
-            </div>
+      {/* 1. 상단 타이틀바 - 민트 그라데이션 */}
+      <header className="shrink-0 z-50 bg-gradient-to-r from-teal-500 to-cyan-500 text-white">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+            <Youtube className="h-6 w-6 text-white" />
           </div>
-        </header>
-      )}
+          <div>
+            <h1 className="text-xl font-bold">YouTube 실시간 통역</h1>
+            <p className="text-sm text-white/80">YouTube를 언어에 상관없이 마음껏 감상해 보세요</p>
+          </div>
+        </div>
+      </header>
 
       {/* 메인 콘텐츠 - 스크롤바 1개만 */}
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto p-4 space-y-4">
+        <div className="max-w-5xl mx-auto px-4 py-2 space-y-2">
         {/* 기록 목록 (슬라이드 패널) */}
         {showHistory && (
           <div className="fixed inset-0 z-50 flex">
@@ -2175,8 +2156,8 @@ function YouTubeTranslatePageContent() {
           </div>
         )}
 
-        {/* URL 입력 - 항상 표시 (패널 뒤에 흐릿하게 보임) */}
-        <Card className="border-teal-200 dark:border-teal-800 bg-white dark:bg-slate-900 relative">
+        {/* 2. URL 입력 카드 - 컨트롤바 (배경색 #CCFBF1) */}
+        <Card className="border-teal-200 dark:border-teal-800 relative" style={{ backgroundColor: '#CCFBF1' }}>
           {/* 우상단 햄버거 메뉴 버튼 */}
           <Button 
             variant="ghost" 
@@ -2761,39 +2742,43 @@ function YouTubeTranslatePageContent() {
           </div>
         )}
 
-        {/* YouTube 사용기록 (하단 테이블) */}
-        <Card className="border-2 border-teal-300">
-          <CardHeader className="py-3" style={{ backgroundColor: '#CCFBF1' }}>
-            <CardTitle className="text-lg flex items-center gap-2 text-teal-800">
-              <List className="h-5 w-5" />
-              YouTube 사용기록(목록)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {isLoadingHistory ? (
-              <div className="flex items-center justify-center py-10">
-                <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
+        {/* YouTube 사용기록 (하단 테이블) - 빈공간 없이 */}
+        <Card className="border-2 border-teal-300 overflow-hidden">
+          {/* 3. 목록 상단 배경색 - 타이틀과 테이블 헤더 통합 */}
+          <div style={{ backgroundColor: '#CCFBF1' }}>
+            {/* 타이틀 */}
+            <div className="px-4 pt-4 pb-2">
+              <h3 className="text-lg font-semibold flex items-center gap-2 text-teal-800">
+                <List className="h-5 w-5" />
+                YouTube 사용기록(목록)
+              </h3>
+            </div>
+            {/* 테이블 헤더 - 배경색 연결 (빈공간 없음) */}
+            {youtubeSessions.length > 0 && (
+              <div className="grid grid-cols-12 gap-2 px-4 py-2 text-sm font-medium text-teal-700 border-b border-teal-300">
+                <div className="col-span-1 text-center">⭐</div>
+                <div className="col-span-1">썸네일</div>
+                <div className="col-span-4">제목</div>
+                <div className="col-span-2 text-center">언어</div>
+                <div className="col-span-2 text-center">시청일시</div>
+                <div className="col-span-2 text-center">작업</div>
               </div>
-            ) : youtubeSessions.length === 0 ? (
-              <div className="text-center py-10 text-slate-500">
-                <Youtube className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p>저장된 기록이 없습니다.</p>
-                <p className="text-sm mt-1">통역 후 자동으로 저장됩니다.</p>
-              </div>
-            ) : (
-              <>
-                {/* 테이블 헤더 */}
-                <div className="grid grid-cols-12 gap-2 px-4 py-3 bg-teal-50 dark:bg-teal-900/30 text-sm font-medium text-slate-600 dark:text-slate-300 border-b">
-                  <div className="col-span-1 text-center">⭐</div>
-                  <div className="col-span-1">썸네일</div>
-                  <div className="col-span-4">제목</div>
-                  <div className="col-span-2 text-center">언어</div>
-                  <div className="col-span-2 text-center">시청일시</div>
-                  <div className="col-span-2 text-center">작업</div>
-                </div>
-                
-                {/* 테이블 바디 - 스크롤바 제거, 전체 페이지 스크롤 사용 */}
-                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            )}
+          </div>
+          
+          {/* 테이블 바디 */}
+          {isLoadingHistory ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
+            </div>
+          ) : youtubeSessions.length === 0 ? (
+            <div className="text-center py-10 text-slate-500">
+              <Youtube className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p>저장된 기록이 없습니다.</p>
+              <p className="text-sm mt-1">통역 후 자동으로 저장됩니다.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {youtubeSessions.map((item) => (
                     <div 
                       key={item.key || item.history_id}
@@ -2928,9 +2913,8 @@ function YouTubeTranslatePageContent() {
                     ) : null}
                   </div>
                 </div>
-              </>
+              </div>
             )}
-          </CardContent>
         </Card>
         </div>
       </main>
