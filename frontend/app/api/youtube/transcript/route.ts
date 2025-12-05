@@ -45,7 +45,8 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
   if (SUBTITLE_API_URL) {
     console.log(`🌐 외부 자막 API 서버 사용: ${SUBTITLE_API_URL}`)
     try {
-      const response = await fetch(`${SUBTITLE_API_URL}/api/subtitles/${videoId}?lang=ko`, {
+      // 원본 자막 우선 (영어 > 원본 언어), 한국어 자막은 번역본일 가능성이 높음
+      const response = await fetch(`${SUBTITLE_API_URL}/api/subtitles/${videoId}?lang=en`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       })
@@ -53,15 +54,21 @@ async function fetchYouTubeTranscript(videoId: string): Promise<{
       if (response.ok) {
         const data = await response.json()
         if (data.success && data.subtitles) {
-          console.log(`✅ 외부 API에서 자막 ${data.subtitles.length}개 가져옴`)
+          // 사용 가능한 언어 목록 확인하여 원본 언어 추정
+          const availableLangs = data.available_languages || []
+          // 자동 생성 자막이 있는 언어가 대체로 원본 언어
+          // Railway API가 반환한 language가 실제 선택된 자막 언어
+          const actualLanguage = data.language
+          
+          console.log(`✅ 외부 API에서 자막 ${data.subtitles.length}개 가져옴 (언어: ${actualLanguage}, 가능: ${availableLangs.join(', ')})`)
           return {
             transcript: data.subtitles.map((s: any) => ({
               text: s.text,
               offset: s.start * 1000,
               duration: s.duration * 1000,
-              lang: data.language
+              lang: actualLanguage  // Railway API가 실제로 선택한 언어
             })),
-            availableLanguages: data.available_languages || [data.language]
+            availableLanguages: availableLangs
           }
         }
       } else {
