@@ -125,7 +125,7 @@ function YouTubeLivePageContent() {
   const hasSubtitles = searchParams.get("hasSubtitles") === "true"
   const realtimeMode = searchParams.get("realtimeMode") === "true"
   const loadSaved = searchParams.get("loadSaved") === "true"
-  const startFullscreen = searchParams.get("fullscreen") === "true"  // 전체화면 모드로 시작
+  const startFullscreen = false  // 전체화면 자동 진입 비활성화 (브라우저 보안 정책)
   
   const [isListening, setIsListening] = useState(false)
   const [isQuickSummaryRunning, setIsQuickSummaryRunning] = useState(false)
