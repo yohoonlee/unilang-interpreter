@@ -1962,8 +1962,59 @@ function YouTubeLivePageContent() {
     }
   }
 
-  // TTS 음성 성별 설정 (male/female)
-  const [ttsGender, setTtsGender] = useState<"male" | "female">("female")
+  // TTS 음성 선택
+  const [showVoiceSelector, setShowVoiceSelector] = useState(false)
+  const [selectedVoice, setSelectedVoice] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('unilang_tts_voice') || ''
+    }
+    return ''
+  })
+  
+  // Google Cloud TTS 음성 목록 (언어별)
+  const voiceOptions: Record<string, { name: string; label: string; gender: string }[]> = {
+    "ko": [
+      { name: "ko-KR-Neural2-A", label: "여성 A (Neural)", gender: "female" },
+      { name: "ko-KR-Neural2-B", label: "여성 B (Neural)", gender: "female" },
+      { name: "ko-KR-Neural2-C", label: "남성 C (Neural)", gender: "male" },
+      { name: "ko-KR-Wavenet-A", label: "여성 A (Wavenet)", gender: "female" },
+      { name: "ko-KR-Wavenet-B", label: "여성 B (Wavenet)", gender: "female" },
+      { name: "ko-KR-Wavenet-C", label: "남성 C (Wavenet)", gender: "male" },
+      { name: "ko-KR-Wavenet-D", label: "남성 D (Wavenet)", gender: "male" },
+    ],
+    "en": [
+      { name: "en-US-Neural2-A", label: "남성 A (Neural)", gender: "male" },
+      { name: "en-US-Neural2-C", label: "여성 C (Neural)", gender: "female" },
+      { name: "en-US-Neural2-D", label: "남성 D (Neural)", gender: "male" },
+      { name: "en-US-Neural2-E", label: "여성 E (Neural)", gender: "female" },
+      { name: "en-US-Neural2-F", label: "여성 F (Neural)", gender: "female" },
+      { name: "en-US-Neural2-G", label: "여성 G (Neural)", gender: "female" },
+      { name: "en-US-Neural2-H", label: "여성 H (Neural)", gender: "female" },
+      { name: "en-US-Neural2-I", label: "남성 I (Neural)", gender: "male" },
+      { name: "en-US-Neural2-J", label: "남성 J (Neural)", gender: "male" },
+    ],
+    "ja": [
+      { name: "ja-JP-Neural2-B", label: "여성 B (Neural)", gender: "female" },
+      { name: "ja-JP-Neural2-C", label: "남성 C (Neural)", gender: "male" },
+      { name: "ja-JP-Neural2-D", label: "남성 D (Neural)", gender: "male" },
+    ],
+    "zh": [
+      { name: "zh-CN-Neural2-A", label: "여성 A (Neural)", gender: "female" },
+      { name: "zh-CN-Neural2-B", label: "남성 B (Neural)", gender: "male" },
+      { name: "zh-CN-Neural2-C", label: "여성 C (Neural)", gender: "female" },
+      { name: "zh-CN-Neural2-D", label: "남성 D (Neural)", gender: "male" },
+    ],
+  }
+  
+  // 현재 언어에 맞는 음성 목록
+  const currentVoices = voiceOptions[targetLang] || voiceOptions["ko"] || []
+  
+  // 음성 선택 변경
+  const selectVoice = (voiceName: string) => {
+    setSelectedVoice(voiceName)
+    localStorage.setItem('unilang_tts_voice', voiceName)
+    setShowVoiceSelector(false)
+  }
   
   // TTS 속도 설정 (0.5 ~ 2.0, 기본 1.3)
   const [ttsSpeed, setTtsSpeed] = useState<number>(() => {
@@ -2046,7 +2097,7 @@ function YouTubeLivePageContent() {
           text,
           languageCode: lang,
           speed: ttsSpeed,
-          gender: ttsGender,
+          voiceName: selectedVoice || undefined,  // 선택된 음성 (없으면 기본값)
         }),
       })
       
@@ -2505,18 +2556,39 @@ function YouTubeLivePageContent() {
             {/* TTS 설정 버튼 (번역 음성 모드에서만 표시) */}
             {audioMode === "translated" && (
               <>
-                {/* 성별 선택 */}
-                <button
-                  onClick={() => setTtsGender(prev => prev === "female" ? "male" : "female")}
-                  className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-                    ttsGender === "female" 
-                      ? "bg-pink-500 hover:bg-pink-600 text-white" 
-                      : "bg-blue-500 hover:bg-blue-600 text-white"
-                  }`}
-                  title={`현재: ${ttsGender === "female" ? "여성" : "남성"} 음성`}
-                >
-                  {ttsGender === "female" ? "👩" : "👨"}
-                </button>
+                {/* 음성 선택 드롭다운 */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowVoiceSelector(!showVoiceSelector)}
+                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded transition-colors"
+                    title="음성 선택"
+                  >
+                    🎙️ {selectedVoice ? selectedVoice.split('-').pop() : '기본'}
+                  </button>
+                  
+                  {showVoiceSelector && (
+                    <div className="absolute bottom-full left-0 mb-1 bg-slate-800 border border-slate-600 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto min-w-[180px]">
+                      <button
+                        onClick={() => selectVoice('')}
+                        className={`w-full px-3 py-2 text-left text-xs hover:bg-slate-700 ${!selectedVoice ? 'bg-teal-700' : ''}`}
+                      >
+                        🔄 기본 (자동)
+                      </button>
+                      {currentVoices.map((voice, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => selectVoice(voice.name)}
+                          className={`w-full px-3 py-2 text-left text-xs hover:bg-slate-700 ${selectedVoice === voice.name ? 'bg-teal-700' : ''}`}
+                        >
+                          {voice.gender === 'female' ? '👩' : '👨'} {voice.label}
+                        </button>
+                      ))}
+                      {currentVoices.length === 0 && (
+                        <p className="px-3 py-2 text-xs text-slate-400">음성 목록 없음</p>
+                      )}
+                    </div>
+                  )}
+                </div>
                 
                 {/* 속도 조절 */}
                 <div className="flex items-center gap-1 bg-slate-700 rounded px-2 py-1">
