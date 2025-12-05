@@ -405,10 +405,11 @@ function YouTubeLivePageContent() {
     }
   }
   
-  // 리플레이 모드 + utterances가 있으면 자동으로 동기화 타이머 시작
+  // 리플레이 모드 + utterances가 있으면 자동으로 동기화 타이머 시작 (백업용)
+  // 주의: YouTube onStateChange(PLAYING)에서도 호출되므로 중복 방지
   useEffect(() => {
-    if (isReplayMode && utterances.length > 0 && isPlayerReady) {
-      console.log(`[동기화] 자동 타이머 시작 - utterances: ${utterances.length}개`)
+    if (isReplayMode && utterances.length > 0 && isPlayerReady && !syncIntervalRef.current) {
+      console.log(`[동기화] 백업 타이머 시작 - utterances: ${utterances.length}개`)
       startSyncTimer()
     }
     
@@ -416,6 +417,7 @@ function YouTubeLivePageContent() {
       // 컴포넌트 언마운트 시 타이머 정리
       if (syncIntervalRef.current) {
         clearInterval(syncIntervalRef.current)
+        syncIntervalRef.current = null
       }
     }
   }, [isReplayMode, utterances.length, isPlayerReady, startSyncTimer])
@@ -1518,15 +1520,15 @@ function YouTubeLivePageContent() {
       setIsReplayMode(true)
       setCurrentSyncIndex(0)  // 첫 번째 자막부터 시작
       
-      // YouTube 플레이어가 준비되면 영상 재생 및 동기화 시작
+      // YouTube 플레이어가 준비되면 영상 재생 시작 (동기화는 onStateChange에서 자동 처리)
       const startPlaybackWithSync = () => {
         // ref를 사용하여 최신 상태 확인 (closure 문제 해결)
         if (playerRef.current && isPlayerReadyRef.current) {
           // 영상을 처음(0초)부터 시작
           playerRef.current.seekTo(0, true)
           playerRef.current.playVideo()
-          startSyncTimer()
-          console.log("[동기화] 영상 처음부터 재생 및 동기화 시작")
+          // startSyncTimer()는 onStateChange(PLAYING)에서 자동 호출됨
+          console.log("[동기화] 영상 처음부터 재생 시작")
         } else {
           console.log("[동기화] 플레이어 준비 대기 중... playerRef:", !!playerRef.current, "isPlayerReady:", isPlayerReadyRef.current)
           // 플레이어가 아직 준비되지 않았으면 재시도
