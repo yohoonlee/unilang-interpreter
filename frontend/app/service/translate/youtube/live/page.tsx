@@ -306,7 +306,9 @@ function YouTubeLivePageContent() {
             startSyncTimer()
           } else if (event.data === window.YT.PlayerState.PAUSED) {
             stopSyncTimer()
+            stopTTS()  // 정지 시 TTS도 중지
           } else if (event.data === window.YT.PlayerState.ENDED) {
+            stopTTS()  // 종료 시 TTS도 중지
             // 영상 종료 시 빠른 요약 모드이면 자동 처리
             if (quickSummaryMode && isQuickSummaryRunning) {
               console.log("[빠른 요약] 영상 종료 - 자동 AI 재정리 시작")
@@ -392,6 +394,19 @@ function YouTubeLivePageContent() {
         
         // ref를 사용하여 비교 (closure 문제 해결)
         if (newIndex !== -1 && newIndex !== currentSyncIndexRef.current) {
+          // 인덱스가 2 이상 차이나면 시간 이동(seek)으로 간주 - TTS 중지
+          const indexDiff = Math.abs(newIndex - currentSyncIndexRef.current)
+          if (indexDiff > 1) {
+            console.log(`[동기화] 시간 이동 감지 (${currentSyncIndexRef.current} → ${newIndex}) - TTS 초기화`)
+            // TTS 큐 비우기 및 현재 재생 중지
+            ttsQueueRef.current = []
+            if (audioRef.current) {
+              audioRef.current.pause()
+              audioRef.current = null
+            }
+            isSpeakingRef.current = false
+            lastSpokenIndexRef.current = -1
+          }
           setCurrentSyncIndex(newIndex)
           console.log(`[동기화] 자막 ${newIndex + 1}/${currentUtterances.length}, 영상시간: ${Math.floor(currentTime/1000)}초, startTime: ${currentUtterances[newIndex]?.startTime}`)
         }
@@ -427,6 +442,7 @@ function YouTubeLivePageContent() {
   // 자막 클릭 시 해당 시간으로 이동
   const seekToUtterance = (utt: Utterance) => {
     if (playerRef.current && isReplayMode && utt.startTime) {
+      stopTTS()  // 시간 이동 시 TTS 중지 및 큐 초기화
       const seekTime = utt.startTime / 1000 // 초로 변환
       playerRef.current.seekTo(seekTime, true)
       playerRef.current.playVideo()
@@ -1954,6 +1970,24 @@ function YouTubeLivePageContent() {
     })
   }
   
+  // TTS 완전 중지 (큐 비우기 + 현재 재생 중지)
+  const stopTTS = () => {
+    // 큐 비우기
+    ttsQueueRef.current = []
+    isSpeakingRef.current = false
+    lastSpokenIndexRef.current = -1  // 인덱스 리셋
+    
+    // 현재 재생 중인 오디오 중지
+    if (audioRef.current) {
+      audioRef.current.pause()
+      if (audioRef.current.src) {
+        URL.revokeObjectURL(audioRef.current.src)
+      }
+      audioRef.current = null
+    }
+    console.log("🔇 TTS 중지 및 큐 초기화")
+  }
+  
   // TTS 큐에서 다음 항목 재생
   const processNextTTS = () => {
     if (ttsQueueRef.current.length === 0) {
@@ -2061,17 +2095,13 @@ function YouTubeLivePageContent() {
         if (newMode === "translated") {
           // 번역 음성 모드: YouTube 음소거
           playerRef.current.mute?.()
+          // 현재 자막부터 TTS 시작하도록 인덱스 리셋
+          lastSpokenIndexRef.current = currentSyncIndex - 1
           console.log("🔇 YouTube 음소거 (번역 음성 모드)")
         } else {
           // 원본 음성 모드: YouTube 음소거 해제, TTS 중지
           playerRef.current.unMute?.()
-          // Cloud TTS 오디오 중지
-          if (audioRef.current) {
-            audioRef.current.pause()
-            audioRef.current = null
-          }
-          ttsQueueRef.current = []  // TTS 큐 비우기
-          isSpeakingRef.current = false
+          stopTTS()  // TTS 완전 중지
           console.log("🔊 YouTube 음소거 해제 (원본 음성 모드)")
         }
       } catch (err) {
