@@ -92,11 +92,15 @@ def get_subtitles(video_id: str, languages: List[str]) -> Optional[dict]:
         original_language = None  # 자동 생성 자막의 언어 = 원본 언어
         
         for transcript in transcript_list:
-            available_languages.append(transcript.language_code)
+            lang_code = transcript.language_code
+            available_languages.append(lang_code)
             # is_generated가 True면 자동 생성 자막 = 원본 언어
-            if hasattr(transcript, 'is_generated') and transcript.is_generated:
-                original_language = transcript.language_code
-                print(f"🎯 원본 언어 감지 (자동 생성 자막): {original_language}")
+            try:
+                if getattr(transcript, 'is_generated', False):
+                    original_language = lang_code
+                    print(f"🎯 원본 언어 감지 (자동 생성 자막): {original_language}")
+            except Exception:
+                pass  # 속성 접근 실패 시 무시
         
         # 자동 생성 자막이 없으면 첫 번째 자막을 원본으로 가정
         if original_language is None and available_languages:
