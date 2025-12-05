@@ -30,6 +30,7 @@ import {
   Menu,
   FileText,
   Eye,
+  Star,
 } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -91,8 +92,19 @@ interface TranscriptResult {
   speakerStats: Record<string, { count: number; duration: number }>
 }
 
-// YouTube 통역 기록 인터페이스 (video_subtitles_cache 테이블)
-interface YouTubeSession {
+// 사용자 시청 기록 인터페이스 (user_video_history 테이블)
+interface UserVideoHistory {
+  id: string
+  user_id: string
+  video_id: string
+  target_lang: string
+  is_starred: boolean
+  viewed_at: string
+  created_at: string
+}
+
+// YouTube 캐시 데이터 인터페이스 (video_subtitles_cache 테이블)
+interface VideoCache {
   id: string
   video_id: string
   video_title: string | null
@@ -104,7 +116,29 @@ interface YouTubeSession {
   last_text_time: number | null
   created_at: string
   updated_at: string
-  last_viewed_at: string | null  // 시청 시각
+}
+
+// 통합 YouTube 세션 (history + cache JOIN)
+interface YouTubeSession {
+  // user_video_history 필드
+  history_id: string
+  user_id: string
+  target_lang: string
+  is_starred: boolean
+  viewed_at: string
+  // video_subtitles_cache 필드
+  cache_id: string
+  video_id: string
+  video_title: string | null
+  original_lang: string
+  subtitles: unknown
+  translations: Record<string, unknown>
+  summaries: Record<string, string>
+  video_duration: number | null
+  last_text_time: number | null
+  // UI용 필드
+  displayLang?: string
+  key?: string
 }
 
 // 저장된 세션 데이터 (LocalStorage)
@@ -203,7 +237,7 @@ function YouTubeTranslatePageContent() {
     setVideoId(id)
   }, [youtubeUrl])
 
-  // YouTube 통역 기록 불러오기
+  // YouTube 통역 기록 불러오기 (user_video_history + video_subtitles_cache JOIN)
   const loadYoutubeHistory = async () => {
     console.log("📋 loadYoutubeHistory 호출")
     setIsLoadingHistory(true)
@@ -217,20 +251,69 @@ function YouTubeTranslatePageContent() {
         return
       }
 
-      // video_subtitles_cache 테이블에서 조회 (최근 시청순)
-      const { data, error } = await supabase
+      // 1. user_video_history에서 본인 기록 조회 (별표 우선, 최신순)
+      const { data: historyData, error: historyError } = await supabase
+        .from("user_video_history")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("is_starred", { ascending: false })
+        .order("viewed_at", { ascending: false })
+        .limit(30)
+
+      if (historyError) {
+        console.error("기록 로드 실패:", historyError)
+        setIsLoadingHistory(false)
+        return
+      }
+
+      if (!historyData || historyData.length === 0) {
+        console.log("📋 시청 기록 없음")
+        setYoutubeSessions([])
+        setIsLoadingHistory(false)
+        return
+      }
+
+      // 2. 해당 video_id들의 캐시 데이터 가져오기
+      const videoIds = [...new Set(historyData.map(h => h.video_id))]
+      const { data: cacheData, error: cacheError } = await supabase
         .from("video_subtitles_cache")
         .select("*")
-        .order("last_viewed_at", { ascending: false, nullsFirst: false })
-        .limit(20)
+        .in("video_id", videoIds)
 
-      console.log("📋 YouTube 캐시 목록 결과:", { count: data?.length, error })
-      
-      if (error) {
-        console.error("YouTube 기록 로드 실패:", error)
-      } else {
-        setYoutubeSessions(data || [])
+      if (cacheError) {
+        console.error("캐시 로드 실패:", cacheError)
       }
+
+      // 3. history와 cache 데이터 합치기
+      const cacheMap = new Map<string, VideoCache>()
+      cacheData?.forEach(cache => cacheMap.set(cache.video_id, cache))
+
+      const sessions: YouTubeSession[] = historyData
+        .filter(history => cacheMap.has(history.video_id))
+        .map(history => {
+          const cache = cacheMap.get(history.video_id)!
+          return {
+            history_id: history.id,
+            user_id: history.user_id,
+            target_lang: history.target_lang,
+            is_starred: history.is_starred,
+            viewed_at: history.viewed_at,
+            cache_id: cache.id,
+            video_id: cache.video_id,
+            video_title: cache.video_title,
+            original_lang: cache.original_lang,
+            subtitles: cache.subtitles,
+            translations: cache.translations || {},
+            summaries: cache.summaries || {},
+            video_duration: cache.video_duration,
+            last_text_time: cache.last_text_time,
+            displayLang: history.target_lang,
+            key: history.id,
+          }
+        })
+
+      console.log("📋 YouTube 기록 결과:", { count: sessions.length })
+      setYoutubeSessions(sessions)
     } catch (err) {
       console.error("오류:", err)
     } finally {
@@ -238,34 +321,78 @@ function YouTubeTranslatePageContent() {
     }
   }
   
-  // 시청 시각 업데이트
-  const updateViewedAt = async (videoId: string) => {
+  // 시청 기록 저장/업데이트 (user_video_history에 upsert)
+  const updateViewedAt = async (videoId: string, targetLang: string) => {
     try {
-      await supabase
-        .from("video_subtitles_cache")
-        .update({ last_viewed_at: new Date().toISOString() })
-        .eq("video_id", videoId)
-      console.log("✅ 시청 시각 업데이트:", videoId)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        console.log("⚠️ 로그인 필요 - 시청 기록 저장 스킵")
+        return
+      }
+
+      // upsert: 있으면 업데이트, 없으면 생성
+      const { error } = await supabase
+        .from("user_video_history")
+        .upsert({
+          user_id: user.id,
+          video_id: videoId,
+          target_lang: targetLang,
+          viewed_at: new Date().toISOString(),
+        }, {
+          onConflict: "user_id,video_id,target_lang"
+        })
+
+      if (error) {
+        console.error("시청 기록 저장 실패:", error)
+      } else {
+        console.log("✅ 시청 기록 저장:", videoId, targetLang)
+      }
     } catch (err) {
-      console.error("시청 시각 업데이트 실패:", err)
+      console.error("시청 기록 저장 오류:", err)
     }
   }
 
-  // 기록 삭제 (video_subtitles_cache에서)
-  const deleteSession = async (sessionId: string) => {
-    if (!confirm("이 통역 기록을 삭제하시겠습니까?")) return
+  // 별표 토글
+  const toggleStarred = async (historyId: string, currentStarred: boolean) => {
+    try {
+      const { error } = await supabase
+        .from("user_video_history")
+        .update({ is_starred: !currentStarred })
+        .eq("id", historyId)
+
+      if (error) {
+        console.error("별표 토글 실패:", error)
+        return
+      }
+
+      // UI 업데이트
+      setYoutubeSessions(prev => prev.map(s => 
+        s.history_id === historyId 
+          ? { ...s, is_starred: !currentStarred }
+          : s
+      ))
+      console.log("✅ 별표 토글:", historyId, !currentStarred)
+    } catch (err) {
+      console.error("별표 토글 오류:", err)
+    }
+  }
+
+  // 기록 삭제 (user_video_history에서 - 개인 기록만)
+  const deleteSession = async (historyId: string) => {
+    if (!confirm("이 시청 기록을 삭제하시겠습니까?\n(캐시된 영상 데이터는 유지됩니다)")) return
 
     try {
       const { error } = await supabase
-        .from("video_subtitles_cache")
+        .from("user_video_history")
         .delete()
-        .eq("id", sessionId)
+        .eq("id", historyId)
 
       if (error) {
         console.error("삭제 실패:", error)
         alert("삭제에 실패했습니다.")
       } else {
-        setYoutubeSessions(prev => prev.filter(s => s.id !== sessionId))
+        setYoutubeSessions(prev => prev.filter(s => s.history_id !== historyId))
+        console.log("✅ 기록 삭제:", historyId)
       }
     } catch (err) {
       console.error("오류:", err)
@@ -274,15 +401,14 @@ function YouTubeTranslatePageContent() {
 
   // 기록에서 다시보기
   const playFromHistory = (session: YouTubeSession) => {
-    // 첫 번째 번역 언어 가져오기
-    const targetLang = Object.keys(session.translations || {})[0] || "ko"
-    playFromHistoryWithLang(session, targetLang)
+    // 이미 target_lang이 지정되어 있음
+    playFromHistoryWithLang(session, session.target_lang)
   }
 
   // 기록에서 특정 언어로 다시보기
   const playFromHistoryWithLang = (session: YouTubeSession & { displayLang?: string }, targetLang: string) => {
-    // 시청 시각 업데이트
-    updateViewedAt(session.video_id)
+    // 시청 기록 저장/업데이트
+    updateViewedAt(session.video_id, targetLang)
     
     // 캐시된 데이터를 localStorage에 저장 (새 창에서 사용)
     const storageKey = `unilang_youtube_${session.video_id}_${session.original_lang}_${targetLang}`
@@ -337,9 +463,8 @@ function YouTubeTranslatePageContent() {
   const [isLoadingSummary, setIsLoadingSummary] = useState(false)
   
   const viewSummaryFromHistory = async (session: YouTubeSession) => {
-    // 첫 번째 번역 언어 가져오기
-    const targetLang = Object.keys(session.summaries || {})[0] || Object.keys(session.translations || {})[0] || "ko"
-    viewSummaryFromHistoryWithLang(session, targetLang)
+    // 이미 target_lang이 지정되어 있음
+    viewSummaryFromHistoryWithLang(session, session.target_lang)
   }
   
   // 특정 언어의 요약 보기
@@ -752,6 +877,8 @@ function YouTubeTranslatePageContent() {
           }
           
           localStorage.setItem(getStorageKey(videoId), JSON.stringify(cachedSession))
+          // 시청 기록 저장
+          updateViewedAt(videoId, targetLanguage)
           openLivePlayer()
           return
         }
@@ -797,6 +924,8 @@ function YouTubeTranslatePageContent() {
       if (exists && coverage >= 98 && savedData) {
         setProgress(100)
         setProgressText(`로컬 데이터 발견! (${coverage.toFixed(1)}% 완성) 바로 재생합니다...`)
+        // 시청 기록 저장
+        updateViewedAt(videoId, targetLanguage)
         openLivePlayer()
         return
       }
@@ -1048,6 +1177,8 @@ function YouTubeTranslatePageContent() {
       setProgress(95)
       setProgressText("플레이어 열기...")
       
+      // 시청 기록 저장
+      updateViewedAt(videoId, targetLanguage)
       openLivePlayer()
       
       setProgress(100)
@@ -1836,36 +1967,22 @@ function YouTubeTranslatePageContent() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {/* 각 세션의 번역 언어별로 별도 항목 표시 */}
-                    {youtubeSessions.flatMap((session) => {
-                      const translationLangs = Object.keys(session.translations || {})
-                      
-                      // 번역이 있으면 각 언어별로 항목 생성
-                      if (translationLangs.length > 0) {
-                        return translationLangs.map((lang) => ({
-                          ...session,
-                          displayLang: lang,
-                          key: `${session.id}-${lang}`,
-                        }))
-                      }
-                      
-                      // 번역이 없으면 원본만 표시
-                      return [{
-                        ...session,
-                        displayLang: session.original_lang,
-                        key: session.id,
-                      }]
-                    }).map((item) => (
+                    {/* 사용자별 시청 기록 (이미 target_lang별로 분리됨) */}
+                    {youtubeSessions.map((item) => (
                       <div
-                        key={item.key}
-                        className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                        key={item.key || item.history_id}
+                        className={`p-3 rounded-lg border transition-colors ${
+                          item.is_starred 
+                            ? "border-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/10 dark:border-yellow-600" 
+                            : "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                        }`}
                       >
                         {/* 썸네일 + 정보 */}
                         <div className="flex gap-3">
                           {/* 썸네일 - 테두리 추가 */}
                           <div 
                             className="relative w-28 h-20 rounded-lg overflow-hidden shrink-0 bg-slate-200 cursor-pointer group border-2 border-slate-300 dark:border-slate-600"
-                            onClick={() => playFromHistoryWithLang(item, item.displayLang)}
+                            onClick={() => playFromHistoryWithLang(item, item.target_lang)}
                           >
                             <img 
                               src={`https://img.youtube.com/vi/${item.video_id}/mqdefault.jpg`}
@@ -1876,6 +1993,12 @@ function YouTubeTranslatePageContent() {
                             {item.video_duration && item.video_duration > 0 && (
                               <div className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/80 text-white text-[10px] rounded">
                                 {Math.floor(item.video_duration / 60000)}:{String(Math.floor((item.video_duration % 60000) / 1000)).padStart(2, '0')}
+                              </div>
+                            )}
+                            {/* 별표 표시 */}
+                            {item.is_starred && (
+                              <div className="absolute top-1 left-1">
+                                <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
                               </div>
                             )}
                             {/* 재생 오버레이 */}
@@ -1896,7 +2019,7 @@ function YouTubeTranslatePageContent() {
                             <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
                               <Calendar className="h-3 w-3" />
                               {/* 시청 시각을 로컬 시간으로 표시 */}
-                              {new Date(item.last_viewed_at || item.updated_at || item.created_at).toLocaleString("ko-KR", {
+                              {new Date(item.viewed_at).toLocaleString("ko-KR", {
                                 year: "numeric",
                                 month: "2-digit", 
                                 day: "2-digit",
@@ -1906,14 +2029,14 @@ function YouTubeTranslatePageContent() {
                               <span>•</span>
                               <span>{Array.isArray(item.subtitles) ? item.subtitles.length : 0}문장</span>
                             </div>
-                            {/* 원어 → 번역어 표시 (displayLang 사용) */}
+                            {/* 원어 → 번역어 표시 */}
                             <div className="flex items-center gap-1 mt-1.5">
                               <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
                                 {LANGUAGES.find(l => l.code === item.original_lang)?.name || item.original_lang || '자동'}
                               </span>
                               <span className="text-slate-400 text-xs">→</span>
                               <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">
-                                {LANGUAGES.find(l => l.code === item.displayLang)?.name || item.displayLang || '원본'}
+                                {LANGUAGES.find(l => l.code === item.target_lang)?.name || item.target_lang || '원본'}
                               </span>
                             </div>
                           </div>
@@ -1921,9 +2044,19 @@ function YouTubeTranslatePageContent() {
                         
                         {/* 액션 버튼 - 배경색 추가 */}
                         <div className="flex items-center gap-2 mt-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                          {/* 별표 토글 버튼 */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleStarred(item.history_id, item.is_starred)}
+                            className={`h-8 px-2 ${item.is_starred ? "text-yellow-500 hover:text-yellow-600" : "text-slate-400 hover:text-yellow-500"}`}
+                            title={item.is_starred ? "즐겨찾기 해제" : "즐겨찾기 추가"}
+                          >
+                            <Star className={`h-4 w-4 ${item.is_starred ? "fill-yellow-400" : ""}`} />
+                          </Button>
                           <Button
                             size="sm"
-                            onClick={() => playFromHistoryWithLang(item, item.displayLang)}
+                            onClick={() => playFromHistoryWithLang(item, item.target_lang)}
                             className="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs h-8"
                           >
                             <Play className="h-3 w-3 mr-1" />
@@ -1931,7 +2064,7 @@ function YouTubeTranslatePageContent() {
                           </Button>
                           <Button
                             size="sm"
-                            onClick={() => viewSummaryFromHistoryWithLang(item, item.displayLang)}
+                            onClick={() => viewSummaryFromHistoryWithLang(item, item.target_lang)}
                             className="flex-1 bg-purple-500 hover:bg-purple-600 text-white text-xs h-8"
                           >
                             <Sparkles className="h-3 w-3 mr-1" />
@@ -1940,7 +2073,7 @@ function YouTubeTranslatePageContent() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => deleteSession(item.id)}
+                            onClick={() => deleteSession(item.history_id)}
                             className="text-red-500 hover:text-red-600 hover:bg-red-50 h-8 px-2"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
