@@ -2858,35 +2858,34 @@ function YouTubeTranslatePageContent() {
               className="absolute inset-0 bg-white/60" 
               onClick={() => setViewingSummary(null)}
             />
-            <Card className="relative w-full max-w-2xl max-h-[80vh] overflow-y-auto border-2 border-teal-300 shadow-2xl overflow-hidden">
-              {/* 상단 타이틀 영역 - 민트색 통일 */}
-              <div style={{ backgroundColor: '#CCFBF1' }}>
-                <CardHeader className="pb-0">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="flex items-center gap-2 text-teal-800">
-                        <FileText className="h-5 w-5" />
-                        요약
-                      </CardTitle>
-                      <p className="text-sm text-teal-600 mt-1">{viewingSummary.title}</p>
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => setViewingSummary(null)}
-                      className="text-teal-700 hover:bg-teal-200"
-                    >
-                      <X className="h-5 w-5" />
-                    </Button>
+            <div className="relative w-full max-w-2xl max-h-[80vh] overflow-hidden rounded-lg border-2 border-teal-300 shadow-2xl">
+              {/* 상단 타이틀 영역 - 민트색 */}
+              <div className="p-4" style={{ backgroundColor: '#CCFBF1' }}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-lg font-semibold text-teal-800">
+                      <FileText className="h-5 w-5" />
+                      요약
+                    </h3>
+                    <p className="text-sm text-teal-600 mt-1">{viewingSummary.title}</p>
                   </div>
-                </CardHeader>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => setViewingSummary(null)}
+                    className="text-teal-700 hover:bg-teal-200"
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
               </div>
-              <CardContent className="p-6 bg-white">
+              {/* 내용 영역 - 흰색 */}
+              <div className="p-6 bg-white overflow-y-auto" style={{ maxHeight: 'calc(80vh - 80px)' }}>
                 <div className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
                   {viewingSummary.summary}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
         )}
 
