@@ -200,7 +200,7 @@ function YouTubeLivePageContent() {
   
   // 오디오 모드 (화자 목소리 vs 번역 음성)
   const [audioMode, setAudioMode] = useState<"original" | "translated">("original")
-  const speechSynthRef = useRef<SpeechSynthesisUtterance | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)  // Google Cloud TTS 오디오
   const lastSpokenIndexRef = useRef(-1)
   const isSpeakingRef = useRef(false)  // TTS 진행 중 여부
   const ttsQueueRef = useRef<{text: string, lang: string}[]>([])  // TTS 대기 큐
@@ -2011,68 +2011,71 @@ function YouTubeLivePageContent() {
     }
   }
   
-  // 실제 TTS 재생 함수
-  const playTTS = (text: string, lang: string) => {
-    if (!window.speechSynthesis) return
-    
+  // Google Cloud TTS로 재생
+  const playTTS = async (text: string, lang: string) => {
     isSpeakingRef.current = true
     
-    const utterance = new SpeechSynthesisUtterance(text)
-    
-    // 언어 코드 매핑
-    const langMap: Record<string, string> = {
-      ko: "ko-KR", en: "en-US", ja: "ja-JP", zh: "zh-CN",
-      es: "es-ES", de: "de-DE", fr: "fr-FR", it: "it-IT",
-      pt: "pt-BR", ru: "ru-RU", ar: "ar-SA", hi: "hi-IN",
-      th: "th-TH", vi: "vi-VN", id: "id-ID", tr: "tr-TR"
-    }
-    const targetLangCode = langMap[lang] || lang
-    utterance.lang = targetLangCode
-    utterance.rate = ttsSpeed
-    utterance.pitch = ttsGender === "female" ? 1.0 : 0.9
-    
-    // 사용 가능한 음성 선택
-    const voices = window.speechSynthesis.getVoices()
-    const langVoices = voices.filter(v => v.lang.startsWith(targetLangCode.split('-')[0]))
-    
-    if (langVoices.length > 0) {
-      let voiceToUse: SpeechSynthesisVoice | undefined
+    try {
+      console.log(`🎤 Cloud TTS 요청: ${text.substring(0, 30)}...`)
       
-      if (selectedVoiceName) {
-        voiceToUse = langVoices.find(v => v.name === selectedVoiceName)
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          languageCode: lang,
+          speed: ttsSpeed,
+        }),
+      })
+      
+      if (!response.ok) {
+        console.error("TTS API 오류:", response.status)
+        processNextTTS()
+        return
       }
       
-      if (!voiceToUse) {
-        const genderKeywords = ttsGender === "female" 
-          ? ["female", "woman", "여성", "여자", "Yuna", "Siri", "Samantha", "Victoria", "Karen", "Moira"]
-          : ["male", "man", "남성", "남자", "Daniel", "Alex", "Tom", "Fred", "Junior"]
-        
-        voiceToUse = langVoices.find(v => 
-          genderKeywords.some(kw => v.name.toLowerCase().includes(kw.toLowerCase()))
-        )
-        
-        if (!voiceToUse) {
-          voiceToUse = langVoices[ttsGender === "female" ? 0 : Math.min(1, langVoices.length - 1)]
-        }
+      const data = await response.json()
+      
+      if (!data.audioContent) {
+        console.error("TTS 오디오 없음")
+        processNextTTS()
+        return
       }
       
-      if (voiceToUse) {
-        utterance.voice = voiceToUse
-        console.log(`🎤 TTS 재생: ${text.substring(0, 30)}... (${voiceToUse.name})`)
+      // Base64 → Blob → URL
+      const audioBlob = new Blob(
+        [Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))],
+        { type: "audio/mp3" }
+      )
+      const audioUrl = URL.createObjectURL(audioBlob)
+      
+      // 이전 오디오 정리
+      if (audioRef.current) {
+        audioRef.current.pause()
+        URL.revokeObjectURL(audioRef.current.src)
       }
-    }
-    
-    // 발화 완료 시 다음 큐 처리
-    utterance.onend = () => {
+      
+      // 오디오 재생
+      const audio = new Audio(audioUrl)
+      audioRef.current = audio
+      
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl)
+        processNextTTS()
+      }
+      
+      audio.onerror = () => {
+        URL.revokeObjectURL(audioUrl)
+        processNextTTS()
+      }
+      
+      await audio.play()
+      console.log(`🎤 Cloud TTS 재생 중: ${data.voice}`)
+      
+    } catch (err) {
+      console.error("TTS 재생 오류:", err)
       processNextTTS()
     }
-    
-    utterance.onerror = () => {
-      processNextTTS()
-    }
-    
-    speechSynthRef.current = utterance
-    window.speechSynthesis.speak(utterance)
   }
   
   // TTS로 텍스트 읽기 (큐 기반 - 이전 발화 완료 후 다음 재생)
@@ -2162,7 +2165,11 @@ function YouTubeLivePageContent() {
         } else {
           // 원본 음성 모드: YouTube 음소거 해제, TTS 중지
           playerRef.current.unMute?.()
-          window.speechSynthesis?.cancel()
+          // Cloud TTS 오디오 중지
+          if (audioRef.current) {
+            audioRef.current.pause()
+            audioRef.current = null
+          }
           ttsQueueRef.current = []  // TTS 큐 비우기
           isSpeakingRef.current = false
           console.log("🔊 YouTube 음소거 해제 (원본 음성 모드)")
