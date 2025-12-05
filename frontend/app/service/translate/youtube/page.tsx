@@ -1958,8 +1958,8 @@ function YouTubeTranslatePageContent() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50 dark:bg-slate-900 overflow-hidden">
-      {/* 메인 콘텐츠 - 스크롤바 1개만 (타이틀 포함) */}
+    <div className="h-screen flex flex-col overflow-hidden" style={{ backgroundColor: '#CCFBF1' }}>
+      {/* 메인 콘텐츠 - 전체 배경 민트색, 카드만 흰색 */}
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-4 py-2 space-y-2">
           {/* 1. 상단 타이틀바 - 컨텐츠 안에 포함 (스크롤과 함께 움직임) */}
@@ -2741,9 +2741,8 @@ function YouTubeTranslatePageContent() {
           </div>
         )}
 
-        {/* YouTube 사용기록 (하단 테이블) - 상단 연결부 민트색 */}
-        <div className="h-2 rounded-t-lg" style={{ backgroundColor: '#CCFBF1' }}></div>
-        <Card className="border-2 border-teal-300 overflow-hidden border-t-0 rounded-t-none">
+        {/* YouTube 사용기록 (하단 테이블) */}
+        <Card className="border-2 border-teal-300 overflow-hidden bg-white">
           {/* 3. 목록 상단 배경색 - 타이틀과 테이블 헤더 통합 */}
           <div style={{ backgroundColor: '#CCFBF1' }}>
             {/* 타이틀 */}
