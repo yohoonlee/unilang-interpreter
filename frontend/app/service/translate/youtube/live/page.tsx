@@ -2017,8 +2017,7 @@ function YouTubeLivePageContent() {
     
     isSpeakingRef.current = true
     
-    // Chrome 버그 방지: 완전 초기화
-    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
     
     // 언어 코드 매핑
     const langMap: Record<string, string> = {
@@ -2028,20 +2027,21 @@ function YouTubeLivePageContent() {
       th: "th-TH", vi: "vi-VN", id: "id-ID", tr: "tr-TR"
     }
     const targetLangCode = langMap[lang] || lang
+    utterance.lang = targetLangCode
+    utterance.rate = ttsSpeed
+    utterance.pitch = ttsGender === "female" ? 1.0 : 0.9
     
     // 사용 가능한 음성 선택
     const voices = window.speechSynthesis.getVoices()
     const langVoices = voices.filter(v => v.lang.startsWith(targetLangCode.split('-')[0]))
     
-    let voiceToUse: SpeechSynthesisVoice | undefined
-    
     if (langVoices.length > 0) {
-      // 1. 사용자가 선택한 음성이 있으면 우선 사용
+      let voiceToUse: SpeechSynthesisVoice | undefined
+      
       if (selectedVoiceName) {
         voiceToUse = langVoices.find(v => v.name === selectedVoiceName)
       }
       
-      // 2. 선택한 음성이 없거나 현재 언어에 없으면 성별 기반 선택
       if (!voiceToUse) {
         const genderKeywords = ttsGender === "female" 
           ? ["female", "woman", "여성", "여자", "Yuna", "Siri", "Samantha", "Victoria", "Karen", "Moira"]
@@ -2051,27 +2051,15 @@ function YouTubeLivePageContent() {
           genderKeywords.some(kw => v.name.toLowerCase().includes(kw.toLowerCase()))
         )
         
-        // 성별 음성 못 찾으면 첫 번째 음성 사용
         if (!voiceToUse) {
           voiceToUse = langVoices[ttsGender === "female" ? 0 : Math.min(1, langVoices.length - 1)]
         }
       }
-    }
-    
-    // 워밍업: 무음 utterance를 먼저 재생하여 Chrome 버그 방지
-    const warmupUtterance = new SpeechSynthesisUtterance(" ")
-    warmupUtterance.volume = 0
-    warmupUtterance.rate = 10  // 최대 속도로 빠르게 끝내기
-    if (voiceToUse) warmupUtterance.voice = voiceToUse
-    
-    // 실제 utterance
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = targetLangCode
-    utterance.rate = ttsSpeed
-    utterance.pitch = ttsGender === "female" ? 1.0 : 0.9
-    if (voiceToUse) {
-      utterance.voice = voiceToUse
-      console.log(`🎤 TTS 재생: ${text.substring(0, 30)}... (${voiceToUse.name})`)
+      
+      if (voiceToUse) {
+        utterance.voice = voiceToUse
+        console.log(`🎤 TTS 재생: ${text.substring(0, 30)}... (${voiceToUse.name})`)
+      }
     }
     
     // 발화 완료 시 다음 큐 처리
@@ -2079,16 +2067,11 @@ function YouTubeLivePageContent() {
       processNextTTS()
     }
     
-    // 에러 시에도 다음 큐 처리
     utterance.onerror = () => {
       processNextTTS()
     }
     
     speechSynthRef.current = utterance
-    
-    // 워밍업 후 실제 재생
-    window.speechSynthesis.resume()
-    window.speechSynthesis.speak(warmupUtterance)
     window.speechSynthesis.speak(utterance)
   }
   
