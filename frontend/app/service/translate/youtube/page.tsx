@@ -1943,15 +1943,15 @@ function YouTubeTranslatePageContent() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:from-slate-900 dark:to-slate-800">
-      {/* 헤더 */}
+      {/* 헤더 - 민트 계열 타이틀 바 */}
       {!isEmbedded && (
-        <header className="sticky top-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border-b border-slate-200 dark:border-slate-700">
+        <header className="sticky top-0 z-50" style={{ backgroundColor: '#CCFBF1' }}>
           <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Link href="/service" className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
-                <ArrowLeft className="h-5 w-5" />
+              <Link href="/service" className="p-2 hover:bg-teal-200 rounded-lg transition-colors">
+                <ArrowLeft className="h-5 w-5 text-teal-700" />
               </Link>
-              <h1 className="text-lg font-bold bg-gradient-to-r from-teal-600 to-cyan-600 bg-clip-text text-transparent">
+              <h1 className="text-lg font-bold text-teal-800">
                 📺 YouTube 통역
               </h1>
             </div>
@@ -1960,12 +1960,12 @@ function YouTubeTranslatePageContent() {
                 variant="ghost" 
                 size="icon"
                 onClick={() => setShowHistory(!showHistory)}
-                className={`relative ${showHistory ? 'bg-slate-200 dark:bg-slate-700' : ''}`}
+                className={`relative hover:bg-teal-200 ${showHistory ? 'bg-teal-200' : ''}`}
                 title="기록 목록"
               >
-                <Menu className="h-5 w-5" />
+                <Menu className="h-5 w-5 text-teal-700" />
                 {youtubeSessions.length > 0 && (
-                  <span className="absolute -top-1 -right-1 h-4 w-4 bg-teal-500 text-white text-[10px] rounded-full flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 h-4 w-4 bg-teal-600 text-white text-[10px] rounded-full flex items-center justify-center">
                     {youtubeSessions.length > 9 ? '9+' : youtubeSessions.length}
                   </span>
                 )}
@@ -1984,38 +1984,29 @@ function YouTubeTranslatePageContent() {
               className="flex-1 bg-black/30 backdrop-blur-sm"
               onClick={() => setShowHistory(false)}
             />
-            {/* 사이드 패널 */}
-            <div className="w-full max-w-[500px] bg-white dark:bg-slate-900 shadow-2xl overflow-hidden flex flex-col animate-slide-in-right">
-              <div className="p-4 border-b border-teal-200 dark:border-teal-700 bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/20">
-                {/* 돌아가기 버튼 */}
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setShowHistory(false)}
-                  className="mb-3 text-slate-600 hover:text-teal-700 hover:bg-teal-100 -ml-2"
-                >
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  돌아가기
-                </Button>
-                
+            {/* 사이드 패널 - 스크롤바 1개만 */}
+            <div className="w-full max-w-[500px] bg-white dark:bg-slate-900 shadow-2xl flex flex-col h-screen animate-slide-in-right">
+              {/* 고정 헤더 */}
+              <div className="shrink-0 p-4 border-b border-teal-200" style={{ backgroundColor: '#CCFBF1' }}>
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-bold flex items-center gap-2">
-                    <List className="h-5 w-5 text-teal-600" />
+                  <h2 className="text-lg font-bold flex items-center gap-2 text-teal-800">
+                    <List className="h-5 w-5" />
                     YouTube 통역 기록
                   </h2>
                   <Button 
                     variant="ghost" 
                     size="icon"
                     onClick={() => setShowHistory(false)}
-                    className="hover:bg-teal-100"
+                    className="hover:bg-teal-200"
                   >
-                    <X className="h-5 w-5" />
+                    <X className="h-5 w-5 text-teal-700" />
                   </Button>
                 </div>
                 {/* 자막 업로드 버튼 */}
                 <Link href="/service/translate/youtube/upload" className="block mt-3">
                   <Button 
                     variant="outline" 
-                    className="w-full border-teal-300 text-teal-600 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400"
+                    className="w-full border-teal-400 text-teal-700 hover:bg-teal-100"
                   >
                     <Upload className="h-4 w-4 mr-2" />
                     자막 파일 업로드
@@ -2023,7 +2014,8 @@ function YouTubeTranslatePageContent() {
                 </Link>
               </div>
               
-              <div className="flex-1 overflow-y-auto p-4">
+              {/* 스크롤 영역 - 내부 스크롤바 1개만 */}
+              <div className="flex-1 overflow-y-auto p-4" style={{ maxHeight: 'calc(100vh - 140px)' }}>
                 {isLoadingHistory ? (
                   <div className="flex items-center justify-center py-10">
                     <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
@@ -2042,9 +2034,12 @@ function YouTubeTranslatePageContent() {
                         key={item.key || item.history_id}
                         className={`p-3 rounded-lg border transition-colors ${
                           item.is_starred 
-                            ? "border-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/10 dark:border-yellow-600" 
-                            : "border-slate-200 dark:border-slate-700 hover:bg-teal-50 dark:hover:bg-teal-900/20 hover:border-teal-200"
+                            ? "border-teal-300 bg-white dark:bg-slate-800 dark:border-teal-600" 
+                            : "border-teal-200 dark:border-slate-700"
                         }`}
+                        style={{ backgroundColor: 'white' }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#CCFBF1'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                       >
                         {/* 썸네일 + 정보 */}
                         <div className="flex gap-3">
@@ -2669,17 +2664,17 @@ function YouTubeTranslatePageContent() {
           </Card>
         )}
 
-        {/* 요약 모달 */}
+        {/* 요약 모달 - 밝은 배경 */}
         {showSummary && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div 
-              className="absolute inset-0 bg-slate-900/20" 
+              className="absolute inset-0 bg-white/60" 
               onClick={() => setShowSummary(false)}
             />
-            <Card className="relative w-full max-w-2xl max-h-[80vh] overflow-y-auto border-teal-200 dark:border-teal-700 shadow-xl">
-              <CardHeader className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-t-lg">
+            <Card className="relative w-full max-w-2xl max-h-[80vh] overflow-y-auto border-2 border-teal-300 shadow-2xl bg-white">
+              <CardHeader style={{ backgroundColor: '#CCFBF1' }}>
                 <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2 text-white">
+                  <CardTitle className="flex items-center gap-2 text-teal-800">
                     <Sparkles className="h-5 w-5" />
                     AI 요약
                   </CardTitle>
@@ -2687,13 +2682,13 @@ function YouTubeTranslatePageContent() {
                     variant="ghost" 
                     size="icon" 
                     onClick={() => setShowSummary(false)}
-                    className="text-white hover:bg-white/20"
+                    className="text-teal-700 hover:bg-teal-200"
                   >
                     <X className="h-5 w-5" />
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="p-6">
+              <CardContent className="p-6 bg-white">
                 <div className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
                   {summary}
                 </div>
@@ -2702,34 +2697,34 @@ function YouTubeTranslatePageContent() {
           </div>
         )}
 
-        {/* 기록에서 요약보기 모달 */}
+        {/* 기록에서 요약보기 모달 - 밝은 배경 */}
         {viewingSummary && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div 
-              className="absolute inset-0 bg-slate-900/20" 
+              className="absolute inset-0 bg-white/60" 
               onClick={() => setViewingSummary(null)}
             />
-            <Card className="relative w-full max-w-2xl max-h-[80vh] overflow-y-auto border-teal-200 dark:border-teal-700 shadow-xl">
-              <CardHeader className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-t-lg">
+            <Card className="relative w-full max-w-2xl max-h-[80vh] overflow-y-auto border-2 border-teal-300 shadow-2xl bg-white">
+              <CardHeader style={{ backgroundColor: '#CCFBF1' }}>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="flex items-center gap-2 text-white">
+                    <CardTitle className="flex items-center gap-2 text-teal-800">
                       <FileText className="h-5 w-5" />
                       요약
                     </CardTitle>
-                    <p className="text-sm text-white/80 mt-1">{viewingSummary.title}</p>
+                    <p className="text-sm text-teal-600 mt-1">{viewingSummary.title}</p>
                   </div>
                   <Button 
                     variant="ghost" 
                     size="icon" 
                     onClick={() => setViewingSummary(null)}
-                    className="text-white hover:bg-white/20"
+                    className="text-teal-700 hover:bg-teal-200"
                   >
                     <X className="h-5 w-5" />
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="p-6">
+              <CardContent className="p-6 bg-white">
                 <div className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
                   {viewingSummary.summary}
                 </div>
@@ -2740,18 +2735,18 @@ function YouTubeTranslatePageContent() {
 
         {/* 요약 로딩 중 */}
         {isLoadingSummary && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/20">
-            <div className="bg-white dark:bg-slate-800 rounded-xl p-6 flex items-center gap-3 shadow-xl border border-teal-200">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/60">
+            <div className="bg-white rounded-xl p-6 flex items-center gap-3 shadow-xl border-2 border-teal-300">
               <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
-              <span>요약을 불러오는 중...</span>
+              <span className="text-teal-700">요약을 불러오는 중...</span>
             </div>
           </div>
         )}
 
         {/* YouTube 사용기록 (하단 테이블) */}
-        <Card className="border-teal-200 dark:border-teal-800">
-          <CardHeader className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-t-lg py-3">
-            <CardTitle className="text-lg flex items-center gap-2">
+        <Card className="border-2 border-teal-300">
+          <CardHeader className="py-3" style={{ backgroundColor: '#CCFBF1' }}>
+            <CardTitle className="text-lg flex items-center gap-2 text-teal-800">
               <List className="h-5 w-5" />
               YouTube 사용기록(목록)
             </CardTitle>
@@ -2784,9 +2779,10 @@ function YouTubeTranslatePageContent() {
                   {youtubeSessions.map((item) => (
                     <div 
                       key={item.key || item.history_id}
-                      className={`grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors ${
-                        item.is_starred ? "bg-yellow-50/50 dark:bg-yellow-900/10" : ""
-                      }`}
+                      className="grid grid-cols-12 gap-2 px-4 py-3 items-center transition-colors"
+                      style={{ backgroundColor: item.is_starred ? '#FFFBEB' : 'white' }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#CCFBF1'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = item.is_starred ? '#FFFBEB' : 'white'}
                     >
                       {/* 별표 */}
                       <div className="col-span-1 text-center">
@@ -2822,9 +2818,17 @@ function YouTubeTranslatePageContent() {
                         <p 
                           className="text-sm font-medium truncate cursor-pointer hover:text-teal-600 transition-colors"
                           onClick={() => playFromHistoryWithLang(item, item.target_lang)}
-                          title={item.video_title || item.video_id}
+                          title={item.video_title || (Array.isArray(item.subtitles) && item.subtitles.length > 0 
+                            ? ((item.subtitles[0] as {original?: string, text?: string})?.original || 
+                               (item.subtitles[0] as {original?: string, text?: string})?.text || item.video_id)
+                            : item.video_id)}
                         >
-                          {item.video_title || item.video_id}
+                          {item.video_title || 
+                           (Array.isArray(item.subtitles) && item.subtitles.length > 0 
+                             ? ((item.subtitles[0] as {original?: string, text?: string})?.original || 
+                                (item.subtitles[0] as {original?: string, text?: string})?.text || 
+                                item.video_id)?.substring(0, 50) + "..."
+                             : item.video_id)}
                         </p>
                         <p className="text-xs text-slate-500">
                           {item.video_duration && item.video_duration > 0 

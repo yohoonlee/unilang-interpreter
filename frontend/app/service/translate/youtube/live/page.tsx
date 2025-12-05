@@ -1922,6 +1922,9 @@ function YouTubeLivePageContent() {
     }
   }
 
+  // TTS 음성 성별 설정 (male/female)
+  const [ttsGender, setTtsGender] = useState<"male" | "female">("female")
+  
   // TTS로 텍스트 읽기 (성별에 따른 음성 선택 포함)
   const speakText = (text: string, lang: string) => {
     if (!window.speechSynthesis) return
@@ -1938,15 +1941,32 @@ function YouTubeLivePageContent() {
       pt: "pt-BR", ru: "ru-RU", ar: "ar-SA", hi: "hi-IN",
       th: "th-TH", vi: "vi-VN", id: "id-ID", tr: "tr-TR"
     }
-    utterance.lang = langMap[lang] || lang
+    const targetLangCode = langMap[lang] || lang
+    utterance.lang = targetLangCode
     utterance.rate = 1.0
-    utterance.pitch = 1.0
+    utterance.pitch = ttsGender === "female" ? 1.2 : 0.9  // 여성은 높게, 남성은 낮게
     
-    // 사용 가능한 음성 중 해당 언어 음성 선택
+    // 사용 가능한 음성 중 성별에 맞는 음성 선택
     const voices = window.speechSynthesis.getVoices()
-    const langVoice = voices.find(v => v.lang.startsWith(utterance.lang.split('-')[0]))
-    if (langVoice) {
-      utterance.voice = langVoice
+    const langVoices = voices.filter(v => v.lang.startsWith(targetLangCode.split('-')[0]))
+    
+    if (langVoices.length > 0) {
+      // 성별 키워드로 음성 찾기 (일부 브라우저/OS에서만 작동)
+      const genderKeywords = ttsGender === "female" 
+        ? ["female", "woman", "여성", "여자", "Yuna", "Siri", "Samantha", "Victoria", "Karen", "Moira"]
+        : ["male", "man", "남성", "남자", "Daniel", "Alex", "Tom", "Fred", "Junior"]
+      
+      let selectedVoice = langVoices.find(v => 
+        genderKeywords.some(kw => v.name.toLowerCase().includes(kw.toLowerCase()))
+      )
+      
+      // 성별 음성 못 찾으면 첫 번째 음성 사용
+      if (!selectedVoice) {
+        selectedVoice = langVoices[ttsGender === "female" ? 0 : Math.min(1, langVoices.length - 1)]
+      }
+      
+      utterance.voice = selectedVoice
+      console.log(`🎤 TTS 음성 선택: ${selectedVoice?.name || '기본'} (${ttsGender})`)
     }
     
     speechSynthRef.current = utterance
@@ -2037,25 +2057,29 @@ function YouTubeLivePageContent() {
 
   // 전체화면 모드 자동 진입 (fullscreen=true 파라미터)
   const hasAutoFullscreened = useRef(false)
+  
+  // 데이터 로드 완료 후 전체화면 진입
   useEffect(() => {
-    // 전체화면 진입 조건: 
-    // 1. startFullscreen=true
-    // 2. 플레이어 준비됨 (isPlayerReady)
-    // 3. 리플레이 모드(저장된 데이터) 또는 실시간 통역 모드(isListening)
-    const isReadyForFullscreen = startFullscreen && 
-      !hasAutoFullscreened.current && 
-      isPlayerReady && 
-      (isReplayMode || isListening || !showReplayChoice)
-    
-    if (isReadyForFullscreen) {
+    if (startFullscreen && !hasAutoFullscreened.current && utterances.length > 0 && isPlayerReady) {
       hasAutoFullscreened.current = true
-      // 약간의 지연 후 전체화면 진입
+      console.log("🎬 자동 전체화면 진입 시도 (데이터 로드 완료)...")
+      // 브라우저 렌더링 완료 대기 후 전체화면 진입
       setTimeout(() => {
-        console.log("🎬 자동 전체화면 진입 시도...")
+        enterFullscreen()
+      }, 500)
+    }
+  }, [startFullscreen, utterances.length, isPlayerReady])
+  
+  // 플레이어 준비되면 즉시 전체화면 시도 (새 창에서 열릴 때)
+  useEffect(() => {
+    if (startFullscreen && !hasAutoFullscreened.current && isPlayerReady && !showReplayChoice) {
+      hasAutoFullscreened.current = true
+      console.log("🎬 자동 전체화면 진입 시도 (플레이어 준비 완료)...")
+      setTimeout(() => {
         enterFullscreen()
       }, 300)
     }
-  }, [startFullscreen, isPlayerReady, isReplayMode, isListening, showReplayChoice])
+  }, [startFullscreen, isPlayerReady, showReplayChoice])
 
   // 컴포넌트 언마운트 시 정리
   useEffect(() => {
@@ -2331,6 +2355,21 @@ function YouTubeLivePageContent() {
             >
               {audioMode === "original" ? "🔊 화자음성" : "🗣️ 번역음성"}
             </button>
+            
+            {/* TTS 성별 선택 버튼 (번역 음성 모드에서만 표시) */}
+            {audioMode === "translated" && (
+              <button
+                onClick={() => setTtsGender(prev => prev === "female" ? "male" : "female")}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                  ttsGender === "female" 
+                    ? "bg-pink-500 hover:bg-pink-600 text-white" 
+                    : "bg-blue-500 hover:bg-blue-600 text-white"
+                }`}
+                title={`현재: ${ttsGender === "female" ? "여성" : "남성"} 음성 (클릭하여 변경)`}
+              >
+                {ttsGender === "female" ? "👩 여성음성" : "👨 남성음성"}
+              </button>
+            )}
             
             {/* 전체화면 전환 버튼 - 빨간색으로 눈에 띄게 */}
             <button
