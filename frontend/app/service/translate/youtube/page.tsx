@@ -2284,7 +2284,10 @@ function YouTubeTranslatePageContent() {
                           </Button>
                           <Button
                             size="sm"
-                            onClick={() => viewSummaryFromHistoryWithLang(item, item.target_lang)}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              viewSummaryFromHistoryWithLang(item, item.target_lang)
+                            }}
                             className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white text-xs h-8"
                           >
                             <Sparkles className="h-3 w-3 mr-1" />
@@ -2855,26 +2858,29 @@ function YouTubeTranslatePageContent() {
               className="absolute inset-0 bg-white/60" 
               onClick={() => setViewingSummary(null)}
             />
-            <Card className="relative w-full max-w-2xl max-h-[80vh] overflow-y-auto border-2 border-teal-300 shadow-2xl bg-white">
-              <CardHeader style={{ backgroundColor: '#CCFBF1' }}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2 text-teal-800">
-                      <FileText className="h-5 w-5" />
-                      요약
-                    </CardTitle>
-                    <p className="text-sm text-teal-600 mt-1">{viewingSummary.title}</p>
+            <Card className="relative w-full max-w-2xl max-h-[80vh] overflow-y-auto border-2 border-teal-300 shadow-2xl overflow-hidden">
+              {/* 상단 타이틀 영역 - 민트색 통일 */}
+              <div style={{ backgroundColor: '#CCFBF1' }}>
+                <CardHeader className="pb-0">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-teal-800">
+                        <FileText className="h-5 w-5" />
+                        요약
+                      </CardTitle>
+                      <p className="text-sm text-teal-600 mt-1">{viewingSummary.title}</p>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={() => setViewingSummary(null)}
+                      className="text-teal-700 hover:bg-teal-200"
+                    >
+                      <X className="h-5 w-5" />
+                    </Button>
                   </div>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    onClick={() => setViewingSummary(null)}
-                    className="text-teal-700 hover:bg-teal-200"
-                  >
-                    <X className="h-5 w-5" />
-                  </Button>
-                </div>
-              </CardHeader>
+                </CardHeader>
+              </div>
               <CardContent className="p-6 bg-white">
                 <div className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
                   {viewingSummary.summary}
@@ -3027,7 +3033,10 @@ function YouTubeTranslatePageContent() {
                         </Button>
                         <Button
                           size="sm"
-                          onClick={() => viewSummaryFromHistoryWithLang(item, item.target_lang)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            viewSummaryFromHistoryWithLang(item, item.target_lang)
+                          }}
                           className="bg-cyan-600 hover:bg-cyan-700 text-white text-xs h-7 px-2"
                         >
                           <Sparkles className="h-3 w-3" />
