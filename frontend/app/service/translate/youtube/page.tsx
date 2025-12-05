@@ -1217,16 +1217,29 @@ function YouTubeTranslatePageContent() {
       }
       
       // ========================================
-      // 3단계: AI 재정리 (원문을 문장 단위로 정리)
+      // 3단계: AI 재정리 + 번역 + 원본 자막에 분할 매핑
       // ========================================
+      // 핵심: 원본 자막 구조(startTime)를 유지하면서, 매끄러운 번역을 위해
+      // 합친 문장으로 번역 후, 원본 자막 개수에 맞춰 분할하여 매핑
+      
       setProgress(30)
       setProgressText("AI 원문 재정리 중...")
       console.log("🔄 AI 원문 재정리 시작:", convertedUtterances.length, "개 자막")
       
+      // 원본 자막 보존 (startTime, original 유지)
+      const originalSubtitles = convertedUtterances.map(u => ({ ...u }))
+      
+      // 재정리 그룹 정보 저장: { mergedText, translatedText, originalIndices[] }
+      let reorganizedGroups: { 
+        mergedText: string
+        translatedText: string
+        originalIndices: number[]  // 0-based indices
+      }[] = []
+      
       try {
         // 원문 자막을 API 형식으로 변환
         const utterancesForApi = convertedUtterances.map((u, idx) => ({
-          id: idx + 1,
+          id: idx + 1,  // 1-based for API
           text: u.original,
           startTime: u.startTime,
         }))
@@ -1236,7 +1249,7 @@ function YouTubeTranslatePageContent() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             utterances: utterancesForApi,
-            targetLanguage: detectedLang, // 원문 언어로 재정리
+            targetLanguage: detectedLang,
           }),
         })
         
@@ -1246,29 +1259,14 @@ function YouTubeTranslatePageContent() {
           if (reorganizeData.success && reorganizeData.data) {
             console.log("📝 AI 재정리 결과:", reorganizeData.data.length, "개 문장")
             
-            // 재정리된 결과로 convertedUtterances 업데이트
-            const newUtterances: typeof convertedUtterances = []
+            // 그룹 정보 저장 (merged_from은 1-based이므로 0-based로 변환)
+            reorganizedGroups = reorganizeData.data.map((item: { merged_from: number[]; text: string }) => ({
+              mergedText: item.text,
+              translatedText: "",
+              originalIndices: item.merged_from.map((i: number) => i - 1),  // 1-based to 0-based
+            }))
             
-            reorganizeData.data.forEach((item: { merged_from: number[]; text: string }, newIdx: number) => {
-              // merged_from의 첫 번째 원본 자막의 startTime 사용
-              const firstOriginalIdx = item.merged_from[0] - 1 // 1-based to 0-based
-              const originalUtterance = convertedUtterances[firstOriginalIdx]
-              
-              if (originalUtterance) {
-                newUtterances.push({
-                  id: `subtitle-reorganized-${newIdx}`,
-                  original: item.text,
-                  translated: "",
-                  timestamp: originalUtterance.timestamp,
-                  startTime: originalUtterance.startTime,
-                })
-              }
-            })
-            
-            if (newUtterances.length > 0) {
-              convertedUtterances = newUtterances
-              console.log("✅ AI 원문 재정리 적용:", convertedUtterances.length, "개 문장")
-            }
+            console.log("✅ 그룹 정보 저장:", reorganizedGroups.length, "개 그룹")
           }
         } else {
           console.log("⚠️ AI 재정리 API 실패, 원본 유지")
@@ -1277,39 +1275,122 @@ function YouTubeTranslatePageContent() {
         console.error("AI 재정리 오류, 원본 유지:", err)
       }
       
+      // 재정리 실패 시 각 자막을 개별 그룹으로 처리
+      if (reorganizedGroups.length === 0) {
+        reorganizedGroups = originalSubtitles.map((u, idx) => ({
+          mergedText: u.original,
+          translatedText: "",
+          originalIndices: [idx],
+        }))
+      }
+      
       setProgress(45)
       setProgressText("원문 재정리 완료!")
       
       // ========================================
-      // 4단계: 배치 번역 수행 (재정리된 원문 번역)
+      // 4단계: 배치 번역 수행 (합쳐진 문장 번역)
       // ========================================
       if (targetLanguage !== "none" && targetLanguage !== detectedLang) {
         setProgress(50)
-        setProgressText(`번역 준비 중... (${convertedUtterances.length}개 문장)`)
+        setProgressText(`번역 준비 중... (${reorganizedGroups.length}개 문장)`)
         
-        // 재정리된 원본 텍스트를 배열로 추출
-        const originalTexts = convertedUtterances.map(u => u.original)
+        // 합쳐진 문장들 추출
+        const mergedTexts = reorganizedGroups.map(g => g.mergedText)
         
-        // 배치 번역 수행 (한 번에 모든 텍스트 번역)
+        // 배치 번역 수행
         setProgress(60)
-        setProgressText(`배치 번역 중... (${convertedUtterances.length}개)`)
+        setProgressText(`배치 번역 중... (${reorganizedGroups.length}개)`)
         
         const translatedTexts = await translateBatchForWorkflow(
-          originalTexts,
+          mergedTexts,
           detectedLang,
           targetLanguage
         )
         
-        // 번역 결과를 utterances에 적용
+        // 번역 결과를 그룹에 저장
         translatedTexts.forEach((translated, index) => {
-          if (convertedUtterances[index]) {
-            convertedUtterances[index].translated = translated
+          if (reorganizedGroups[index]) {
+            reorganizedGroups[index].translatedText = translated
           }
         })
         
+        console.log(`✅ ${reorganizedGroups.length}개 합쳐진 문장 번역 완료`)
+        
+        // ========================================
+        // 5단계: 번역된 문장을 원본 자막 개수에 맞춰 분할
+        // ========================================
+        setProgress(65)
+        setProgressText("번역 분할 중...")
+        
+        // 각 그룹의 번역을 원본 자막 비율에 맞춰 분할하여 매핑
+        reorganizedGroups.forEach(group => {
+          const { translatedText, originalIndices } = group
+          
+          if (originalIndices.length === 1) {
+            // 단일 자막: 그대로 할당
+            const idx = originalIndices[0]
+            if (originalSubtitles[idx]) {
+              originalSubtitles[idx].translated = translatedText
+            }
+          } else {
+            // 여러 자막이 합쳐진 경우: 비율에 맞춰 분할
+            // 원본 각 자막의 글자 수를 기준으로 비율 계산
+            const originalLengths = originalIndices.map(idx => 
+              (originalSubtitles[idx]?.original?.length || 1)
+            )
+            const totalOriginalLength = originalLengths.reduce((a, b) => a + b, 0)
+            
+            // 번역문을 비율에 맞춰 분할
+            const translatedChars = translatedText.split('')
+            const totalTranslatedLength = translatedChars.length
+            
+            let charIndex = 0
+            originalIndices.forEach((idx, i) => {
+              const ratio = originalLengths[i] / totalOriginalLength
+              const charsForThis = Math.round(totalTranslatedLength * ratio)
+              
+              // 마지막 자막은 나머지 전부 할당
+              let endIndex: number
+              if (i === originalIndices.length - 1) {
+                endIndex = totalTranslatedLength
+              } else {
+                endIndex = Math.min(charIndex + charsForThis, totalTranslatedLength)
+              }
+              
+              // 단어 중간에서 자르지 않도록 공백 위치로 조정
+              if (endIndex < totalTranslatedLength && i < originalIndices.length - 1) {
+                // 앞뒤로 공백 찾기
+                let adjustedEnd = endIndex
+                for (let j = 0; j < 10; j++) {
+                  if (translatedChars[adjustedEnd + j] === ' ') {
+                    adjustedEnd = adjustedEnd + j + 1
+                    break
+                  }
+                  if (adjustedEnd - j >= charIndex && translatedChars[adjustedEnd - j] === ' ') {
+                    adjustedEnd = adjustedEnd - j + 1
+                    break
+                  }
+                }
+                endIndex = adjustedEnd
+              }
+              
+              const slicedText = translatedChars.slice(charIndex, endIndex).join('').trim()
+              
+              if (originalSubtitles[idx]) {
+                originalSubtitles[idx].translated = slicedText
+              }
+              
+              charIndex = endIndex
+            })
+          }
+        })
+        
+        // 분할된 번역을 convertedUtterances에 적용
+        convertedUtterances = originalSubtitles
+        
         setProgress(70)
         setProgressText("번역 완료!")
-        console.log(`✅ ${convertedUtterances.length}개 문장 번역 완료`)
+        console.log(`✅ ${convertedUtterances.length}개 자막에 번역 분할 매핑 완료`)
       } else {
         // 번역이 필요없으면 원본을 translated에도 복사
         convertedUtterances.forEach(u => { u.translated = u.original })
