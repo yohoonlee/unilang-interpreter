@@ -218,15 +218,41 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT: 특정 언어 번역 추가
+// PUT: 특정 언어 번역 추가 또는 제목 업데이트
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
-    const { videoId, lang, utterances, summary } = body
+    const { videoId, lang, utterances, summary, videoTitle } = body
 
-    if (!videoId || !lang || !utterances) {
+    if (!videoId) {
       return NextResponse.json(
-        { error: "videoId, lang, utterances are required" },
+        { error: "videoId is required" },
+        { status: 400 }
+      )
+    }
+
+    // 제목만 업데이트하는 경우
+    if (videoTitle && !lang) {
+      console.log(`📝 제목 업데이트: videoId=${videoId}, title=${videoTitle}`)
+      
+      const { error } = await supabase
+        .from("video_subtitles_cache")
+        .update({ video_title: videoTitle })
+        .eq("video_id", videoId)
+
+      if (error) {
+        console.error("❌ 제목 업데이트 오류:", error)
+        return NextResponse.json({ error: "Title update failed" }, { status: 500 })
+      }
+
+      console.log(`✅ 제목 업데이트 완료: ${videoId}`)
+      return NextResponse.json({ success: true, action: "title_updated" })
+    }
+
+    // 번역 추가하는 경우
+    if (!lang || !utterances) {
+      return NextResponse.json(
+        { error: "lang and utterances are required for translation update" },
         { status: 400 }
       )
     }
@@ -253,12 +279,19 @@ export async function PUT(request: NextRequest) {
       ? { ...(existing.summaries || {}), [lang]: summary }
       : existing.summaries
 
+    const updateData: Record<string, unknown> = {
+      translations: updatedTranslations,
+      summaries: updatedSummaries,
+    }
+    
+    // 제목도 같이 업데이트
+    if (videoTitle) {
+      updateData.video_title = videoTitle
+    }
+
     const { error } = await supabase
       .from("video_subtitles_cache")
-      .update({
-        translations: updatedTranslations,
-        summaries: updatedSummaries,
-      })
+      .update(updateData)
       .eq("video_id", videoId)
 
     if (error) {

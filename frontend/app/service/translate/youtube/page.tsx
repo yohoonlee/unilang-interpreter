@@ -436,13 +436,20 @@ function YouTubeTranslatePageContent() {
     }
   }
 
-  // 기록 삭제 (user_video_history에서 - 개인 기록만)
-  const deleteSession = async (e: React.MouseEvent, historyId: string) => {
+  // 기록 삭제 (user_video_history + localStorage + 선택적으로 캐시)
+  const deleteSession = async (e: React.MouseEvent, historyId: string, videoId?: string, targetLang?: string, originalLang?: string) => {
     e.stopPropagation() // 부모 요소의 onClick 이벤트 전파 방지
     
-    if (!confirm("이 시청 기록을 삭제하시겠습니까?\n(캐시된 영상 데이터는 유지됩니다)")) return
+    const deleteCache = confirm(
+      "이 시청 기록을 삭제하시겠습니까?\n\n" +
+      "[확인] = 기록 + 캐시 모두 삭제 (새로 번역 필요)\n" +
+      "[취소] = 삭제 안함"
+    )
+    
+    if (!deleteCache) return
 
     try {
+      // 1. user_video_history 삭제
       const { error } = await supabase
         .from("user_video_history")
         .delete()
@@ -451,10 +458,50 @@ function YouTubeTranslatePageContent() {
       if (error) {
         console.error("삭제 실패:", error)
         alert("삭제에 실패했습니다.")
-      } else {
-        setYoutubeSessions(prev => prev.filter(s => s.history_id !== historyId))
-        console.log("✅ 기록 삭제:", historyId)
+        return
       }
+      
+      // 2. localStorage 캐시 삭제
+      if (videoId && originalLang && targetLang) {
+        const storageKey = `unilang_youtube_${videoId}_${originalLang}_${targetLang}`
+        localStorage.removeItem(storageKey)
+        console.log("✅ localStorage 삭제:", storageKey)
+      }
+      
+      // 3. 서버 캐시에서 해당 언어 번역 삭제
+      if (videoId && targetLang) {
+        try {
+          // 현재 캐시 데이터 가져오기
+          const { data: cacheData } = await supabase
+            .from("video_subtitles_cache")
+            .select("translations, summaries")
+            .eq("video_id", videoId)
+            .single()
+          
+          if (cacheData) {
+            // 해당 언어의 번역과 요약 삭제
+            const updatedTranslations = { ...cacheData.translations }
+            const updatedSummaries = { ...cacheData.summaries }
+            delete updatedTranslations[targetLang]
+            delete updatedSummaries[targetLang]
+            
+            await supabase
+              .from("video_subtitles_cache")
+              .update({ 
+                translations: updatedTranslations,
+                summaries: updatedSummaries
+              })
+              .eq("video_id", videoId)
+            
+            console.log("✅ 서버 캐시에서 번역 삭제:", targetLang)
+          }
+        } catch (cacheErr) {
+          console.error("캐시 삭제 실패:", cacheErr)
+        }
+      }
+
+      setYoutubeSessions(prev => prev.filter(s => s.history_id !== historyId))
+      console.log("✅ 기록 완전 삭제:", historyId)
     } catch (err) {
       console.error("오류:", err)
     }
@@ -1029,13 +1076,25 @@ function YouTubeTranslatePageContent() {
         if (cachedVideoTitle) {
           videoTitle = cachedVideoTitle
         } else {
-          // YouTube oEmbed API로 제목 가져오기 (비동기)
+          // YouTube oEmbed API로 제목 가져오기
           try {
             const titleResponse = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`)
             if (titleResponse.ok) {
               const titleData = await titleResponse.json()
               videoTitle = titleData.title || null
               console.log("📺 YouTube oEmbed 제목:", videoTitle)
+              
+              // 캐시에 제목 업데이트
+              if (videoTitle) {
+                fetch("/api/cache/subtitle", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    videoId: videoId,
+                    videoTitle: videoTitle,
+                  }),
+                }).catch(err => console.log("제목 캐시 업데이트 실패:", err))
+              }
             }
           } catch {
             console.log("⚠️ YouTube 제목 가져오기 실패")
@@ -2174,7 +2233,7 @@ function YouTubeTranslatePageContent() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={(e) => deleteSession(e, item.history_id)}
+                            onClick={(e) => deleteSession(e, item.history_id, item.video_id, item.target_lang, item.original_lang)}
                             className="text-red-500 hover:text-red-600 hover:bg-red-50 h-8 px-2"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -2916,7 +2975,7 @@ function YouTubeTranslatePageContent() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={(e) => deleteSession(e, item.history_id)}
+                          onClick={(e) => deleteSession(e, item.history_id, item.video_id, item.target_lang, item.original_lang)}
                           className="text-red-500 hover:text-red-600 hover:bg-red-50 h-7 px-2"
                         >
                           <Trash2 className="h-3 w-3" />
