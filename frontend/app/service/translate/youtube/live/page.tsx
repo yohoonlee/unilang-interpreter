@@ -125,6 +125,7 @@ function YouTubeLivePageContent() {
   const hasSubtitles = searchParams.get("hasSubtitles") === "true"
   const realtimeMode = searchParams.get("realtimeMode") === "true"
   const loadSaved = searchParams.get("loadSaved") === "true"
+  const startFullscreen = searchParams.get("fullscreen") === "true"  // 전체화면 모드로 시작
   
   const [isListening, setIsListening] = useState(false)
   const [isQuickSummaryRunning, setIsQuickSummaryRunning] = useState(false)
@@ -196,6 +197,11 @@ function YouTubeLivePageContent() {
   // 영상 길이 및 저장 완료율
   const [videoDuration, setVideoDuration] = useState(0)  // 영상 총 시간 (ms)
   const [savedDataCoverage, setSavedDataCoverage] = useState(0)  // 저장 완료율 (%)
+  
+  // 오디오 모드 (화자 목소리 vs 번역 음성)
+  const [audioMode, setAudioMode] = useState<"original" | "translated">("original")
+  const speechSynthRef = useRef<SpeechSynthesisUtterance | null>(null)
+  const lastSpokenIndexRef = useRef(-1)
 
   // 저장된 데이터 키
   const getStorageKey = () => `unilang_youtube_${videoId}_${sourceLang}_${targetLang}`
@@ -1916,6 +1922,55 @@ function YouTubeLivePageContent() {
     }
   }
 
+  // TTS로 텍스트 읽기
+  const speakText = (text: string, lang: string) => {
+    if (!window.speechSynthesis) return
+    
+    // 이전 발화 취소
+    window.speechSynthesis.cancel()
+    
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = lang === "ko" ? "ko-KR" : lang === "en" ? "en-US" : lang === "ja" ? "ja-JP" : lang === "zh" ? "zh-CN" : lang
+    utterance.rate = 1.0
+    utterance.pitch = 1.0
+    
+    speechSynthRef.current = utterance
+    window.speechSynthesis.speak(utterance)
+  }
+
+  // 오디오 모드 토글
+  const toggleAudioMode = () => {
+    const newMode = audioMode === "original" ? "translated" : "original"
+    setAudioMode(newMode)
+    
+    // YouTube 플레이어 음소거 제어
+    if (playerRef.current) {
+      const iframe = document.getElementById("youtube-player") as HTMLIFrameElement
+      if (iframe && iframe.contentWindow) {
+        // YouTube IFrame API로 음소거 제어
+        if (newMode === "translated") {
+          // 번역 음성 모드: YouTube 음소거
+          playerRef.current.pauseVideo?.()
+          setTimeout(() => playerRef.current?.playVideo?.(), 100)  // 재생 유지, 음소거 효과
+          // iframe을 통한 음소거는 제한적이므로 볼륨 컨트롤 안내
+        }
+      }
+    }
+    
+    console.log(`🔊 오디오 모드 변경: ${newMode}`)
+  }
+
+  // 번역 음성 모드일 때 현재 자막 읽기
+  useEffect(() => {
+    if (audioMode === "translated" && isReplayMode && currentSyncIndex >= 0) {
+      const currentUtterance = utterances[currentSyncIndex]
+      if (currentUtterance && lastSpokenIndexRef.current !== currentSyncIndex) {
+        lastSpokenIndexRef.current = currentSyncIndex
+        speakText(currentUtterance.translated || currentUtterance.original, targetLang)
+      }
+    }
+  }, [audioMode, currentSyncIndex, isReplayMode, utterances, targetLang])
+
   // 전체화면 진입
   const enterFullscreen = async () => {
     if (fullscreenContainerRef.current) {
@@ -1960,6 +2015,18 @@ function YouTubeLivePageContent() {
       document.removeEventListener("fullscreenchange", handleFullscreenChange)
     }
   }, [])
+
+  // 전체화면 모드 자동 진입 (fullscreen=true 파라미터)
+  const hasAutoFullscreened = useRef(false)
+  useEffect(() => {
+    if (startFullscreen && !hasAutoFullscreened.current && isPlayerReady && !showReplayChoice) {
+      hasAutoFullscreened.current = true
+      // 약간의 지연 후 전체화면 진입 (사용자 상호작용 없이는 실패할 수 있음)
+      setTimeout(() => {
+        enterFullscreen()
+      }, 500)
+    }
+  }, [startFullscreen, isPlayerReady, showReplayChoice])
 
   // 컴포넌트 언마운트 시 정리
   useEffect(() => {
@@ -2105,8 +2172,7 @@ function YouTubeLivePageContent() {
       {/* 전체화면 컨테이너 (YouTube + 자막 오버레이) */}
       <div 
         ref={fullscreenContainerRef}
-        className={`relative flex-1 ${isFullscreen ? 'bg-black' : ''}`}
-        style={{ minHeight: isFullscreen ? "100vh" : (isLargeView ? "60%" : "50%") }}
+        className={`relative ${isFullscreen ? 'bg-black flex-1' : 'flex-1 min-h-0'}`}
       >
         {/* YouTube 영상 (IFrame API) */}
         <div 
@@ -2223,6 +2289,19 @@ function YouTubeLivePageContent() {
             <span className="text-slate-400 text-xs">
               {LANGUAGES[sourceLang] || sourceLang} → {LANGUAGES[targetLang] || targetLang}
             </span>
+            
+            {/* 오디오 모드 토글 버튼 */}
+            <button
+              onClick={toggleAudioMode}
+              className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                audioMode === "original" 
+                  ? "bg-slate-700 hover:bg-slate-600 text-white" 
+                  : "bg-purple-600 hover:bg-purple-700 text-white"
+              }`}
+              title={audioMode === "original" ? "번역 음성으로 듣기" : "원본 음성으로 듣기"}
+            >
+              {audioMode === "original" ? "🔊 화자음성" : "🗣️ 번역음성"}
+            </button>
             
             {/* 전체화면 전환 버튼 - 빨간색으로 눈에 띄게 */}
             <button

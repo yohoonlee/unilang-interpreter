@@ -215,6 +215,13 @@ function YouTubeTranslatePageContent() {
   const [youtubeSessions, setYoutubeSessions] = useState<YouTubeSession[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   
+  // 무한스크롤 상태
+  const [historyPage, setHistoryPage] = useState(1)
+  const [hasMoreHistory, setHasMoreHistory] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const historyEndRef = useRef<HTMLDivElement>(null)
+  const HISTORY_PAGE_SIZE = 20
+  
   const supabase = createClient()
 
   // YouTube URL에서 비디오 ID 추출
@@ -238,9 +245,17 @@ function YouTubeTranslatePageContent() {
   }, [youtubeUrl])
 
   // YouTube 통역 기록 불러오기 (user_video_history + video_subtitles_cache JOIN)
-  const loadYoutubeHistory = async () => {
-    console.log("📋 loadYoutubeHistory 호출")
-    setIsLoadingHistory(true)
+  const loadYoutubeHistory = async (reset: boolean = true) => {
+    console.log("📋 loadYoutubeHistory 호출", { reset })
+    
+    if (reset) {
+      setIsLoadingHistory(true)
+      setHistoryPage(1)
+      setHasMoreHistory(true)
+    } else {
+      setIsLoadingMore(true)
+    }
+    
     try {
       const { data: { user } } = await supabase.auth.getUser()
       console.log("📋 현재 사용자:", user?.id || "없음")
@@ -248,8 +263,12 @@ function YouTubeTranslatePageContent() {
       if (!user) {
         console.log("⚠️ 로그인 필요 - 세션 로드 스킵")
         setIsLoadingHistory(false)
+        setIsLoadingMore(false)
         return
       }
+
+      const currentPage = reset ? 1 : historyPage
+      const offset = (currentPage - 1) * HISTORY_PAGE_SIZE
 
       // 1. user_video_history에서 본인 기록 조회 (별표 우선, 최신순)
       const { data: historyData, error: historyError } = await supabase
@@ -258,19 +277,29 @@ function YouTubeTranslatePageContent() {
         .eq("user_id", user.id)
         .order("is_starred", { ascending: false })
         .order("viewed_at", { ascending: false })
-        .limit(30)
+        .range(offset, offset + HISTORY_PAGE_SIZE - 1)
 
       if (historyError) {
         console.error("기록 로드 실패:", historyError)
         setIsLoadingHistory(false)
+        setIsLoadingMore(false)
         return
       }
 
       if (!historyData || historyData.length === 0) {
-        console.log("📋 시청 기록 없음")
-        setYoutubeSessions([])
+        console.log("📋 시청 기록 없음 또는 더 이상 없음")
+        if (reset) {
+          setYoutubeSessions([])
+        }
+        setHasMoreHistory(false)
         setIsLoadingHistory(false)
+        setIsLoadingMore(false)
         return
+      }
+
+      // 더 불러올 데이터가 있는지 확인
+      if (historyData.length < HISTORY_PAGE_SIZE) {
+        setHasMoreHistory(false)
       }
 
       // 2. 해당 video_id들의 캐시 데이터 가져오기
@@ -288,7 +317,7 @@ function YouTubeTranslatePageContent() {
       const cacheMap = new Map<string, VideoCache>()
       cacheData?.forEach(cache => cacheMap.set(cache.video_id, cache))
 
-      const sessions: YouTubeSession[] = historyData
+      const newSessions: YouTubeSession[] = historyData
         .filter(history => cacheMap.has(history.video_id))
         .map(history => {
           const cache = cacheMap.get(history.video_id)!
@@ -312,12 +341,26 @@ function YouTubeTranslatePageContent() {
           }
         })
 
-      console.log("📋 YouTube 기록 결과:", { count: sessions.length })
-      setYoutubeSessions(sessions)
+      console.log("📋 YouTube 기록 결과:", { count: newSessions.length, page: currentPage })
+      
+      if (reset) {
+        setYoutubeSessions(newSessions)
+      } else {
+        setYoutubeSessions(prev => [...prev, ...newSessions])
+        setHistoryPage(currentPage + 1)
+      }
     } catch (err) {
       console.error("오류:", err)
     } finally {
       setIsLoadingHistory(false)
+      setIsLoadingMore(false)
+    }
+  }
+  
+  // 더 불러오기
+  const loadMoreHistory = () => {
+    if (!isLoadingMore && hasMoreHistory) {
+      loadYoutubeHistory(false)
     }
   }
   
@@ -444,7 +487,7 @@ function YouTubeTranslatePageContent() {
     localStorage.setItem(storageKey, JSON.stringify(sessionData))
     console.log("📦 캐시 데이터 저장:", storageKey, { utterances: utterances.length })
     
-    const liveUrl = `/service/translate/youtube/live?v=${session.video_id}&source=${session.original_lang}&target=${targetLang}&loadSaved=true&autostart=true`
+    const liveUrl = `/service/translate/youtube/live?v=${session.video_id}&source=${session.original_lang}&target=${targetLang}&loadSaved=true&autostart=true&fullscreen=true`
     
     const width = Math.floor(window.screen.width * 0.9)
     const height = Math.floor(window.screen.height * 0.9)
@@ -536,9 +579,14 @@ function YouTubeTranslatePageContent() {
   // 기록 토글 시 데이터 로드
   useEffect(() => {
     if (showHistory) {
-      loadYoutubeHistory()
+      loadYoutubeHistory(true)
     }
   }, [showHistory])
+  
+  // 페이지 로드 시 기록 자동 로드
+  useEffect(() => {
+    loadYoutubeHistory(true)
+  }, [])
 
   // 전사 시작
   const startTranscription = async () => {
@@ -827,7 +875,7 @@ function YouTubeTranslatePageContent() {
       
       // 저장 완료를 보장하기 위해 약간의 지연 후 새 창 열기
       setTimeout(() => {
-        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true`
+        const liveUrl = `/service/translate/youtube/live?v=${videoId}&source=${sourceLanguage}&target=${targetLanguage}&loadSaved=true&autostart=true&fullscreen=true`
         console.log("🚀 새 창 열기:", liveUrl)
         
         const liveWindow = window.open(
@@ -1917,7 +1965,7 @@ function YouTubeTranslatePageContent() {
               onClick={() => setShowHistory(false)}
             />
             {/* 사이드 패널 */}
-            <div className="w-full max-w-md bg-white dark:bg-slate-900 shadow-2xl overflow-hidden flex flex-col animate-slide-in-right">
+            <div className="w-full max-w-[500px] bg-white dark:bg-slate-900 shadow-2xl overflow-hidden flex flex-col animate-slide-in-right">
               <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20">
                 {/* 돌아가기 버튼 */}
                 <Button 
@@ -2027,7 +2075,12 @@ function YouTubeTranslatePageContent() {
                                 minute: "2-digit"
                               })}
                               <span>•</span>
-                              <span>{Array.isArray(item.subtitles) ? item.subtitles.length : 0}문장</span>
+                              <span>
+                                {item.video_duration && item.video_duration > 0 
+                                  ? `${Math.floor(item.video_duration / 60000)}:${String(Math.floor((item.video_duration % 60000) / 1000)).padStart(2, '0')}`
+                                  : "시간정보 없음"
+                                }
+                              </span>
                             </div>
                             {/* 원어 → 번역어 표시 */}
                             <div className="flex items-center gap-1 mt-1.5">
@@ -2096,7 +2149,7 @@ function YouTubeTranslatePageContent() {
             size="icon"
             onClick={() => {
               setShowHistory(!showHistory)
-              loadYoutubeHistory()
+              loadYoutubeHistory(true)
             }}
             className="absolute top-3 right-3 z-10 hover:bg-red-100 dark:hover:bg-red-900/50"
             title="통역 기록 목록"
@@ -2645,6 +2698,169 @@ function YouTubeTranslatePageContent() {
             </div>
           </div>
         )}
+
+        {/* YouTube 사용기록 (하단 테이블) */}
+        <Card className="mt-6 border-teal-200 dark:border-teal-800">
+          <CardHeader className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-t-lg py-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <List className="h-5 w-5" />
+              YouTube 사용기록(목록)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {isLoadingHistory ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
+              </div>
+            ) : youtubeSessions.length === 0 ? (
+              <div className="text-center py-10 text-slate-500">
+                <Youtube className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                <p>저장된 기록이 없습니다.</p>
+                <p className="text-sm mt-1">통역 후 자동으로 저장됩니다.</p>
+              </div>
+            ) : (
+              <>
+                {/* 테이블 헤더 */}
+                <div className="grid grid-cols-12 gap-2 px-4 py-3 bg-teal-50 dark:bg-teal-900/30 text-sm font-medium text-slate-600 dark:text-slate-300 border-b">
+                  <div className="col-span-1 text-center">⭐</div>
+                  <div className="col-span-1">썸네일</div>
+                  <div className="col-span-4">제목</div>
+                  <div className="col-span-2 text-center">언어</div>
+                  <div className="col-span-2 text-center">시청일시</div>
+                  <div className="col-span-2 text-center">작업</div>
+                </div>
+                
+                {/* 테이블 바디 */}
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-[500px] overflow-y-auto">
+                  {youtubeSessions.map((item) => (
+                    <div 
+                      key={item.key || item.history_id}
+                      className={`grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${
+                        item.is_starred ? "bg-yellow-50/50 dark:bg-yellow-900/10" : ""
+                      }`}
+                    >
+                      {/* 별표 */}
+                      <div className="col-span-1 text-center">
+                        <button
+                          onClick={() => toggleStarred(item.history_id, item.is_starred)}
+                          className={`p-1 rounded hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors ${
+                            item.is_starred ? "text-yellow-500" : "text-slate-300 hover:text-yellow-400"
+                          }`}
+                        >
+                          <Star className={`h-4 w-4 ${item.is_starred ? "fill-yellow-400" : ""}`} />
+                        </button>
+                      </div>
+                      
+                      {/* 썸네일 */}
+                      <div className="col-span-1">
+                        <div 
+                          className="relative w-16 h-10 rounded overflow-hidden bg-slate-200 cursor-pointer group"
+                          onClick={() => playFromHistoryWithLang(item, item.target_lang)}
+                        >
+                          <img 
+                            src={`https://img.youtube.com/vi/${item.video_id}/default.jpg`}
+                            alt="썸네일"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Play className="h-4 w-4 text-white" fill="white" />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* 제목 */}
+                      <div className="col-span-4">
+                        <p 
+                          className="text-sm font-medium truncate cursor-pointer hover:text-teal-600"
+                          onClick={() => playFromHistoryWithLang(item, item.target_lang)}
+                          title={item.video_title || item.video_id}
+                        >
+                          {item.video_title || item.video_id}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {item.video_duration && item.video_duration > 0 
+                            ? `${Math.floor(item.video_duration / 60000)}:${String(Math.floor((item.video_duration % 60000) / 1000)).padStart(2, '0')}`
+                            : "-"
+                          }
+                        </p>
+                      </div>
+                      
+                      {/* 언어 */}
+                      <div className="col-span-2 text-center">
+                        <div className="flex items-center justify-center gap-1 text-xs">
+                          <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                            {LANGUAGES.find(l => l.code === item.original_lang)?.name || item.original_lang}
+                          </span>
+                          <span className="text-slate-400">→</span>
+                          <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">
+                            {LANGUAGES.find(l => l.code === item.target_lang)?.name || item.target_lang}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* 시청일시 */}
+                      <div className="col-span-2 text-center text-xs text-slate-500">
+                        {new Date(item.viewed_at).toLocaleString("ko-KR", {
+                          month: "2-digit",
+                          day: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit"
+                        })}
+                      </div>
+                      
+                      {/* 작업 버튼 */}
+                      <div className="col-span-2 flex items-center justify-center gap-1">
+                        <Button
+                          size="sm"
+                          onClick={() => playFromHistoryWithLang(item, item.target_lang)}
+                          className="bg-green-500 hover:bg-green-600 text-white text-xs h-7 px-2"
+                        >
+                          <Play className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => viewSummaryFromHistoryWithLang(item, item.target_lang)}
+                          className="bg-purple-500 hover:bg-purple-600 text-white text-xs h-7 px-2"
+                        >
+                          <Sparkles className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deleteSession(item.history_id)}
+                          className="text-red-500 hover:text-red-600 hover:bg-red-50 h-7 px-2"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* 더 불러오기 트리거 */}
+                  <div ref={historyEndRef} className="py-4 text-center">
+                    {isLoadingMore ? (
+                      <div className="flex items-center justify-center gap-2 text-slate-500">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span className="text-sm">불러오는 중...</span>
+                      </div>
+                    ) : hasMoreHistory ? (
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={loadMoreHistory}
+                        className="text-teal-600 hover:text-teal-700"
+                      >
+                        더 불러오기 ↓
+                      </Button>
+                    ) : youtubeSessions.length > 0 ? (
+                      <span className="text-xs text-slate-400">모든 기록을 불러왔습니다</span>
+                    ) : null}
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
       </main>
 
       <style jsx global>{`
