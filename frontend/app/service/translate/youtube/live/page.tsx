@@ -2416,9 +2416,9 @@ function YouTubeLivePageContent() {
       {/* 자막 히스토리 영역 - 전체화면 아닐 때만 */}
       {!isFullscreen && (
       <div 
-        className={`overflow-hidden px-4 py-2 space-y-2 ${isLargeView ? 'flex flex-col justify-center' : ''}`}
+        className={`overflow-y-auto px-4 py-2 space-y-2 ${isLargeView ? 'flex flex-col justify-center' : ''}`}
         style={{ 
-          height: isLargeView ? '160px' : '280px',  // 크게보기: 2개, 작게보기: 4개 (높이 늘림)
+          height: isLargeView ? '220px' : '280px',  // 크게보기: 높이 늘림
           flexShrink: 0 
         }}
       >
@@ -2467,13 +2467,13 @@ function YouTubeLivePageContent() {
                     <div className="flex-1">
                       {/* 동일 언어가 아닐 때만 원본(흰색) 표시 */}
                       {utt.original !== utt.translated && (
-                        <p className={`${isCurrentSync ? 'text-white' : 'text-white'} ${isLargeView ? 'text-xl leading-relaxed' : 'text-sm'}`}>
+                        <p className={`${isCurrentSync ? 'text-white' : 'text-white'} ${isLargeView ? 'text-lg leading-normal' : 'text-sm'}`}>
                           {utt.original}
                         </p>
                       )}
                       {/* 번역 (동일 언어일 때는 원본이 녹색으로 표시됨) */}
                       {utt.translated && (
-                        <p className={`${utt.original !== utt.translated ? 'mt-2' : ''} ${isCurrentSync ? 'text-green-300' : 'text-green-400'} ${isLargeView ? 'text-2xl font-bold leading-relaxed' : 'text-sm'}`}>
+                        <p className={`${utt.original !== utt.translated ? 'mt-1' : ''} ${isCurrentSync ? 'text-green-300' : 'text-green-400'} ${isLargeView ? 'text-xl font-bold leading-normal' : 'text-sm'}`}>
                           {utt.translated}
                         </p>
                       )}
