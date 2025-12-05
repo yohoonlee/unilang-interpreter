@@ -174,6 +174,22 @@ function YouTubeTranslatePageContent() {
   const searchParams = useSearchParams()
   const isEmbedded = searchParams.get("embedded") === "true"
   
+  // body 스크롤 제어 - 이 페이지에서만 body 스크롤 비활성화
+  useEffect(() => {
+    // body와 html의 overflow를 hidden으로 설정
+    const originalBodyStyle = document.body.style.overflow
+    const originalHtmlStyle = document.documentElement.style.overflow
+    
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    
+    return () => {
+      // 페이지 떠날 때 원래대로 복원
+      document.body.style.overflow = originalBodyStyle
+      document.documentElement.style.overflow = originalHtmlStyle
+    }
+  }, [])
+  
   const [youtubeUrl, setYoutubeUrl] = useState("")
   const [videoId, setVideoId] = useState<string | null>(null)
   const [sourceLanguage, setSourceLanguage] = useState("auto")
