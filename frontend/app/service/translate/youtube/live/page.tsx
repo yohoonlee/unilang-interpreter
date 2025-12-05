@@ -2236,12 +2236,19 @@ function YouTubeLivePageContent() {
             </div>
             
             {/* 전체화면 종료 버튼 - 항상 표시 */}
-            <div className="absolute top-4 right-4 pointer-events-auto">
+            <div className="absolute top-4 right-4 pointer-events-auto flex items-center gap-2">
+              {/* 음성 토글 버튼 - 전체화면 */}
               <button
-                onClick={exitFullscreen}
+                onClick={toggleAudioMode}
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold shadow-lg"
               >
-                ⛶ 창 모드로 전환
+                {audioMode === "original" ? "🔊 화자음성" : "🗣️ 번역음성"}
+              </button>
+              <button
+                onClick={exitFullscreen}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-bold shadow-lg"
+              >
+                ⛶ 창 모드
               </button>
             </div>
             
@@ -2321,14 +2328,10 @@ function YouTubeLivePageContent() {
               {LANGUAGES[sourceLang] || sourceLang} → {LANGUAGES[targetLang] || targetLang}
             </span>
             
-            {/* 오디오 모드 토글 버튼 */}
+            {/* 오디오 모드 토글 버튼 - 빨간색 */}
             <button
               onClick={toggleAudioMode}
-              className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-                audioMode === "original" 
-                  ? "bg-slate-700 hover:bg-slate-600 text-white" 
-                  : "bg-purple-600 hover:bg-purple-700 text-white"
-              }`}
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded shadow-lg transition-colors"
               title={audioMode === "original" ? "번역 음성으로 듣기" : "원본 음성으로 듣기"}
             >
               {audioMode === "original" ? "🔊 화자음성" : "🗣️ 번역음성"}
@@ -2508,6 +2511,30 @@ function YouTubeLivePageContent() {
           </span>
           
           <div className="flex items-center gap-3">
+            {/* 음성 토글 버튼 */}
+            <button
+              onClick={toggleAudioMode}
+              className="px-5 py-3 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2"
+            >
+              {audioMode === "original" ? "🔊 화자음성" : "🗣️ 번역음성"}
+            </button>
+            
+            {/* 전체화면 전환 버튼 */}
+            <button
+              onClick={toggleFullscreen}
+              className="px-5 py-3 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2"
+            >
+              ↗ 전체화면
+            </button>
+            
+            {/* 자막 크게보기 버튼 */}
+            <button
+              onClick={() => setIsLargeView(!isLargeView)}
+              className="px-5 py-3 bg-slate-600 hover:bg-slate-700 text-white text-sm font-bold rounded-xl transition-colors flex items-center gap-2"
+            >
+              {isLargeView ? "📖 자막 작게" : "📖 자막 크게"}
+            </button>
+            
             {/* AI 재정리 버튼 - 완료 시 비활성화 */}
             <button
               onClick={reorganizeWithAI}
