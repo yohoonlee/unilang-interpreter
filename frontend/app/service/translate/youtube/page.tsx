@@ -646,34 +646,71 @@ function YouTubeTranslatePageContent() {
   
   // Supabase 실시간 구독 (user_video_history 테이블 변경 감지)
   useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null
+    
     const setupRealtimeSubscription = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        console.log("⚠️ 실시간 구독: 로그인 필요")
+        return
+      }
       
-      const channel = supabase
-        .channel('user_video_history_changes')
+      console.log("📡 실시간 구독 설정 중...")
+      
+      channel = supabase
+        .channel(`user_video_history_${user.id}`)
         .on(
           'postgres_changes',
           {
-            event: '*', // INSERT, UPDATE, DELETE 모두 감지
+            event: 'INSERT',
             schema: 'public',
             table: 'user_video_history',
             filter: `user_id=eq.${user.id}`,
           },
           (payload) => {
-            console.log('📡 실시간 업데이트:', payload.eventType)
-            // 목록 새로고침
+            console.log('📡 실시간: INSERT 감지', payload)
             loadYoutubeHistory(true)
           }
         )
-        .subscribe()
-      
-      return () => {
-        supabase.removeChannel(channel)
-      }
+        .on(
+          'postgres_changes',
+          {
+            event: 'DELETE',
+            schema: 'public',
+            table: 'user_video_history',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('📡 실시간: DELETE 감지', payload)
+            loadYoutubeHistory(true)
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'user_video_history',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('📡 실시간: UPDATE 감지', payload)
+            loadYoutubeHistory(true)
+          }
+        )
+        .subscribe((status) => {
+          console.log('📡 실시간 구독 상태:', status)
+        })
     }
     
     setupRealtimeSubscription()
+    
+    return () => {
+      if (channel) {
+        console.log("📡 실시간 구독 해제")
+        supabase.removeChannel(channel)
+      }
+    }
   }, [])
 
   // 전사 시작
