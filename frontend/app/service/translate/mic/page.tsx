@@ -246,41 +246,75 @@ function MicTranslatePageContent() {
   // TTS 재생 중 여부 (ref로 관리 - YouTube와 동일)
   const isSpeakingRef = useRef(false)
   
-  // 오디오 컨텍스트 활성화 상태
-  const audioUnlockedRef = useRef(false)
+  // AudioContext 워밍업 완료 상태
+  const audioContextWarmedUpRef = useRef(false)
   
-  // 🔑 핵심: 페이지의 첫 번째 클릭에서 오디오 컨텍스트 활성화
+  // 🔑 핵심: 페이지의 첫 번째 클릭에서 AudioContext 워밍업
   // (YouTube는 비디오 플레이어가 있어서 이미 활성화됨, mic 페이지는 수동으로 해야 함)
   useEffect(() => {
-    const unlockAudioContext = async () => {
-      if (audioUnlockedRef.current) return
+    const warmupAudioContext = async () => {
+      if (audioContextWarmedUpRef.current) return
       
       try {
-        // 무음 MP3 재생으로 오디오 컨텍스트 활성화
-        const silentMp3 = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwmHAAAAAAD/+1DEAAAGAAGn9AAAIywiLP80YARERERBAUEH/4g5znOc/E7znIHOc5+gQ5znOc5+IOc5yAhyBDnOQICAIwmD/8QBAwY/6gAAANABjGMYwAAQhGCJk5CIhP9hDL//JQQQPw/B8HwfB+sH6wAAA0AGOQ5DkOR//xznOc5z/IOc5znOc/EHOc5AQ5Ah/kBDnOQEOQIf5AQ/yDlAQ5A5//8g5/8g5/kDn+Qc/yByByDn//WD/IOYHMDkBz//4Pgh+H4f/E="
+        console.log("🔄 AudioContext 워밍업 시작...")
         
-        const audio = new Audio(silentMp3)
-        audio.volume = 0.01
-        await audio.play()
+        // 1. AudioContext 생성 및 활성화
+        if (!ttsAudioContextRef.current || ttsAudioContextRef.current.state === "closed") {
+          ttsAudioContextRef.current = new AudioContext()
+        }
         
-        audioUnlockedRef.current = true
-        console.log("🔓 오디오 컨텍스트 활성화 완료 (첫 클릭)")
+        const ctx = ttsAudioContextRef.current
+        
+        // 2. suspended 상태면 resume
+        if (ctx.state === "suspended") {
+          await ctx.resume()
+        }
+        
+        // 3. running 상태 대기
+        let attempts = 0
+        while (ctx.state !== "running" && attempts < 50) {
+          await new Promise(resolve => setTimeout(resolve, 20))
+          attempts++
+        }
+        
+        if (ctx.state !== "running") {
+          console.warn("⚠️ AudioContext가 running 상태가 되지 않음")
+          return
+        }
+        
+        // 4. 무음 버퍼를 재생해서 완전히 워밍업
+        const sampleRate = ctx.sampleRate
+        const silentBuffer = ctx.createBuffer(1, sampleRate * 0.1, sampleRate) // 100ms 무음
+        const source = ctx.createBufferSource()
+        source.buffer = silentBuffer
+        source.connect(ctx.destination)
+        source.start(0)
+        
+        // 무음 재생 완료 대기
+        await new Promise<void>(resolve => {
+          source.onended = () => resolve()
+          // 타임아웃 (안전장치)
+          setTimeout(resolve, 200)
+        })
+        
+        audioContextWarmedUpRef.current = true
+        console.log("✅ AudioContext 워밍업 완료! (state:", ctx.state, "sampleRate:", sampleRate, ")")
         
         // 이벤트 리스너 제거
-        document.removeEventListener("click", unlockAudioContext)
-        document.removeEventListener("touchstart", unlockAudioContext)
+        document.removeEventListener("click", warmupAudioContext)
+        document.removeEventListener("touchstart", warmupAudioContext)
       } catch (err) {
-        console.log("오디오 활성화 대기 중...")
+        console.log("AudioContext 워밍업 대기 중...", err)
       }
     }
     
-    // 클릭 또는 터치 이벤트에서 활성화
-    document.addEventListener("click", unlockAudioContext)
-    document.addEventListener("touchstart", unlockAudioContext)
+    // 클릭 또는 터치 이벤트에서 워밍업
+    document.addEventListener("click", warmupAudioContext)
+    document.addEventListener("touchstart", warmupAudioContext)
     
     return () => {
-      document.removeEventListener("click", unlockAudioContext)
-      document.removeEventListener("touchstart", unlockAudioContext)
+      document.removeEventListener("click", warmupAudioContext)
+      document.removeEventListener("touchstart", warmupAudioContext)
     }
   }, [])
   
@@ -493,6 +527,49 @@ function MicTranslatePageContent() {
     return ctx.state === "running"
   }
 
+  // AudioContext 워밍업 함수 (첫 재생 전 호출)
+  const ensureAudioContextWarmedUp = async (): Promise<AudioContext> => {
+    const ctx = getAudioContext()
+    
+    // 이미 워밍업 완료되었으면 바로 반환
+    if (audioContextWarmedUpRef.current && ctx.state === "running") {
+      return ctx
+    }
+    
+    console.log("🔄 AudioContext 즉시 워밍업 시작...")
+    
+    // suspended 상태면 resume
+    if (ctx.state === "suspended") {
+      await ctx.resume()
+    }
+    
+    // running 상태 대기
+    let attempts = 0
+    while (ctx.state !== "running" && attempts < 100) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+      attempts++
+    }
+    
+    // 워밍업이 안 되어 있으면 무음 재생
+    if (!audioContextWarmedUpRef.current) {
+      const silentBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate)
+      const source = ctx.createBufferSource()
+      source.buffer = silentBuffer
+      source.connect(ctx.destination)
+      source.start(0)
+      
+      await new Promise<void>(resolve => {
+        source.onended = () => resolve()
+        setTimeout(resolve, 100)
+      })
+      
+      audioContextWarmedUpRef.current = true
+      console.log("✅ AudioContext 즉시 워밍업 완료!")
+    }
+    
+    return ctx
+  }
+
   // Google Cloud TTS로 재생 (AudioContext 사용 - 브라우저 정책 우회)
   const playTTS = async (text: string, lang: string) => {
     isSpeakingRef.current = true
@@ -501,20 +578,9 @@ function MicTranslatePageContent() {
     try {
       console.log(`🎤 Cloud TTS 요청: ${text.substring(0, 30)}...`)
       
-      // 🔑 핵심: 사용자 제스처 컨텍스트에서 AudioContext 활성화
-      const audioContext = getAudioContext()
-      if (audioContext.state === "suspended") {
-        await audioContext.resume()
-        console.log("🔓 AudioContext resume 요청")
-      }
-      
-      // AudioContext가 완전히 running 상태가 될 때까지 대기
-      const isRunning = await waitForAudioContextRunning(audioContext)
-      if (!isRunning) {
-        console.warn("⚠️ AudioContext가 running 상태가 아님:", audioContext.state)
-      } else {
-        console.log("✅ AudioContext running 상태 확인")
-      }
+      // 🔑 핵심: AudioContext 워밍업 보장 (첫 번째 재생에서 중요)
+      const audioContext = await ensureAudioContextWarmedUp()
+      console.log("✅ AudioContext 준비 완료 (state:", audioContext.state, ")")
       
       const response = await fetch("/api/tts", {
         method: "POST",
