@@ -2,6 +2,106 @@
 
 ## 2024년 12월
 
+### v2.3.0 - 실시간 통역 TTS 및 세션 관리 개선 (2024-12-07)
+
+#### 🎯 주요 변경사항
+
+##### 1. TTS (Text-to-Speech) 근본적 개선
+- **문제**: 첫 번째 재생 시 대기시간 지연 + 앞부분 잘림
+- **원인**: 브라우저 자동재생 정책으로 인한 AudioContext 비활성화
+- **해결**: AudioContext 워밍업 시스템 구현
+
+**YouTube vs mic 페이지 차이점 분석:**
+| 페이지 | 상황 | 결과 |
+|--------|------|------|
+| YouTube live | `getDisplayMedia` 호출 → AudioContext 이미 활성화 | TTS 정상 |
+| mic | TTS 버튼만 클릭 → AudioContext 비활성 | 첫 재생 문제 |
+
+**해결 방법:**
+```typescript
+// 1. 페이지 첫 클릭 시 AudioContext 워밍업
+const warmupAudioContext = async () => {
+  const ctx = new AudioContext()
+  await ctx.resume()
+  
+  // 무음 버퍼 재생으로 완전 워밍업
+  const silentBuffer = ctx.createBuffer(1, sampleRate * 0.1, sampleRate)
+  const source = ctx.createBufferSource()
+  source.buffer = silentBuffer
+  source.start(0)
+}
+
+// 2. TTS 재생 전 워밍업 보장
+const ensureAudioContextWarmedUp = async () => {
+  if (audioContextWarmedUpRef.current) return ctx
+  // 즉시 워밍업 수행...
+}
+
+// 3. 50ms 무음 버퍼 추가 (앞부분 잘림 방지)
+const silenceSamples = Math.floor(0.05 * sampleRate)
+newChannelData.set(originalData, silenceSamples)
+```
+
+##### 2. 세션 이어서 작업 기능
+- **이전**: 마이크 중지 → 세션 종료 → 다시 시작 시 새 세션 생성
+- **이후**: 마이크 중지 → 세션 유지 → 다시 시작 시 기존 세션에 이어서 작업
+
+```typescript
+// 중지 시 - 세션 종료하지 않음
+console.log("⏸️ 마이크 중지 - 세션 유지:", sessionId)
+
+// 재시작 시 - 기존 세션 활용
+if (sessionId) {
+  console.log("▶️ 기존 세션에 이어서 작업:", sessionId)
+} else {
+  const newSessionId = await createSession()
+}
+```
+
+##### 3. 수동 병합 시간순 정렬 수정
+- **문제**: 나중 문장이 먼저 병합되는 현상
+- **원인**: `transcripts` 배열이 역순(최신이 위)으로 저장
+- **해결**: 선택된 문장을 `timestamp` 기준 오름차순 정렬 후 병합
+
+```typescript
+const selectedItems = transcripts
+  .filter(t => selectedForMerge.has(t.id))
+  .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+```
+
+##### 4. Web Speech API 완전 제거
+- Google Cloud TTS로 완전 전환
+- 폴백 코드 제거로 코드 단순화
+- YouTube live 페이지와 동일한 구조로 통일
+
+---
+
+#### 🔧 기술적 변경사항
+
+##### AudioContext 워밍업 프로세스
+```
+페이지 로드
+  ↓
+첫 번째 클릭 (아무 버튼)
+  → AudioContext 생성
+  → resume()
+  → 무음 버퍼 재생 (워밍업)
+  → audioContextWarmedUpRef = true
+  ↓
+TTS 버튼 클릭
+  → ensureAudioContextWarmedUp() 
+  → (이미 워밍업됨 → 스킵)
+  → API 호출
+  → 오디오 재생 ✅ 처음부터 정상!
+```
+
+##### 변경된 파일
+| 파일 | 변경 내용 |
+|------|----------|
+| `frontend/app/service/translate/mic/page.tsx` | TTS AudioContext 방식, 세션 이어서 작업, 수동 병합 정렬 |
+
+---
+
 ### v2.2.0 - 시청 기록 및 UI 개선 (2024-12-04)
 
 #### 🎯 주요 변경사항
@@ -206,13 +306,13 @@ video_id: KUYSytcly7s
 ## 향후 계획
 
 ### 단기 (1-2주)
-- [ ] 실시간 통역 종료 시 자동 AI 재처리/요약
+- [x] ~~실시간 통역 종료 시 자동 AI 재처리/요약~~ → 회의록 자동작성 기능으로 구현
 - [ ] 히스토리 검색 기능
 - [ ] 오프라인 모드 강화
 
 ### 중기 (1-2개월)
 - [ ] 다중 화자 분리 (Speaker Diarization)
-- [ ] 회의록 자동 생성
+- [x] ~~회의록 자동 생성~~ → 문서정리 + 회의록 보기 기능 구현 완료
 - [ ] 공유 기능
 
 ### 장기
