@@ -1407,10 +1407,17 @@ function MicTranslatePageContent() {
       return
     }
 
-    // 선택된 항목들을 배열 내 순서대로 유지 (transcripts 배열이 이미 시간순)
-    const selectedItems = transcripts.filter(t => selectedForMerge.has(t.id))
+    // 선택된 항목들을 시간순으로 정렬 (먼저 말한 것이 앞에)
+    const selectedItems = transcripts
+      .filter(t => selectedForMerge.has(t.id))
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
 
-    // 원본 텍스트 합치기
+    console.log("병합 순서:", selectedItems.map(t => ({
+      time: t.timestamp.toLocaleTimeString(),
+      text: t.original.substring(0, 20)
+    })))
+
+    // 원본 텍스트 합치기 (시간순)
     const mergedOriginal = selectedItems.map(t => t.original).join(" ")
     
     setIsReTranslating(true)
@@ -1422,7 +1429,7 @@ function MicTranslatePageContent() {
         mergedTranslated = await translateText(mergedOriginal, sourceLanguage, targetLanguage)
       }
 
-      // 새 항목 생성
+      // 새 항목 생성 (가장 빠른 시간 사용)
       const newId = `merged_${Date.now()}`
       const newItem: TranscriptItem = {
         id: newId,
@@ -1430,7 +1437,7 @@ function MicTranslatePageContent() {
         translated: targetLanguage === "none" ? "" : mergedTranslated,
         sourceLanguage,
         targetLanguage,
-        timestamp: selectedItems[0].timestamp, // 가장 빠른 시간 사용
+        timestamp: selectedItems[0].timestamp, // 가장 빠른(오래된) 시간 사용
       }
 
       // DB에서 기존 항목 삭제
