@@ -470,16 +470,32 @@ function MicTranslatePageContent() {
     return lang?.ttsCode || "en-US"
   }
 
-  // TTS 오디오 참조
-  const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
+  // TTS AudioContext 참조 (브라우저 자동재생 정책 우회)
+  const ttsAudioContextRef = useRef<AudioContext | null>(null)
+  const ttsSourceNodeRef = useRef<AudioBufferSourceNode | null>(null)
 
-  // Google Cloud TTS로 재생 (YouTube live 페이지와 완전히 동일한 구현)
+  // AudioContext 가져오기 또는 생성
+  const getAudioContext = (): AudioContext => {
+    if (!ttsAudioContextRef.current || ttsAudioContextRef.current.state === "closed") {
+      ttsAudioContextRef.current = new AudioContext()
+    }
+    return ttsAudioContextRef.current
+  }
+
+  // Google Cloud TTS로 재생 (AudioContext 사용 - 브라우저 정책 우회)
   const playTTS = async (text: string, lang: string) => {
     isSpeakingRef.current = true
     setIsSpeaking(true)
     
     try {
       console.log(`🎤 Cloud TTS 요청: ${text.substring(0, 30)}...`)
+      
+      // 🔑 핵심: 사용자 제스처 컨텍스트에서 AudioContext 활성화
+      const audioContext = getAudioContext()
+      if (audioContext.state === "suspended") {
+        await audioContext.resume()
+        console.log("🔓 AudioContext 활성화")
+      }
       
       const response = await fetch("/api/tts", {
         method: "POST",
@@ -508,34 +524,38 @@ function MicTranslatePageContent() {
         return
       }
       
-      // Base64 → Blob → URL (YouTube와 동일)
-      const audioBlob = new Blob(
-        [Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))],
-        { type: "audio/mp3" }
-      )
-      const audioUrl = URL.createObjectURL(audioBlob)
-      
-      // 이전 오디오 정리 (YouTube와 동일)
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.pause()
-        URL.revokeObjectURL(ttsAudioRef.current.src)
+      // Base64 → ArrayBuffer
+      const binaryString = atob(data.audioContent)
+      const bytes = new Uint8Array(binaryString.length)
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i)
       }
       
-      // 오디오 재생 (YouTube와 동일)
-      const audio = new Audio(audioUrl)
-      ttsAudioRef.current = audio
+      // 이전 재생 중지
+      if (ttsSourceNodeRef.current) {
+        try {
+          ttsSourceNodeRef.current.stop()
+        } catch (e) {
+          // 이미 중지됨
+        }
+      }
       
-      audio.onended = () => {
-        URL.revokeObjectURL(audioUrl)
+      // AudioContext로 디코딩 및 재생
+      const audioBuffer = await audioContext.decodeAudioData(bytes.buffer.slice(0))
+      
+      const sourceNode = audioContext.createBufferSource()
+      sourceNode.buffer = audioBuffer
+      sourceNode.connect(audioContext.destination)
+      
+      sourceNode.onended = () => {
         isSpeakingRef.current = false
         setIsSpeaking(false)
+        console.log("🎤 TTS 재생 완료")
       }
       
-      audio.onerror = () => {
-        URL.revokeObjectURL(audioUrl)
-        isSpeakingRef.current = false
-        setIsSpeaking(false)
-      }
+      ttsSourceNodeRef.current = sourceNode
+      sourceNode.start(0)
+      console.log(`🎤 Cloud TTS 재생 시작: ${data.voice}`)
       
       await audio.play()
       console.log(`🎤 Cloud TTS 재생 중: ${data.voice}`)
@@ -557,12 +577,13 @@ function MicTranslatePageContent() {
 
   // TTS 중지
   const stopSpeaking = () => {
-    if (ttsAudioRef.current) {
-      ttsAudioRef.current.pause()
-      if (ttsAudioRef.current.src) {
-        URL.revokeObjectURL(ttsAudioRef.current.src)
+    if (ttsSourceNodeRef.current) {
+      try {
+        ttsSourceNodeRef.current.stop()
+      } catch (e) {
+        // 이미 중지됨
       }
-      ttsAudioRef.current = null
+      ttsSourceNodeRef.current = null
     }
     isSpeakingRef.current = false
     setIsSpeaking(false)
@@ -1982,7 +2003,7 @@ function MicTranslatePageContent() {
   // 녹음 시작/중지
   const toggleListening = async () => {
     if (isListening) {
-      // 중지
+      // 중지 - 세션은 유지 (종료하지 않음)
       isListeningRef.current = false
       
       // 타이머 클리어
@@ -2003,20 +2024,26 @@ function MicTranslatePageContent() {
       setIsListening(false)
       setCurrentTranscript("")
       
-      // 세션 종료
-      if (sessionId) {
-        await endSession()
-      }
+      // ⚠️ 세션 종료하지 않음 - 이어서 작업 가능하도록 유지
+      console.log("⏸️ 마이크 중지 - 세션 유지:", sessionId)
     } else {
-      // 시작 - 항상 새로 초기화
+      // 시작
       setError(null)
       setCurrentTranscript("")
       
-      // 새 세션 생성
+      // 🔑 핵심: 기존 세션이 있으면 이어서 작업, 없으면 새 세션 생성
       if (saveToDb && userId) {
-        const newSessionId = await createSession()
-        setSessionId(newSessionId)
-        sessionIdRef.current = newSessionId // ref도 즉시 업데이트
+        if (sessionId) {
+          // 기존 세션 이어서 사용
+          console.log("▶️ 기존 세션에 이어서 작업:", sessionId)
+          sessionIdRef.current = sessionId
+        } else {
+          // 새 세션 생성
+          const newSessionId = await createSession()
+          setSessionId(newSessionId)
+          sessionIdRef.current = newSessionId
+          console.log("🆕 새 세션 생성:", newSessionId)
+        }
       }
       
       // 기존 인스턴스 정리 후 새로 생성
