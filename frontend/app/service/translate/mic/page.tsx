@@ -228,12 +228,14 @@ function MicTranslatePageContent() {
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null) // 침묵 타이머
   const SILENCE_THRESHOLD = 1500 // 1.5초 침묵 후 번역 실행
 
-  // 사용자 정보 가져오기
+  // 사용자 정보 가져오기 + 세션 목록 로드
   useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         setUserId(user.id)
+        // 페이지 진입 시 세션 목록 자동 로드
+        loadSessions()
       }
     }
     getUser()
@@ -2554,7 +2556,104 @@ function MicTranslatePageContent() {
           </div>
         )}
 
-        {/* 통역 결과 */}
+        {/* 3. 기록 목록 (통역이 시작되지 않았을 때 메인에 표시) */}
+        {!sessionId && transcripts.length === 0 && (
+          <Card className="border-teal-200 dark:border-teal-800">
+            <CardHeader className="pb-2" style={{ backgroundColor: '#CCFBF1' }}>
+              <CardTitle className="text-lg flex items-center gap-2 text-teal-800">
+                <List className="h-5 w-5" />
+                통역 기록
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4">
+              {isLoadingSessions ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
+                </div>
+              ) : sessions.length === 0 ? (
+                <div className="text-center py-10 text-slate-500">
+                  <Mic className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                  <p>저장된 기록이 없습니다.</p>
+                  <p className="text-sm mt-1">마이크 버튼을 눌러 통역을 시작해보세요.</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                  {sessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className={`p-3 rounded-lg border transition-colors cursor-pointer ${
+                        sessionId === session.id 
+                          ? "border-teal-400 bg-teal-50" 
+                          : "border-teal-200"
+                      }`}
+                      style={{ backgroundColor: 'white' }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#CCFBF1'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                      onClick={() => loadSessionData(session)}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-slate-900 truncate">
+                            {session.title}
+                          </h3>
+                          <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                            <span className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {new Date(session.created_at).toLocaleDateString("ko-KR", {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit"
+                              })}
+                            </span>
+                          </div>
+                          {/* 원어 → 번역어 표시 */}
+                          <div className="flex items-center gap-1 mt-1.5">
+                            <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-100 text-blue-700">
+                              {getLanguageInfo(session.source_language).flag} {getLanguageInfo(session.source_language).name}
+                            </span>
+                            <span className="text-slate-400 text-xs">→</span>
+                            <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-100 text-green-700">
+                              {session.target_languages.map(t => `${getLanguageInfo(t).flag} ${getLanguageInfo(t).name}`).join(", ")}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              summarizeSession(session.id)
+                            }}
+                            title="요약 보기"
+                          >
+                            <Sparkles className="h-4 w-4 text-amber-500" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              deleteSession(session.id)
+                            }}
+                            title="삭제"
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 4. 통역 결과 (통역이 시작된 후에만 표시) */}
+        {(sessionId || transcripts.length > 0) && (
         <Card className="mb-4">
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
@@ -2758,6 +2857,7 @@ function MicTranslatePageContent() {
             </div>
           </CardContent>
         </Card>
+        )}
         </div>
       </main>
     </div>
