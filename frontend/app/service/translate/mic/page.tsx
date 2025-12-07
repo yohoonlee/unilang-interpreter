@@ -243,19 +243,8 @@ function MicTranslatePageContent() {
     audioSettingsRef.current = audioSettings
   }, [audioSettings])
 
-  // TTS API 워밍업 (첫 호출 시 지연 방지)
-  const ttsWarmedUp = useRef(false)
-  useEffect(() => {
-    if (!ttsWarmedUp.current) {
-      // 백그라운드에서 TTS API 워밍업 (무음)
-      fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: " ", languageCode: "ko" }),
-      }).catch(() => {})
-      ttsWarmedUp.current = true
-    }
-  }, [])
+  // TTS 재생 중 여부 (ref로 관리 - YouTube와 동일)
+  const isSpeakingRef = useRef(false)
   
   // 세션 ID 변경 시 ref 업데이트 (비동기 문제 해결)
   useEffect(() => {
@@ -446,22 +435,20 @@ function MicTranslatePageContent() {
   // TTS 오디오 참조
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
 
-  // TTS 재생 (Google Cloud TTS) - 오디오 완전 로드 후 재생
-  const speakText = async (text: string, languageCode: string) => {
-    if (!text?.trim()) return
-    
+  // Google Cloud TTS로 재생 (YouTube live 페이지와 완전히 동일한 구현)
+  const playTTS = async (text: string, lang: string) => {
+    isSpeakingRef.current = true
     setIsSpeaking(true)
     
     try {
       console.log(`🎤 Cloud TTS 요청: ${text.substring(0, 30)}...`)
       
-      // Google Cloud TTS API 호출
       const response = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: text,
-          languageCode: languageCode,
+          text,
+          languageCode: lang,
           speed: audioSettings.ttsRate || 1.0,
           gender: audioSettings.ttsGender || "male",
         }),
@@ -469,6 +456,7 @@ function MicTranslatePageContent() {
       
       if (!response.ok) {
         console.error("TTS API 오류:", response.status)
+        isSpeakingRef.current = false
         setIsSpeaking(false)
         return
       }
@@ -477,89 +465,68 @@ function MicTranslatePageContent() {
       
       if (!data.audioContent) {
         console.error("TTS 오디오 없음")
+        isSpeakingRef.current = false
         setIsSpeaking(false)
         return
       }
       
-      // Base64 → ArrayBuffer → Blob (더 안정적인 방식)
-      const binaryString = atob(data.audioContent)
-      const bytes = new Uint8Array(binaryString.length)
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i)
-      }
-      const audioBlob = new Blob([bytes], { type: "audio/mp3" })
+      // Base64 → Blob → URL (YouTube와 동일)
+      const audioBlob = new Blob(
+        [Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))],
+        { type: "audio/mp3" }
+      )
       const audioUrl = URL.createObjectURL(audioBlob)
       
-      // 이전 오디오 정리
+      // 이전 오디오 정리 (YouTube와 동일)
       if (ttsAudioRef.current) {
         ttsAudioRef.current.pause()
-        ttsAudioRef.current.src = ""
         URL.revokeObjectURL(ttsAudioRef.current.src)
       }
       
-      // 새 오디오 요소 생성
-      const audio = new Audio()
-      audio.preload = "auto"  // 전체 파일 미리 로드
+      // 오디오 재생 (YouTube와 동일)
+      const audio = new Audio(audioUrl)
       ttsAudioRef.current = audio
       
-      // 오디오 완전 로드 후 재생 (Promise 기반)
-      await new Promise<void>((resolve, reject) => {
-        audio.oncanplaythrough = () => {
-          console.log(`🎤 오디오 로드 완료, 재생 시작`)
-          resolve()
-        }
-        audio.onerror = (e) => {
-          console.error("오디오 로드 오류:", e)
-          reject(e)
-        }
-        audio.src = audioUrl
-        audio.load()  // 명시적 로드 시작
-      })
-      
-      // 재생 종료 핸들러
       audio.onended = () => {
-        setIsSpeaking(false)
         URL.revokeObjectURL(audioUrl)
+        isSpeakingRef.current = false
+        setIsSpeaking(false)
       }
       
       audio.onerror = () => {
-        setIsSpeaking(false)
         URL.revokeObjectURL(audioUrl)
+        isSpeakingRef.current = false
+        setIsSpeaking(false)
       }
       
-      // 이제 재생 (오디오가 완전히 로드됨)
       await audio.play()
       console.log(`🎤 Cloud TTS 재생 중: ${data.voice}`)
       
     } catch (err) {
-      console.error("TTS 오류:", err)
+      console.error("TTS 재생 오류:", err)
+      isSpeakingRef.current = false
       setIsSpeaking(false)
-      
-      // 폴백: 브라우저 내장 TTS 사용
-      if ("speechSynthesis" in window) {
-        const utterance = new SpeechSynthesisUtterance(text)
-        utterance.lang = getTTSLanguageCode(languageCode)
-        utterance.volume = audioSettings.ttsVolume
-        utterance.rate = audioSettings.ttsRate
-        utterance.onstart = () => setIsSpeaking(true)
-        utterance.onend = () => setIsSpeaking(false)
-        utterance.onerror = () => setIsSpeaking(false)
-        window.speechSynthesis.speak(utterance)
-      }
     }
+  }
+  
+  // TTS로 텍스트 읽기 (YouTube와 동일한 동기 함수)
+  const speakText = (text: string, lang: string) => {
+    if (!text?.trim()) return
+    
+    // 바로 재생 (YouTube와 동일)
+    playTTS(text, lang)
   }
 
   // TTS 중지
   const stopSpeaking = () => {
-    // Google TTS 오디오 중지
     if (ttsAudioRef.current) {
       ttsAudioRef.current.pause()
-      ttsAudioRef.current.currentTime = 0
+      if (ttsAudioRef.current.src) {
+        URL.revokeObjectURL(ttsAudioRef.current.src)
+      }
+      ttsAudioRef.current = null
     }
-    // 브라우저 TTS도 중지 (폴백용)
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.cancel()
-    }
+    isSpeakingRef.current = false
     setIsSpeaking(false)
   }
 
