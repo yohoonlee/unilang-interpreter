@@ -1065,10 +1065,8 @@ function MicTranslatePageContent() {
       return
     }
 
-    // 선택된 항목들을 시간순으로 정렬
-    const selectedItems = transcripts
-      .filter(t => selectedForMerge.has(t.id))
-      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+    // 선택된 항목들을 배열 내 순서대로 유지 (transcripts 배열이 이미 시간순)
+    const selectedItems = transcripts.filter(t => selectedForMerge.has(t.id))
 
     // 원본 텍스트 합치기
     const mergedOriginal = selectedItems.map(t => t.original).join(" ")
