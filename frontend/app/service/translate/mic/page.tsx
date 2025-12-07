@@ -73,6 +73,7 @@ interface AudioSettings {
   autoPlayTTS: boolean
   ttsVolume: number
   ttsRate: number
+  ttsGender: "female" | "male" // TTS 음성 성별
   selectedMicDevice: string
   selectedSpeakerDevice: string
   realtimeSummary: boolean // 실시간 요약 여부
@@ -220,6 +221,7 @@ function MicTranslatePageContent() {
       autoPlayTTS: false,
       ttsVolume: 1,
       ttsRate: 1,
+      ttsGender: "female" as const,
       selectedMicDevice: "",
       selectedSpeakerDevice: "",
       realtimeSummary: false,
@@ -423,31 +425,90 @@ function MicTranslatePageContent() {
     return lang?.ttsCode || "en-US"
   }
 
-  // TTS 재생
-  const speakText = (text: string, languageCode: string) => {
-    if (!("speechSynthesis" in window)) {
-      setError("이 브라우저는 음성 합성을 지원하지 않습니다.")
-      return
-    }
+  // TTS 오디오 참조
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
 
+  // TTS 재생 (Google Cloud TTS)
+  const speakText = async (text: string, languageCode: string) => {
+    if (!text?.trim()) return
+    
     // 현재 재생 중이면 중지
-    window.speechSynthesis.cancel()
-
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = getTTSLanguageCode(languageCode)
-    utterance.volume = audioSettings.ttsVolume
-    utterance.rate = audioSettings.ttsRate
-
-    utterance.onstart = () => setIsSpeaking(true)
-    utterance.onend = () => setIsSpeaking(false)
-    utterance.onerror = () => setIsSpeaking(false)
-
-    window.speechSynthesis.speak(utterance)
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause()
+      ttsAudioRef.current.currentTime = 0
+    }
+    
+    setIsSpeaking(true)
+    
+    try {
+      // Google Cloud TTS API 호출
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: text,
+          languageCode: languageCode,
+          speed: audioSettings.ttsRate,
+          gender: audioSettings.ttsGender || "female",
+        }),
+      })
+      
+      const result = await response.json()
+      
+      if (!result.success || !result.audioContent) {
+        throw new Error(result.error || "TTS 응답 오류")
+      }
+      
+      // Base64 오디오를 Blob으로 변환
+      const audioBlob = await fetch(`data:audio/mp3;base64,${result.audioContent}`).then(r => r.blob())
+      const audioUrl = URL.createObjectURL(audioBlob)
+      
+      // 오디오 재생
+      const audio = new Audio(audioUrl)
+      audio.volume = audioSettings.ttsVolume
+      ttsAudioRef.current = audio
+      
+      audio.onended = () => {
+        setIsSpeaking(false)
+        URL.revokeObjectURL(audioUrl)
+      }
+      
+      audio.onerror = () => {
+        setIsSpeaking(false)
+        URL.revokeObjectURL(audioUrl)
+      }
+      
+      await audio.play()
+      
+    } catch (err) {
+      console.error("TTS 오류:", err)
+      setIsSpeaking(false)
+      
+      // 폴백: 브라우저 내장 TTS 사용
+      if ("speechSynthesis" in window) {
+        const utterance = new SpeechSynthesisUtterance(text)
+        utterance.lang = getTTSLanguageCode(languageCode)
+        utterance.volume = audioSettings.ttsVolume
+        utterance.rate = audioSettings.ttsRate
+        utterance.onstart = () => setIsSpeaking(true)
+        utterance.onend = () => setIsSpeaking(false)
+        utterance.onerror = () => setIsSpeaking(false)
+        window.speechSynthesis.speak(utterance)
+      }
+    }
   }
 
   // TTS 중지
   const stopSpeaking = () => {
-    window.speechSynthesis.cancel()
+    // Google TTS 오디오 중지
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause()
+      ttsAudioRef.current.currentTime = 0
+    }
+    // 브라우저 TTS도 중지 (폴백용)
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel()
+    }
     setIsSpeaking(false)
   }
 
@@ -3077,6 +3138,36 @@ function MicTranslatePageContent() {
                     onChange={(e) => setAudioSettings(prev => ({ ...prev, ttsRate: parseFloat(e.target.value) }))}
                     className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-500"
                   />
+                </div>
+
+                {/* TTS 성별 선택 */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    음성 성별
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setAudioSettings(prev => ({ ...prev, ttsGender: "female" }))}
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 transition-all ${
+                        audioSettings.ttsGender === "female"
+                          ? "border-pink-400 bg-pink-50 text-pink-700"
+                          : "border-slate-200 text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      👩 여성
+                    </button>
+                    <button
+                      onClick={() => setAudioSettings(prev => ({ ...prev, ttsGender: "male" }))}
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 transition-all ${
+                        audioSettings.ttsGender === "male"
+                          ? "border-blue-400 bg-blue-50 text-blue-700"
+                          : "border-slate-200 text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      👨 남성
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">Google Cloud TTS (Neural2 고품질 음성)</p>
                 </div>
 
                 {/* DB 저장 설정 */}
