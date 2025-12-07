@@ -279,16 +279,14 @@ def api_status():
         "proxy_username": WEBSHARE_PROXY_USERNAME[:4] + "..." if WEBSHARE_PROXY_USERNAME else None
     }
 
-# 시작 이벤트
-@app.on_event("startup")
-async def startup_event():
-    print("=" * 50, flush=True)
-    print("🎉 YouTube Subtitle API 서버 시작 완료!", flush=True)
-    print(f"📡 프록시 설정: {'✅' if WEBSHARE_PROXY_USERNAME else '❌'}", flush=True)
-    print("=" * 50, flush=True)
+# 시작 이벤트 (lifespan 대신 간단하게 로그만 출력)
+print("=" * 50, flush=True)
+print("🎉 YouTube Subtitle API 준비 완료!", flush=True)
+print(f"📡 프록시 설정: {'✅' if WEBSHARE_PROXY_USERNAME else '❌'}", flush=True)
+print("=" * 50, flush=True)
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
-    print(f"🔧 PORT: {port}", flush=True)
+    print(f"🔧 Starting on PORT: {port}", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=port)
