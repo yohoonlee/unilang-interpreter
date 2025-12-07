@@ -224,7 +224,7 @@ function MicTranslatePageContent() {
       ttsGender: "male" as const,
       selectedMicDevice: "",
       selectedSpeakerDevice: "",
-      realtimeSummary: false,
+      realtimeSummary: true, // 회의록 자동작성 (기본 활성화)
       meetingAccessType: "private" as const,
       allowedEmails: [],
     }
@@ -455,15 +455,18 @@ function MicTranslatePageContent() {
     setIsSpeaking(true)
     
     try {
+      // 앞부분 잘림 방지: 텍스트 앞에 짧은 쉼표 추가
+      const paddedText = `, ${text}`
+      
       // Google Cloud TTS API 호출
       const response = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: text,
+          text: paddedText,
           languageCode: languageCode,
           speed: audioSettings.ttsRate,
-          gender: audioSettings.ttsGender || "female",
+          gender: audioSettings.ttsGender || "male",
         }),
       })
       
@@ -477,10 +480,15 @@ function MicTranslatePageContent() {
       const audioBlob = await fetch(`data:audio/mp3;base64,${result.audioContent}`).then(r => r.blob())
       const audioUrl = URL.createObjectURL(audioBlob)
       
-      // 오디오 재생
-      const audio = new Audio(audioUrl)
+      // 오디오 재생 (로드 완료 후 재생)
+      const audio = new Audio()
       audio.volume = audioSettings.ttsVolume
+      audio.preload = "auto"
       ttsAudioRef.current = audio
+      
+      audio.oncanplaythrough = () => {
+        audio.play().catch(console.error)
+      }
       
       audio.onended = () => {
         setIsSpeaking(false)
@@ -492,7 +500,8 @@ function MicTranslatePageContent() {
         URL.revokeObjectURL(audioUrl)
       }
       
-      await audio.play()
+      // src 설정하면 자동으로 로드 시작 → oncanplaythrough에서 재생
+      audio.src = audioUrl
       
     } catch (err) {
       console.error("TTS 오류:", err)
@@ -1067,7 +1076,7 @@ function MicTranslatePageContent() {
     }
   }
 
-  // 회의 최종 종료 (저장 + 요약 생성)
+  // 회의 최종 종료 (저장 + 회의록 자동작성)
   const finalizeSession = async () => {
     if (!sessionId) {
       setError("종료할 세션이 없습니다.")
@@ -1084,6 +1093,11 @@ function MicTranslatePageContent() {
       setCurrentTranscript("")
     }
     
+    // 시스템 오디오 캡처 중이면 중지
+    if (isCapturingSystemAudio) {
+      stopSystemAudioCapture()
+    }
+    
     try {
       // 세션 상태를 완료로 변경
       await supabase
@@ -1095,8 +1109,11 @@ function MicTranslatePageContent() {
         })
         .eq("id", sessionId)
       
-      // 내용이 있으면 자동 요약 생성
-      if (transcripts.length > 0) {
+      // 내용이 있고 회의록 자동작성이 활성화되어 있으면 문서 자동 생성
+      if (transcripts.length > 0 && audioSettings.realtimeSummary) {
+        await generateAndSaveDocument()
+      } else if (transcripts.length > 0) {
+        // 자동작성 비활성화 시 요약만 생성
         await summarizeCurrentSession()
       } else {
         // 내용이 없으면 세션 목록으로
@@ -1110,6 +1127,99 @@ function MicTranslatePageContent() {
     } catch (err) {
       console.error("세션 종료 오류:", err)
       setError("회의 종료 중 오류가 발생했습니다.")
+    }
+  }
+
+  // 회의록 자동 생성 및 저장
+  const generateAndSaveDocument = async () => {
+    if (transcripts.length === 0) return
+    
+    setIsDocumenting(true)
+    setDocumentTextOriginal("")
+    setDocumentTextTranslated("")
+    
+    try {
+      const srcLangName = getLanguageInfo(sourceLanguage).name
+      const tgtLangName = getLanguageInfo(targetLanguage).name
+      
+      // 원어 텍스트만 추출
+      const originalTexts = transcripts.map(t => t.original).join("\n")
+      
+      // 번역 텍스트만 추출
+      const translatedTexts = transcripts
+        .filter(t => t.translated && t.targetLanguage !== "none")
+        .map(t => t.translated)
+        .join("\n")
+      
+      // 원어와 번역어가 같거나 번역이 없으면 원어만 정리
+      if (sourceLanguage === targetLanguage || targetLanguage === "none" || !translatedTexts) {
+        const response = await fetch("/api/gemini/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: originalTexts,
+            targetLanguage: sourceLanguage,
+            customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+          }),
+        })
+        
+        const result = await response.json()
+        if (!result.success) throw new Error(result.error || "문서 정리 실패")
+        
+        setDocumentTextOriginal(result.summary)
+        setDocumentTextTranslated("")
+        
+        // DB 저장
+        await saveDocumentToDb(result.summary, "")
+      } else {
+        // 원어와 번역어 각각 정리 (병렬 처리)
+        const [originalResponse, translatedResponse] = await Promise.all([
+          fetch("/api/gemini/summarize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: originalTexts,
+              targetLanguage: sourceLanguage,
+              customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+            }),
+          }),
+          fetch("/api/gemini/summarize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: translatedTexts,
+              targetLanguage: targetLanguage,
+              customPrompt: `${getDocumentPrompt(tgtLangName)}\n\n원본 텍스트:\n${translatedTexts}`,
+            }),
+          }),
+        ])
+        
+        const [originalResult, translatedResult] = await Promise.all([
+          originalResponse.json(),
+          translatedResponse.json(),
+        ])
+        
+        if (!originalResult.success) throw new Error(originalResult.error || "원어 문서 정리 실패")
+        if (!translatedResult.success) throw new Error(translatedResult.error || "번역어 문서 정리 실패")
+        
+        setDocumentTextOriginal(originalResult.summary)
+        setDocumentTextTranslated(translatedResult.summary)
+        
+        // DB 저장
+        await saveDocumentToDb(originalResult.summary, translatedResult.summary)
+      }
+      
+      // 회의록 보기 모드로 전환
+      setDocumentViewTab("original")
+      setShowDocumentInPanel(true)
+      
+    } catch (err) {
+      console.error("회의록 자동 생성 오류:", err)
+      setError(err instanceof Error ? err.message : "회의록 자동 생성에 실패했습니다.")
+      // 실패해도 요약은 시도
+      await summarizeCurrentSession()
+    } finally {
+      setIsDocumenting(false)
     }
   }
 
@@ -3094,13 +3204,13 @@ function MicTranslatePageContent() {
                   </button>
                 </div>
 
-                {/* 실시간 요약 */}
+                {/* 회의록 자동작성 */}
                 <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                      ✨ 실시간 요약
+                      📝 회의록 자동작성
                     </label>
-                    <p className="text-xs text-slate-500">회의 종료 시 자동 요약 생성</p>
+                    <p className="text-xs text-slate-500">종료 시 자동으로 문서 정리 및 저장</p>
                   </div>
                   <button
                     onClick={() => setAudioSettings(prev => ({ ...prev, realtimeSummary: !prev.realtimeSummary }))}
