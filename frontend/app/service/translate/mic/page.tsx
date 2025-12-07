@@ -207,27 +207,31 @@ function MicTranslatePageContent() {
   
   // 오디오 설정 (로컬 스토리지에서 불러오기)
   const [audioSettings, setAudioSettings] = useState<AudioSettings>(() => {
+    const defaultSettings: AudioSettings = {
+      autoPlayTTS: false,
+      ttsVolume: 1,
+      ttsRate: 1,
+      ttsGender: "male",
+      selectedMicDevice: "",
+      selectedSpeakerDevice: "",
+      realtimeSummary: true, // 회의록 자동작성 (기본 활성화)
+      meetingAccessType: "private",
+      allowedEmails: [],
+    }
+    
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("unilang_audio_settings")
       if (saved) {
         try {
-          return JSON.parse(saved)
+          const parsed = JSON.parse(saved)
+          // 기존 설정과 기본값 병합 (새 필드 누락 방지)
+          return { ...defaultSettings, ...parsed }
         } catch {
           // 파싱 실패 시 기본값 사용
         }
       }
     }
-    return {
-      autoPlayTTS: false,
-      ttsVolume: 1,
-      ttsRate: 1,
-      ttsGender: "male" as const,
-      selectedMicDevice: "",
-      selectedSpeakerDevice: "",
-      realtimeSummary: true, // 회의록 자동작성 (기본 활성화)
-      meetingAccessType: "private" as const,
-      allowedEmails: [],
-    }
+    return defaultSettings
   })
 
   // 오디오 설정 변경 시 자동 저장 및 ref 업데이트
@@ -455,15 +459,12 @@ function MicTranslatePageContent() {
     setIsSpeaking(true)
     
     try {
-      // 앞부분 잘림 방지: 텍스트 앞에 짧은 쉼표 추가
-      const paddedText = `, ${text}`
-      
-      // Google Cloud TTS API 호출
+      // Google Cloud TTS API 호출 (서버에서 SSML로 무음 구간 추가)
       const response = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: paddedText,
+          text: text,
           languageCode: languageCode,
           speed: audioSettings.ttsRate,
           gender: audioSettings.ttsGender || "male",

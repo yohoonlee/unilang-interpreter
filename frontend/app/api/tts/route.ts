@@ -79,14 +79,17 @@ export async function POST(request: NextRequest) {
       voice = femaleVoices[targetLangCode] || `${targetLangCode}-Standard-A`
     }
 
-    // Google Cloud TTS API 호출
+    // SSML로 앞에 무음 구간 추가 (잘림 방지)
+    const ssmlText = `<speak><break time="300ms"/>${text}</speak>`
+    
+    // Google Cloud TTS API 호출 (SSML 사용)
     const response = await fetch(
       `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          input: { text },
+          input: { ssml: ssmlText },
           voice: {
             languageCode: targetLangCode,
             name: voice,
