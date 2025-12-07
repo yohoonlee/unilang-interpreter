@@ -96,6 +96,20 @@ function MicTranslatePageContent() {
   const searchParams = useSearchParams()
   const isEmbedded = searchParams.get("embedded") === "true"
   
+  // body 스크롤 제어 - 이 페이지에서만 body 스크롤 비활성화
+  useEffect(() => {
+    const originalBodyStyle = document.body.style.overflow
+    const originalHtmlStyle = document.documentElement.style.overflow
+    
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    
+    return () => {
+      document.body.style.overflow = originalBodyStyle
+      document.documentElement.style.overflow = originalHtmlStyle
+    }
+  }, [])
+  
   const [isListening, setIsListening] = useState(false)
   const [sourceLanguage, setSourceLanguage] = useState(() => {
     if (typeof window !== "undefined") {
@@ -1615,132 +1629,8 @@ function MicTranslatePageContent() {
   }
 
   return (
-    <div className={`min-h-screen ${isEmbedded ? "bg-slate-50" : "bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950"}`}>
-      {/* Header - embedded 모드에서는 숨김 */}
-      {!isEmbedded && (
-        <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
-          <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link href="/service" className="text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">
-                <ArrowLeft className="h-5 w-5" />
-              </Link>
-            <div className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 shadow-lg">
-                <Mic className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                {/* 헤더 타이틀 고정 - 편집 모드 제거 */}
-                {false && isEditingCurrentTitle ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={editCurrentTitleText}
-                      onChange={(e) => setEditCurrentTitleText(e.target.value)}
-                      className="px-2 py-1 text-sm font-bold border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") updateCurrentSessionTitle()
-                        else if (e.key === "Escape") {
-                          setIsEditingCurrentTitle(false)
-                          setEditCurrentTitleText("")
-                        }
-                      }}
-                    />
-                    <Button size="sm" variant="ghost" onClick={updateCurrentSessionTitle}>
-                      <Check className="h-4 w-4 text-teal-500" />
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => {
-                      setIsEditingCurrentTitle(false)
-                      setEditCurrentTitleText("")
-                    }}>
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1">
-                    <h1 className="font-bold text-slate-900 dark:text-white">
-                      실시간 음성 통역
-                    </h1>
-                    {/* 헤더 타이틀은 고정 - 세션 제목은 아래 패널에서 관리 */}
-                    {false && sessionId && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0"
-                        onClick={() => {
-                          setIsEditingCurrentTitle(true)
-                          setEditCurrentTitleText(currentSessionTitle)
-                        }}
-                        title="제목 수정"
-                      >
-                        <Edit3 className="h-3 w-3 text-slate-400 hover:text-teal-500" />
-                      </Button>
-                    )}
-                  </div>
-                )}
-                <p className="text-xs text-slate-500">
-                  {currentSessionCreatedAt && !isNaN(currentSessionCreatedAt.getTime())
-                    ? currentSessionCreatedAt.toLocaleDateString("ko-KR", {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit"
-                      })
-                    : sessionId 
-                      ? `기록 중 (${transcripts.length}개 발화)` 
-                      : "마이크로 말하면 실시간 번역"
-                  }
-                </p>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* 요약 버튼 - 현재 세션에 내용이 있을 때만 표시 */}
-            {transcripts.length > 0 && (
-              <Button 
-                variant="ghost" 
-                size="icon"
-                onClick={summarizeCurrentSession}
-                disabled={isSummarizing}
-                title="현재 세션 요약"
-              >
-                {isSummarizing ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Sparkles className="h-5 w-5 text-amber-500" />
-                )}
-              </Button>
-            )}
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => {
-                setShowSessionList(true)
-                loadSessions()
-              }}
-              className="relative"
-              title="통역 기록 목록"
-            >
-              <Menu className="h-5 w-5" />
-              {sessions.length > 0 && (
-                <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">
-                  {sessions.length > 9 ? '9+' : sessions.length}
-                </span>
-              )}
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => setShowSettings(true)}
-              className="relative"
-            >
-              <Settings className="h-5 w-5" />
-            </Button>
-          </div>
-        </div>
-      </header>
-      )}
+    <div className="h-screen flex flex-col overflow-hidden" style={{ backgroundColor: '#FFFFFF' }}>
+      {/* 메인 콘텐츠 - 전체 배경 흰색 */}
 
       {/* Session List Panel - YouTube와 동일한 슬라이드 패널 */}
       {showSessionList && (
@@ -1751,49 +1641,55 @@ function MicTranslatePageContent() {
             onClick={() => setShowSessionList(false)}
           />
           {/* 사이드 패널 */}
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 shadow-2xl overflow-hidden flex flex-col animate-slide-in-right">
-            <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/20">
-              {/* 돌아가기 버튼 */}
-              <Button 
-                variant="ghost" 
-                onClick={() => setShowSessionList(false)}
-                className="mb-3 text-slate-600 hover:text-slate-900 hover:bg-slate-100 -ml-2"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                돌아가기
-              </Button>
-              
+          <div className="w-full max-w-[500px] bg-white dark:bg-slate-900 shadow-2xl flex flex-col h-screen animate-slide-in-right">
+            {/* 고정 헤더 - YouTube 스타일 민트색 */}
+            <div className="shrink-0 p-4 border-b border-teal-200" style={{ backgroundColor: '#CCFBF1' }}>
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold flex items-center gap-2">
-                  <List className="h-5 w-5 text-teal-500" />
+                <h2 className="text-lg font-bold flex items-center gap-2 text-teal-800">
+                  <List className="h-5 w-5" />
                   통역 기록
                 </h2>
-                <Button variant="ghost" size="icon" onClick={() => setShowSessionList(false)}>
-                  <X className="h-5 w-5" />
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={() => setShowSessionList(false)}
+                  className="hover:bg-teal-200"
+                >
+                  <X className="h-5 w-5 text-teal-700" />
                 </Button>
               </div>
-              <p className="text-sm text-slate-500 mt-1">저장된 통역 세션 목록</p>
+              <p className="text-sm text-teal-600 mt-1">저장된 통역 세션 목록</p>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
+            {/* 스크롤 영역 - YouTube 스타일 */}
+            <div className="flex-1 overflow-y-auto p-4" style={{ maxHeight: 'calc(100vh - 100px)' }}>
               {isLoadingSessions ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
                 </div>
               ) : sessions.length === 0 ? (
-                <div className="text-center py-12 text-slate-500">
-                  <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>저장된 통역 기록이 없습니다</p>
-                  <p className="text-sm mt-2">마이크 통역을 시작하면 자동으로 저장됩니다</p>
+                <div className="text-center py-10 text-slate-500">
+                  <Mic className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                  <p>저장된 기록이 없습니다.</p>
+                  <p className="text-sm mt-1">통역 후 자동으로 저장됩니다.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {sessions.map((session) => (
                     <div
                       key={session.id}
-                      className={`bg-slate-50 dark:bg-slate-800 rounded-xl p-4 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors ${
-                        sessionId === session.id ? "ring-2 ring-teal-500" : ""
+                      className={`p-3 rounded-lg border transition-colors ${
+                        sessionId === session.id 
+                          ? "border-teal-400 bg-teal-50 dark:bg-teal-900/30" 
+                          : "border-teal-200 dark:border-slate-700"
                       }`}
+                      style={{ backgroundColor: sessionId === session.id ? '#CCFBF1' : 'white' }}
+                      onMouseEnter={(e) => {
+                        if (sessionId !== session.id) e.currentTarget.style.backgroundColor = '#CCFBF1'
+                      }}
+                      onMouseLeave={(e) => {
+                        if (sessionId !== session.id) e.currentTarget.style.backgroundColor = 'white'
+                      }}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
@@ -2316,112 +2212,158 @@ function MicTranslatePageContent() {
       )}
 
       {/* Main Content */}
-      <main className="max-w-4xl mx-auto px-4 py-4">
-        {/* 통합 컨트롤 패널 (민트색) */}
-        <Card className="mb-4 border-2 border-teal-300 dark:border-teal-700 bg-gradient-to-br from-teal-50 via-cyan-50 to-teal-50 dark:from-teal-900/30 dark:via-cyan-900/20 dark:to-teal-900/30 shadow-lg relative">
-          {/* 우상단 목록 버튼 */}
-          <Button 
-            variant="ghost" 
-            size="icon"
-            onClick={() => {
-              setShowSessionList(true)
-              loadSessions()
-            }}
-            className="absolute top-3 right-3 z-10 hover:bg-teal-100 dark:hover:bg-teal-900/50"
-            title="통역 기록 목록"
-          >
-            <Menu className="h-5 w-5 text-teal-600" />
-            {sessions.length > 0 && (
-              <span className="absolute -top-1 -right-1 h-4 w-4 bg-teal-500 text-white text-[10px] rounded-full flex items-center justify-center">
-                {sessions.length > 9 ? '9+' : sessions.length}
-              </span>
-            )}
-          </Button>
-          
-          <CardContent className="p-5">
-            {/* 타이틀 행 */}
-            <div className="flex items-center gap-3 mb-4">
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-5xl mx-auto px-4 py-2 space-y-2">
+          {/* 1. 상단 타이틀바 - YouTube 스타일 */}
+          <div className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-lg">
+            <div className="px-4 py-4 flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+                <Mic className="h-6 w-6 text-white" />
+              </div>
               <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  {isEditingCurrentTitle || (!sessionId && !currentSessionTitle) ? (
-                    <input
-                      type="text"
-                      value={editCurrentTitleText}
-                      onChange={(e) => setEditCurrentTitleText(e.target.value)}
-                      placeholder="통역 세션 제목을 입력하세요..."
-                      className="flex-1 h-12 px-4 rounded-xl border-2 border-teal-300 dark:border-teal-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-lg font-bold focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && sessionId) {
-                          updateCurrentSessionTitle()
-                        }
-                      }}
-                      autoFocus
-                    />
-                  ) : (
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                      {currentSessionTitle || "새 통역 세션"}
-                    </h2>
+                <h1 className="text-xl font-bold">실시간 음성 통역</h1>
+                <p className="text-sm text-white/80">마이크로 말하면 실시간으로 번역됩니다</p>
+              </div>
+              {/* 우측 버튼들 */}
+              <div className="flex items-center gap-2">
+                {/* 요약 버튼 */}
+                {transcripts.length > 0 && (
+                  <Button 
+                    variant="ghost" 
+                    size="icon"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      summarizeCurrentSession()
+                    }}
+                    disabled={isSummarizing}
+                    title="현재 세션 요약"
+                    className="text-white hover:bg-white/20"
+                  >
+                    {isSummarizing ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-5 w-5" />
+                    )}
+                  </Button>
+                )}
+                {/* 기록 목록 버튼 */}
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={() => {
+                    setShowSessionList(true)
+                    loadSessions()
+                  }}
+                  className="text-white hover:bg-white/20 relative"
+                  title="통역 기록 목록"
+                >
+                  <List className="h-5 w-5" />
+                  {sessions.length > 0 && (
+                    <span className="absolute -top-1 -right-1 h-4 w-4 bg-white text-teal-600 text-[10px] rounded-full flex items-center justify-center font-bold">
+                      {sessions.length > 9 ? '9+' : sessions.length}
+                    </span>
                   )}
-                  
-                  {/* 저장/수정 버튼 */}
-                  {isEditingCurrentTitle || (!sessionId && !currentSessionTitle) ? (
-                    sessionId && (
-                      <div className="flex gap-1">
-                        <Button
-                          size="sm"
-                          onClick={updateCurrentSessionTitle}
-                          className="bg-teal-500 hover:bg-teal-600 text-white rounded-lg"
-                        >
-                          <Check className="h-4 w-4 mr-1" />
-                          저장
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setIsEditingCurrentTitle(false)
-                            setEditCurrentTitleText("")
-                          }}
-                          className="rounded-lg"
-                        >
-                          취소
-                        </Button>
-                      </div>
-                    )
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setIsEditingCurrentTitle(true)
-                        setEditCurrentTitleText(currentSessionTitle)
-                      }}
-                      className="text-teal-600 hover:text-teal-700 hover:bg-teal-100 dark:hover:bg-teal-800/30 rounded-lg"
-                    >
-                      <Edit3 className="h-4 w-4 mr-1" />
-                      수정
-                    </Button>
-                  )}
-                </div>
-                
-                {/* 생성일시 */}
-                <p className="text-sm text-teal-700 dark:text-teal-300 mt-1">
-                  📅 {currentSessionCreatedAt && !isNaN(currentSessionCreatedAt.getTime())
-                    ? currentSessionCreatedAt.toLocaleDateString("ko-KR", {
-                        year: "numeric",
-                        month: "2-digit",
-                        day: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit"
-                      })
-                    : sessionId ? "생성 중..." : "마이크 시작 시 생성됩니다"
-                  }
-                </p>
+                </Button>
+                {/* 설정 버튼 */}
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={() => setShowSettings(true)}
+                  className="text-white hover:bg-white/20"
+                  title="설정"
+                >
+                  <Settings className="h-5 w-5" />
+                </Button>
               </div>
             </div>
+          </div>
 
-            {/* 언어 선택 행 */}
-            <div className="flex items-center gap-3 mb-4 p-3 bg-white/60 dark:bg-slate-800/60 rounded-xl">
+          {/* 2. 통역 패널 - YouTube 스타일 */}
+          <Card className="border-2 border-teal-200 dark:border-teal-700 bg-white dark:bg-slate-900 shadow-lg">
+            <CardContent className="p-5">
+              {/* 세션 타이틀 행 */}
+              <div className="flex items-center gap-3 mb-4 pb-4 border-b border-teal-100 dark:border-teal-800">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    {isEditingCurrentTitle || (!sessionId && !currentSessionTitle) ? (
+                      <input
+                        type="text"
+                        value={editCurrentTitleText}
+                        onChange={(e) => setEditCurrentTitleText(e.target.value)}
+                        placeholder="통역 세션 제목을 입력하세요..."
+                        className="flex-1 h-10 px-3 rounded-lg border border-teal-300 dark:border-teal-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-semibold focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && sessionId) {
+                            updateCurrentSessionTitle()
+                          }
+                        }}
+                        autoFocus
+                      />
+                    ) : (
+                      <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                        {currentSessionTitle || "새 통역 세션"}
+                      </h2>
+                    )}
+                    
+                    {/* 저장/수정 버튼 */}
+                    {isEditingCurrentTitle || (!sessionId && !currentSessionTitle) ? (
+                      sessionId && (
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            onClick={updateCurrentSessionTitle}
+                            className="bg-teal-500 hover:bg-teal-600 text-white rounded-lg"
+                          >
+                            <Check className="h-4 w-4 mr-1" />
+                            저장
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setIsEditingCurrentTitle(false)
+                              setEditCurrentTitleText("")
+                            }}
+                            className="rounded-lg"
+                          >
+                            취소
+                          </Button>
+                        </div>
+                      )
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setIsEditingCurrentTitle(true)
+                          setEditCurrentTitleText(currentSessionTitle)
+                        }}
+                        className="text-teal-600 hover:text-teal-700 hover:bg-teal-100 dark:hover:bg-teal-800/30 rounded-lg"
+                      >
+                        <Edit3 className="h-4 w-4 mr-1" />
+                        수정
+                      </Button>
+                    )}
+                  </div>
+                  
+                  {/* 생성일시 */}
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                    📅 {currentSessionCreatedAt && !isNaN(currentSessionCreatedAt.getTime())
+                      ? currentSessionCreatedAt.toLocaleDateString("ko-KR", {
+                          year: "numeric",
+                          month: "2-digit",
+                          day: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit"
+                        })
+                      : sessionId ? "생성 중..." : "마이크 시작 시 생성됩니다"
+                    }
+                  </p>
+                </div>
+              </div>
+
+              {/* 언어 선택 행 */}
+              <div className="flex items-center gap-3 mb-4 p-3 bg-teal-50/50 dark:bg-slate-800/60 rounded-xl">
               {/* Source Language */}
               <div className="flex-1">
                 <label className="block text-xs text-teal-700 dark:text-teal-300 mb-1 font-medium">음성 언어</label>
@@ -2816,6 +2758,7 @@ function MicTranslatePageContent() {
             </div>
           </CardContent>
         </Card>
+        </div>
       </main>
     </div>
   )
