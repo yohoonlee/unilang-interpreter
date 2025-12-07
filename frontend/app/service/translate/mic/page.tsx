@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, Suspense } from "react"
+import { useState, useRef, useEffect, Suspense, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -30,9 +30,13 @@ import {
   Eye,
   Copy,
   Download,
+  Printer,
+  Pencil,
 } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 // 지원 언어 목록 (자동감지 제거 - Web Speech API 호환성 문제)
 const LANGUAGES = [
@@ -184,6 +188,12 @@ function MicTranslatePageContent() {
   const [isDocumenting, setIsDocumenting] = useState(false) // 문서 정리 중
   const [showDocumentModal, setShowDocumentModal] = useState(false) // 문서 보기 모달
   const [documentViewTab, setDocumentViewTab] = useState<"original" | "translated">("original") // 모달 탭
+  
+  // 회의기록 편집 관련
+  const [isEditingDocument, setIsEditingDocument] = useState(false) // 편집 모드
+  const [editDocumentText, setEditDocumentText] = useState("") // 편집 중인 텍스트
+  const [showDocumentInPanel, setShowDocumentInPanel] = useState(false) // 패널에서 회의기록 보기
+  const [isSavingDocument, setIsSavingDocument] = useState(false) // 저장 중
   
   // 시스템 오디오 캡처 관련 (PC 소리 인식)
   const [isSystemAudioMode, setIsSystemAudioMode] = useState(false)
@@ -2044,6 +2054,199 @@ function MicTranslatePageContent() {
     }
   }
 
+  // ============ 회의기록 저장/편집 ============
+  
+  // DB에 회의록 저장
+  const saveDocumentToDb = async (originalMd: string, translatedMd: string) => {
+    if (!sessionId) return false
+    
+    try {
+      const now = new Date().toISOString()
+      const { error } = await supabase
+        .from("translation_sessions")
+        .update({
+          document_original_md: originalMd,
+          document_translated_md: translatedMd || null,
+          document_updated_at: now,
+          document_created_at: documentTextOriginal ? undefined : now, // 최초 생성 시에만
+        })
+        .eq("id", sessionId)
+      
+      if (error) throw error
+      return true
+    } catch (err) {
+      console.error("회의록 저장 오류:", err)
+      setError("회의록 저장에 실패했습니다.")
+      return false
+    }
+  }
+
+  // 회의기록 패널에서 보기
+  const showDocumentInResultPanel = () => {
+    setShowDocumentInPanel(true)
+    setShowDocumentModal(false)
+  }
+
+  // 편집 모드 시작
+  const startEditingDocument = () => {
+    const currentText = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
+    setEditDocumentText(currentText)
+    setIsEditingDocument(true)
+  }
+
+  // 편집 취소
+  const cancelEditingDocument = () => {
+    setIsEditingDocument(false)
+    setEditDocumentText("")
+  }
+
+  // 편집 저장 (부분 번역 포함)
+  const saveEditedDocument = async () => {
+    if (!editDocumentText.trim()) return
+    
+    setIsSavingDocument(true)
+    try {
+      const isEditingOriginal = documentViewTab === "original"
+      const oldText = isEditingOriginal ? documentTextOriginal : documentTextTranslated
+      
+      // 변경된 문단 찾기
+      const oldParagraphs = oldText.split("\n\n")
+      const newParagraphs = editDocumentText.split("\n\n")
+      
+      // 변경된 부분만 번역
+      const changedIndices: number[] = []
+      newParagraphs.forEach((para, idx) => {
+        if (idx >= oldParagraphs.length || para !== oldParagraphs[idx]) {
+          changedIndices.push(idx)
+        }
+      })
+      
+      let translatedText = isEditingOriginal ? documentTextTranslated : documentTextOriginal
+      
+      if (changedIndices.length > 0 && translatedText) {
+        // 변경된 문단만 번역
+        const targetLang = isEditingOriginal ? targetLanguage : sourceLanguage
+        const translatedParagraphs = translatedText.split("\n\n")
+        
+        for (const idx of changedIndices) {
+          if (newParagraphs[idx]?.trim()) {
+            try {
+              const response = await fetch("/api/translate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  text: newParagraphs[idx],
+                  targetLanguage: targetLang,
+                }),
+              })
+              const result = await response.json()
+              if (result.success && result.translatedText) {
+                translatedParagraphs[idx] = result.translatedText
+              }
+            } catch (e) {
+              console.error(`문단 ${idx} 번역 실패:`, e)
+            }
+          }
+        }
+        
+        translatedText = translatedParagraphs.join("\n\n")
+      }
+      
+      // 상태 업데이트
+      if (isEditingOriginal) {
+        setDocumentTextOriginal(editDocumentText)
+        if (translatedText) setDocumentTextTranslated(translatedText)
+      } else {
+        setDocumentTextTranslated(editDocumentText)
+        if (translatedText) setDocumentTextOriginal(translatedText)
+      }
+      
+      // DB 저장
+      const originalToSave = isEditingOriginal ? editDocumentText : translatedText
+      const translatedToSave = isEditingOriginal ? translatedText : editDocumentText
+      await saveDocumentToDb(originalToSave, translatedToSave)
+      
+      setIsEditingDocument(false)
+      setEditDocumentText("")
+      
+    } catch (err) {
+      console.error("편집 저장 오류:", err)
+      setError("편집 내용 저장에 실패했습니다.")
+    } finally {
+      setIsSavingDocument(false)
+    }
+  }
+
+  // 프린트 기능
+  const printDocument = () => {
+    const printContent = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
+    const langName = documentViewTab === "original" 
+      ? getLanguageInfo(sourceLanguage).name 
+      : getLanguageInfo(targetLanguage).name
+    
+    const printWindow = window.open("", "_blank")
+    if (!printWindow) return
+    
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>회의기록 - ${langName}</title>
+        <style>
+          body { 
+            font-family: 'Malgun Gothic', sans-serif; 
+            line-height: 1.8; 
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+          }
+          h1, h2, h3 { color: #0d9488; margin-top: 1.5em; }
+          h1 { font-size: 1.8em; border-bottom: 2px solid #0d9488; padding-bottom: 10px; }
+          h2 { font-size: 1.4em; }
+          h3 { font-size: 1.2em; }
+          p { margin: 1em 0; }
+          ul, ol { padding-left: 2em; }
+          li { margin: 0.5em 0; }
+          table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+          th { background-color: #f0fdfa; }
+          blockquote { border-left: 4px solid #0d9488; padding-left: 1em; margin: 1em 0; color: #666; }
+          code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
+          pre { background: #f5f5f5; padding: 1em; border-radius: 8px; overflow-x: auto; }
+          strong { color: #0d9488; }
+          @media print {
+            body { padding: 20px; }
+          }
+        </style>
+      </head>
+      <body>
+        <div id="content"></div>
+        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+        <script>
+          document.getElementById('content').innerHTML = marked.parse(\`${printContent.replace(/`/g, "\\`").replace(/\$/g, "\\$")}\`);
+          window.print();
+        </script>
+      </body>
+      </html>
+    `)
+    printWindow.document.close()
+  }
+
+  // .md 파일 다운로드
+  const downloadMarkdown = () => {
+    const text = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
+    const langName = documentViewTab === "original" 
+      ? getLanguageInfo(sourceLanguage).name 
+      : getLanguageInfo(targetLanguage).name
+    const blob = new Blob([text], { type: "text/markdown;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `회의기록_${langName}_${new Date().toISOString().slice(0, 10)}.md`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   // ============ 시스템 오디오 캡처 (PC 소리 인식) ============
   
   // 시스템 오디오 캡처 시작
@@ -2567,12 +2770,12 @@ function MicTranslatePageContent() {
         </div>
       )}
 
-      {/* Document Modal - 회의기록 보기 */}
+      {/* Document Modal - 회의기록 보기/편집 */}
       {showDocumentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
             {/* 헤더 */}
-            <div className="p-6 border-b border-slate-200 dark:border-slate-700" style={{ backgroundColor: '#CCFBF1' }}>
+            <div className="p-4 border-b border-slate-200 dark:border-slate-700" style={{ backgroundColor: '#CCFBF1' }}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-teal-500">
@@ -2580,29 +2783,45 @@ function MicTranslatePageContent() {
                   </div>
                   <div>
                     <h2 className="text-xl font-bold text-teal-800">회의기록</h2>
-                    <p className="text-sm text-teal-600">AI가 정리한 문서 (구어체→문어체)</p>
+                    <p className="text-sm text-teal-600">
+                      {isEditingDocument ? "마크다운 편집 모드" : "AI가 정리한 문서"}
+                    </p>
                   </div>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => setShowDocumentModal(false)} className="hover:bg-teal-200">
-                  <X className="h-5 w-5 text-teal-700" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  {/* 편집 버튼 */}
+                  {!isEditingDocument && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={startEditingDocument}
+                      className="border-teal-400 text-teal-700 hover:bg-teal-100"
+                    >
+                      <Pencil className="h-4 w-4 mr-1" />
+                      편집
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="icon" onClick={() => { setShowDocumentModal(false); setIsEditingDocument(false); }} className="hover:bg-teal-200">
+                    <X className="h-5 w-5 text-teal-700" />
+                  </Button>
+                </div>
               </div>
               
-              {/* 언어 탭 (번역어 회의록이 있을 때만 표시) */}
-              {documentTextTranslated && (
-                <div className="flex gap-2 mt-4">
+              {/* 언어 탭 */}
+              <div className="flex gap-2 mt-4">
+                <Button
+                  onClick={() => { setDocumentViewTab("original"); if (isEditingDocument) setEditDocumentText(documentTextOriginal); }}
+                  variant={documentViewTab === "original" ? "default" : "outline"}
+                  size="sm"
+                  className={documentViewTab === "original" 
+                    ? "bg-teal-600 text-white hover:bg-teal-700" 
+                    : "border-teal-400 text-teal-700 hover:bg-teal-100"}
+                >
+                  {getLanguageInfo(sourceLanguage).flag} {getLanguageInfo(sourceLanguage).name}
+                </Button>
+                {documentTextTranslated && (
                   <Button
-                    onClick={() => setDocumentViewTab("original")}
-                    variant={documentViewTab === "original" ? "default" : "outline"}
-                    size="sm"
-                    className={documentViewTab === "original" 
-                      ? "bg-teal-600 text-white hover:bg-teal-700" 
-                      : "border-teal-400 text-teal-700 hover:bg-teal-100"}
-                  >
-                    {getLanguageInfo(sourceLanguage).flag} {getLanguageInfo(sourceLanguage).name}
-                  </Button>
-                  <Button
-                    onClick={() => setDocumentViewTab("translated")}
+                    onClick={() => { setDocumentViewTab("translated"); if (isEditingDocument) setEditDocumentText(documentTextTranslated); }}
                     variant={documentViewTab === "translated" ? "default" : "outline"}
                     size="sm"
                     className={documentViewTab === "translated" 
@@ -2611,60 +2830,107 @@ function MicTranslatePageContent() {
                   >
                     {getLanguageInfo(targetLanguage).flag} {getLanguageInfo(targetLanguage).name}
                   </Button>
+                )}
+              </div>
+            </div>
+
+            {/* 본문 - 마크다운 렌더링 또는 편집 */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {isEditingDocument ? (
+                // 편집 모드: 마크다운 원본 편집
+                <textarea
+                  value={editDocumentText}
+                  onChange={(e) => setEditDocumentText(e.target.value)}
+                  className="w-full h-full min-h-[400px] p-4 font-mono text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  placeholder="마크다운 형식으로 편집하세요..."
+                />
+              ) : (
+                // 보기 모드: 마크다운 시각화
+                <div className="prose prose-slate dark:prose-invert max-w-none prose-headings:text-teal-700 prose-h1:border-b-2 prose-h1:border-teal-200 prose-h1:pb-2 prose-strong:text-teal-600 prose-blockquote:border-l-teal-500 prose-code:bg-slate-100 prose-code:px-1 prose-code:rounded prose-pre:bg-slate-100 prose-table:border-collapse prose-th:bg-teal-50 prose-th:border prose-th:border-slate-300 prose-th:p-2 prose-td:border prose-td:border-slate-300 prose-td:p-2">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
+                  </ReactMarkdown>
                 </div>
               )}
             </div>
 
-            {/* 본문 */}
-            <div className="flex-1 overflow-y-auto p-6">
-              <div className="prose prose-slate dark:prose-invert max-w-none">
-                <div className="whitespace-pre-wrap text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
-                </div>
-              </div>
-            </div>
-
             {/* 하단 버튼 */}
-            <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex gap-2">
-              <Button
-                onClick={async () => {
-                  const text = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
-                  await navigator.clipboard.writeText(text)
-                  setError(null)
-                  alert("클립보드에 복사되었습니다!")
-                }}
-                variant="outline"
-                className="flex-1"
-              >
-                <Copy className="h-4 w-4 mr-2" />
-                복사
-              </Button>
-              <Button
-                onClick={() => {
-                  const text = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
-                  const langSuffix = documentViewTab === "original" 
-                    ? getLanguageInfo(sourceLanguage).name 
-                    : getLanguageInfo(targetLanguage).name
-                  const blob = new Blob([text], { type: "text/plain;charset=utf-8" })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement("a")
-                  a.href = url
-                  a.download = `회의기록_${langSuffix}_${new Date().toISOString().slice(0, 10)}.txt`
-                  a.click()
-                  URL.revokeObjectURL(url)
-                }}
-                variant="outline"
-                className="flex-1"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                다운로드
-              </Button>
-              <Button
-                onClick={() => setShowDocumentModal(false)}
-                className="flex-1 bg-gradient-to-r from-teal-500 to-cyan-500 text-white"
-              >
-                닫기
-              </Button>
+            <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex gap-2 flex-wrap">
+              {isEditingDocument ? (
+                // 편집 모드 버튼
+                <>
+                  <Button
+                    onClick={saveEditedDocument}
+                    disabled={isSavingDocument}
+                    className="flex-1 bg-gradient-to-r from-green-500 to-teal-500 text-white"
+                  >
+                    {isSavingDocument ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />저장 중...</>
+                    ) : (
+                      <><Save className="h-4 w-4 mr-2" />저장 (자동 번역)</>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={cancelEditingDocument}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    취소
+                  </Button>
+                </>
+              ) : (
+                // 보기 모드 버튼
+                <>
+                  <Button
+                    onClick={async () => {
+                      const text = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
+                      await navigator.clipboard.writeText(text)
+                      alert("클립보드에 복사되었습니다!")
+                    }}
+                    variant="outline"
+                    size="sm"
+                  >
+                    <Copy className="h-4 w-4 mr-1" />
+                    복사
+                  </Button>
+                  <Button
+                    onClick={downloadMarkdown}
+                    variant="outline"
+                    size="sm"
+                  >
+                    <Download className="h-4 w-4 mr-1" />
+                    .md
+                  </Button>
+                  <Button
+                    onClick={printDocument}
+                    variant="outline"
+                    size="sm"
+                  >
+                    <Printer className="h-4 w-4 mr-1" />
+                    프린트
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      await saveDocumentToDb(documentTextOriginal, documentTextTranslated)
+                      alert("DB에 저장되었습니다!")
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="border-green-400 text-green-600 hover:bg-green-50"
+                  >
+                    <Save className="h-4 w-4 mr-1" />
+                    저장
+                  </Button>
+                  <div className="flex-1" />
+                  <Button
+                    onClick={() => setShowDocumentModal(false)}
+                    className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white"
+                  >
+                    닫기
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -3139,8 +3405,31 @@ function MicTranslatePageContent() {
 
             {/* 컨트롤 버튼 + 상태 (한 줄 레이아웃) */}
             <div className="flex items-center justify-between gap-3 pt-3 border-t border-teal-200 dark:border-teal-700">
-              {/* 왼쪽: 상태 표시 */}
-              <div className="flex items-center gap-2 text-sm min-w-[140px]">
+              {/* 맨 왼쪽: 목록 버튼 */}
+              <Button
+                onClick={() => {
+                  // 세션 초기화하고 목록으로 이동
+                  setSessionId(null)
+                  setTranscripts([])
+                  setCurrentSessionTitle("")
+                  setCurrentSessionCreatedAt(null)
+                  setDocumentTextOriginal("")
+                  setDocumentTextTranslated("")
+                  setHasMoreUtterances(false)
+                  setTotalUtteranceCount(0)
+                  loadSessions()
+                }}
+                size="sm"
+                variant="outline"
+                className="h-10 px-3 rounded-full border-teal-400 text-teal-600 hover:bg-teal-50"
+                title="통역 기록 목록으로 이동"
+              >
+                <List className="h-4 w-4 mr-1" />
+                목록
+              </Button>
+              
+              {/* 상태 표시 */}
+              <div className="flex items-center gap-2 text-sm min-w-[100px]">
                 <div className={`h-2.5 w-2.5 rounded-full ${
                   isListening 
                     ? isSystemAudioMode ? "bg-purple-500 animate-pulse" : "bg-green-500 animate-pulse" 
