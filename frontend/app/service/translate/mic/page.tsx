@@ -221,7 +221,7 @@ function MicTranslatePageContent() {
       autoPlayTTS: false,
       ttsVolume: 1,
       ttsRate: 1,
-      ttsGender: "female" as const,
+      ttsGender: "male" as const,
       selectedMicDevice: "",
       selectedSpeakerDevice: "",
       realtimeSummary: false,
@@ -238,6 +238,20 @@ function MicTranslatePageContent() {
     // stale closure 방지를 위해 ref도 업데이트
     audioSettingsRef.current = audioSettings
   }, [audioSettings])
+
+  // TTS API 워밍업 (첫 호출 시 지연 방지)
+  const ttsWarmedUp = useRef(false)
+  useEffect(() => {
+    if (!ttsWarmedUp.current) {
+      // 백그라운드에서 TTS API 워밍업 (무음)
+      fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: " ", languageCode: "ko" }),
+      }).catch(() => {})
+      ttsWarmedUp.current = true
+    }
+  }, [])
   
   // 세션 ID 변경 시 ref 업데이트 (비동기 문제 해결)
   useEffect(() => {
@@ -894,6 +908,25 @@ function MicTranslatePageContent() {
         setTargetLanguage(sessionToLoad.target_languages[0])
       }
       setShowSessionList(false)
+      
+      // 중요: 회의록 보기 모드 리셋 (STT/번역 결과 표시)
+      setShowDocumentInPanel(false)
+      setIsEditingDocument(false)
+      
+      // 세션의 회의록 데이터 로드
+      const { data: sessionDoc } = await supabase
+        .from("translation_sessions")
+        .select("document_original_md, document_translated_md")
+        .eq("id", sessionToLoad.id)
+        .single()
+      
+      if (sessionDoc) {
+        setDocumentTextOriginal(sessionDoc.document_original_md || "")
+        setDocumentTextTranslated(sessionDoc.document_translated_md || "")
+      } else {
+        setDocumentTextOriginal("")
+        setDocumentTextTranslated("")
+      }
       
       // 디버깅: 데이터 로드 결과 표시
       if (loadedTranscripts.length === 0) {
@@ -3003,159 +3036,20 @@ function MicTranslatePageContent() {
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
             <div className="p-6 pb-8">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">오디오 설정</h2>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white">실시간 통역 설정</h2>
                 <Button variant="ghost" size="icon" onClick={() => setShowSettings(false)}>
                   <X className="h-5 w-5" />
                 </Button>
               </div>
 
-              <div className="space-y-6">
-                {/* 언어 설정 섹션 */}
-                <div className="pb-4 border-b border-slate-200 dark:border-slate-700">
-                  <h3 className="text-sm font-semibold text-teal-600 dark:text-teal-400 mb-4">🌐 언어 설정</h3>
-                  
-                  {/* 기본 번역 언어 */}
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                      기본 번역 언어
-                    </label>
-                    <p className="text-xs text-slate-500 mb-2">자동 감지 시 이 언어로 번역됩니다</p>
-                    <select
-                      value={targetLanguage}
-                      onChange={(e) => setTargetLanguage(e.target.value)}
-                      className="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
-                    >
-                      {TARGET_LANGUAGES.map((lang) => (
-                        <option key={lang.code} value={lang.code}>
-                          {lang.flag} {lang.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* 오디오 설정 섹션 */}
-                <div className="pb-4 border-b border-slate-200 dark:border-slate-700">
-                  <h3 className="text-sm font-semibold text-teal-600 dark:text-teal-400 mb-4">🎧 오디오 장치</h3>
-                  
-                  {/* 마이크 선택 */}
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                      🎤 마이크 선택
-                    </label>
-                    <select
-                      value={audioSettings.selectedMicDevice}
-                      onChange={(e) => setAudioSettings(prev => ({ ...prev, selectedMicDevice: e.target.value }))}
-                      className="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
-                    >
-                      <option value="">기본 마이크</option>
-                      {audioDevices.microphones.map((device) => (
-                        <option key={device.deviceId} value={device.deviceId}>
-                          {device.label || `마이크 ${device.deviceId.slice(0, 8)}`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* 스피커 선택 */}
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                      🔊 스피커 선택
-                    </label>
-                    <select
-                      value={audioSettings.selectedSpeakerDevice}
-                      onChange={(e) => setAudioSettings(prev => ({ ...prev, selectedSpeakerDevice: e.target.value }))}
-                      className="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
-                    >
-                      <option value="">기본 스피커</option>
-                      {audioDevices.speakers.map((device) => (
-                        <option key={device.deviceId} value={device.deviceId}>
-                          {device.label || `스피커 ${device.deviceId.slice(0, 8)}`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* TTS 설정 섹션 */}
-                <div>
-                  <h3 className="text-sm font-semibold text-teal-600 dark:text-teal-400 mb-4">🔊 음성 재생 (TTS)</h3>
-                  
-                  {/* 자동 TTS 재생 */}
-                  <div className="flex items-center justify-between mb-4 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                        자동 음성 재생
-                      </label>
-                      <p className="text-xs text-slate-500">번역 완료 시 TTS로 자동 방송</p>
-                    </div>
-                    <button
-                      onClick={() => setAudioSettings(prev => ({ ...prev, autoPlayTTS: !prev.autoPlayTTS }))}
-                      className={`w-12 h-6 rounded-full transition-colors ${
-                        audioSettings.autoPlayTTS ? "bg-teal-500" : "bg-slate-300"
-                      }`}
-                    >
-                      <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                        audioSettings.autoPlayTTS ? "translate-x-6" : "translate-x-0.5"
-                      }`} />
-                    </button>
-                  </div>
-                  
-                  {audioSettings.autoPlayTTS && (
-                    <div className="p-3 bg-teal-50 dark:bg-teal-900/20 rounded-lg text-xs text-teal-700 dark:text-teal-300 mb-4">
-                      ✅ 번역이 완료되면 자동으로 TTS 음성이 재생됩니다
-                    </div>
-                  )}
-                </div>
-
-                {/* TTS 볼륨 */}
-                <div>
+              <div className="space-y-4">
+                {/* 음성 식별 (TTS 성별) */}
+                <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                  <h3 className="text-sm font-semibold text-teal-600 dark:text-teal-400 mb-3">🎤 음성 식별</h3>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    음성 볼륨: {Math.round(audioSettings.ttsVolume * 100)}%
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={audioSettings.ttsVolume}
-                    onChange={(e) => setAudioSettings(prev => ({ ...prev, ttsVolume: parseFloat(e.target.value) }))}
-                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-500"
-                  />
-                </div>
-
-                {/* TTS 속도 */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    음성 속도: {audioSettings.ttsRate}x
-                  </label>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="2"
-                    step="0.1"
-                    value={audioSettings.ttsRate}
-                    onChange={(e) => setAudioSettings(prev => ({ ...prev, ttsRate: parseFloat(e.target.value) }))}
-                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-500"
-                  />
-                </div>
-
-                {/* TTS 성별 선택 */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    음성 성별
+                    TTS 음성 성별
                   </label>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => setAudioSettings(prev => ({ ...prev, ttsGender: "female" }))}
-                      className={`flex-1 py-2 px-4 rounded-lg border-2 transition-all ${
-                        audioSettings.ttsGender === "female"
-                          ? "border-pink-400 bg-pink-50 text-pink-700"
-                          : "border-slate-200 text-slate-600 hover:border-slate-300"
-                      }`}
-                    >
-                      👩 여성
-                    </button>
                     <button
                       onClick={() => setAudioSettings(prev => ({ ...prev, ttsGender: "male" }))}
                       className={`flex-1 py-2 px-4 rounded-lg border-2 transition-all ${
@@ -3166,12 +3060,22 @@ function MicTranslatePageContent() {
                     >
                       👨 남성
                     </button>
+                    <button
+                      onClick={() => setAudioSettings(prev => ({ ...prev, ttsGender: "female" }))}
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 transition-all ${
+                        audioSettings.ttsGender === "female"
+                          ? "border-pink-400 bg-pink-50 text-pink-700"
+                          : "border-slate-200 text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      👩 여성
+                    </button>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">Google Cloud TTS (Neural2 고품질 음성)</p>
+                  <p className="text-xs text-slate-500 mt-2">Google Cloud TTS (Neural2 고품질 음성)</p>
                 </div>
 
-                {/* DB 저장 설정 */}
-                <div className="flex items-center justify-between mb-4 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                {/* 기록 저장 */}
+                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                       💾 기록 저장
@@ -3190,8 +3094,8 @@ function MicTranslatePageContent() {
                   </button>
                 </div>
 
-                {/* 실시간 요약 설정 */}
-                <div className="flex items-center justify-between mb-4 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                {/* 실시간 요약 */}
+                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                       ✨ 실시간 요약
@@ -3210,9 +3114,9 @@ function MicTranslatePageContent() {
                   </button>
                 </div>
 
-                {/* 회의 참석자 관리 섹션 */}
-                <div className="pb-4 border-b border-slate-200 dark:border-slate-700">
-                  <h3 className="text-sm font-semibold text-teal-600 dark:text-teal-400 mb-4">👥 회의 참석자 관리</h3>
+                {/* 회의 참석자 관리 */}
+                <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                  <h3 className="text-sm font-semibold text-teal-600 dark:text-teal-400 mb-3">👥 회의 참석자 관리</h3>
                   
                   {/* 공개 설정 */}
                   <div className="mb-4">
@@ -3225,7 +3129,7 @@ function MicTranslatePageContent() {
                         className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
                           audioSettings.meetingAccessType === "public"
                             ? "bg-teal-500 text-white"
-                            : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                            : "bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-400 border border-slate-200"
                         }`}
                       >
                         🌐 모두 공개
@@ -3235,7 +3139,7 @@ function MicTranslatePageContent() {
                         className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
                           audioSettings.meetingAccessType === "private"
                             ? "bg-teal-500 text-white"
-                            : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                            : "bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-400 border border-slate-200"
                         }`}
                       >
                         🔒 초대된 사용자만
@@ -3256,7 +3160,7 @@ function MicTranslatePageContent() {
                           setAudioSettings(prev => ({ ...prev, allowedEmails: emails }))
                         }}
                         placeholder="user1@example.com, user2@example.com"
-                        className="w-full h-20 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm resize-none"
+                        className="w-full h-20 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm resize-none"
                       />
                       <p className="text-xs text-slate-500 mt-1">
                         {audioSettings.allowedEmails.length}명의 참석자가 등록됨
@@ -3265,24 +3169,14 @@ function MicTranslatePageContent() {
                   )}
                 </div>
 
-                {/* 테스트 버튼 */}
-                <div className="pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
-                  <Button
-                    onClick={() => speakText("안녕하세요, 음성 테스트입니다.", "ko")}
-                    className="w-full bg-gradient-to-r from-teal-500 to-cyan-500"
-                  >
-                    <Volume2 className="h-4 w-4 mr-2" />
-                    음성 테스트
-                  </Button>
-                  
-                  {/* 기록 보기 링크 */}
-                  <Link href="/service/history">
-                    <Button variant="outline" className="w-full">
-                      <History className="h-4 w-4 mr-2" />
-                      통역 기록 보기
-                    </Button>
-                  </Link>
-                </div>
+                {/* 음성 테스트 버튼 */}
+                <Button
+                  onClick={() => speakText("안녕하세요, 음성 테스트입니다.", "ko")}
+                  className="w-full bg-gradient-to-r from-teal-500 to-cyan-500"
+                >
+                  <Volume2 className="h-4 w-4 mr-2" />
+                  음성 테스트
+                </Button>
               </div>
             </div>
           </div>
