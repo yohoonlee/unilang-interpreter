@@ -129,6 +129,12 @@ function MicTranslatePageContent() {
   const [currentTranscript, setCurrentTranscript] = useState("")
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([])
   const [isTranslating, setIsTranslating] = useState(false)
+  
+  // 페이지네이션 (20개 단위 로딩)
+  const [totalUtteranceCount, setTotalUtteranceCount] = useState(0)
+  const [hasMoreUtterances, setHasMoreUtterances] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [currentLoadedSessionId, setCurrentLoadedSessionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -173,9 +179,11 @@ function MicTranslatePageContent() {
   const [mergeMode, setMergeMode] = useState(false) // 수동 병합 모드
   
   // 문서 정리 관련
-  const [documentText, setDocumentText] = useState("") // 정리된 문서 내용
+  const [documentTextOriginal, setDocumentTextOriginal] = useState("") // 원어 회의록
+  const [documentTextTranslated, setDocumentTextTranslated] = useState("") // 번역어 회의록
   const [isDocumenting, setIsDocumenting] = useState(false) // 문서 정리 중
   const [showDocumentModal, setShowDocumentModal] = useState(false) // 문서 보기 모달
+  const [documentViewTab, setDocumentViewTab] = useState<"original" | "translated">("original") // 모달 탭
   
   // 시스템 오디오 캡처 관련 (PC 소리 인식)
   const [isSystemAudioMode, setIsSystemAudioMode] = useState(false)
@@ -702,17 +710,37 @@ function MicTranslatePageContent() {
   }
 
   // 세션 불러오기 (과거 기록 보기)
+  const UTTERANCES_PER_PAGE = 20
+  
   const loadSessionData = async (sessionToLoad: SessionItem) => {
     setIsLoadingSessions(true)
     try {
       console.log("세션 로드 시작:", sessionToLoad.id)
       
-      // 발화 데이터 로드 (조인 없이)
+      // 먼저 전체 개수 확인
+      const { count, error: countError } = await supabase
+        .from("utterances")
+        .select("*", { count: "exact", head: true })
+        .eq("session_id", sessionToLoad.id)
+      
+      if (countError) {
+        console.error("발화 개수 조회 실패:", countError)
+      }
+      
+      const totalCount = count || 0
+      setTotalUtteranceCount(totalCount)
+      setHasMoreUtterances(totalCount > UTTERANCES_PER_PAGE)
+      setCurrentLoadedSessionId(sessionToLoad.id)
+      
+      console.log(`전체 발화 수: ${totalCount}, 처음 로드: ${UTTERANCES_PER_PAGE}개`)
+      
+      // 발화 데이터 로드 (최신 20개, 시간 역순)
       const { data: utterances, error: utteranceError } = await supabase
         .from("utterances")
         .select("id, original_text, original_language, created_at")
         .eq("session_id", sessionToLoad.id)
         .order("created_at", { ascending: false })
+        .range(0, UTTERANCES_PER_PAGE - 1)
       
       if (utteranceError) {
         console.error("발화 로드 실패:", utteranceError)
@@ -805,6 +833,84 @@ function MicTranslatePageContent() {
       console.error("세션 데이터 로드 오류:", err)
     } finally {
       setIsLoadingSessions(false)
+    }
+  }
+
+  // 더 많은 발화 로드 (20개씩 추가)
+  const loadMoreUtterances = async () => {
+    if (!currentLoadedSessionId || isLoadingMore || !hasMoreUtterances) return
+    
+    setIsLoadingMore(true)
+    try {
+      const currentOffset = transcripts.length
+      console.log(`추가 로드: offset=${currentOffset}, limit=${UTTERANCES_PER_PAGE}`)
+      
+      // 다음 20개 발화 로드
+      const { data: utterances, error: utteranceError } = await supabase
+        .from("utterances")
+        .select("id, original_text, original_language, created_at")
+        .eq("session_id", currentLoadedSessionId)
+        .order("created_at", { ascending: false })
+        .range(currentOffset, currentOffset + UTTERANCES_PER_PAGE - 1)
+      
+      if (utteranceError) {
+        console.error("추가 발화 로드 실패:", utteranceError)
+        return
+      }
+      
+      if (!utterances || utterances.length === 0) {
+        setHasMoreUtterances(false)
+        return
+      }
+      
+      // 번역 데이터 로드
+      const utteranceIds = utterances.map((u: { id: string }) => u.id)
+      const { data: translations } = await supabase
+        .from("translations")
+        .select("id, utterance_id, translated_text, target_language")
+        .in("utterance_id", utteranceIds)
+      
+      // 번역을 utterance_id로 매핑
+      const translationMap = new Map<string, { id: string; translated_text: string; target_language: string }>()
+      if (translations) {
+        translations.forEach((t: { id: string; utterance_id: string; translated_text: string; target_language: string }) => {
+          translationMap.set(t.utterance_id, t)
+        })
+      }
+      
+      // TranscriptItem 형식으로 변환
+      const newTranscripts: TranscriptItem[] = utterances.map((u: {
+        id: string
+        original_text: string
+        original_language: string
+        created_at: string
+      }) => {
+        const translation = translationMap.get(u.id)
+        return {
+          id: u.id,
+          original: u.original_text,
+          translated: translation?.translated_text || "",
+          sourceLanguage: u.original_language,
+          targetLanguage: translation?.target_language || targetLanguage || "ko",
+          timestamp: new Date(u.created_at),
+          utteranceId: u.id,
+          translationId: translation?.id,
+        }
+      })
+      
+      console.log(`추가 로드 완료: ${newTranscripts.length}개`)
+      
+      // 기존 transcripts에 추가
+      setTranscripts(prev => [...prev, ...newTranscripts])
+      
+      // 더 불러올 데이터 있는지 확인
+      const newTotal = currentOffset + utterances.length
+      setHasMoreUtterances(newTotal < totalUtteranceCount)
+      
+    } catch (err) {
+      console.error("추가 발화 로드 오류:", err)
+    } finally {
+      setIsLoadingMore(false)
     }
   }
 
@@ -1719,9 +1825,30 @@ function MicTranslatePageContent() {
 
   // ============ 문서 정리 (회의록 생성) ============
   
+  // 문서 정리 프롬프트 생성
+  const getDocumentPrompt = (langName: string) => `당신은 전문 회의록 작성자입니다. 다음 음성 인식 텍스트를 ${langName}로 깔끔한 문서로 정리해주세요.
+
+**중요: 요약이 아닙니다! 모든 발언 내용을 빠짐없이 포함해야 합니다.**
+
+정리 규칙:
+1. 구어체를 문어체로 변환 (예: "그래서 이게 뭐냐면요" → "이것은 ~입니다")
+2. 불필요한 추임새 제거 (예: "음..", "어..", "그..", "아..", "네네", "그러니까" 등)
+3. 끊어진 문장은 문맥에 맞게 자연스럽게 연결
+4. 반복되는 내용은 한 번만 기술
+5. 시간 순서대로 정리
+6. 주제가 바뀌면 빈 줄로 구분
+7. 원래 발언자의 의도와 내용은 그대로 유지
+
+출력 형식:
+- 제목이나 머리말 없이 바로 내용만 출력
+- 깔끔하고 읽기 쉬운 문장으로 정리`
+
   // 세션 ID로 문서 정리하기 (목록에서 클릭 시)
   const generateDocumentForSession = async (targetSessionId: string) => {
     setIsDocumenting(true)
+    setDocumentTextOriginal("")
+    setDocumentTextTranslated("")
+    
     try {
       // 세션의 발화 데이터 가져오기
       const { data: utterances, error } = await supabase
@@ -1729,7 +1856,7 @@ function MicTranslatePageContent() {
         .select(`
           id,
           original_text,
-          source_language,
+          original_language,
           created_at,
           translations (
             translated_text,
@@ -1744,17 +1871,6 @@ function MicTranslatePageContent() {
         return
       }
       
-      // 텍스트 생성
-      const contentText = utterances
-        .map((u: { original_text: string; created_at: string; translations: Array<{ translated_text: string; target_language: string }> }) => {
-          const time = new Date(u.created_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
-          const original = u.original_text
-          const translation = u.translations?.[0]
-          const translated = translation?.translated_text ? `\n   → ${translation.translated_text}` : ""
-          return `[${time}] ${original}${translated}`
-        })
-        .join("\n\n")
-      
       // 세션 정보 가져오기
       const { data: sessionData } = await supabase
         .from("translation_sessions")
@@ -1762,38 +1878,75 @@ function MicTranslatePageContent() {
         .eq("id", targetSessionId)
         .single()
       
-      const docLang = sessionData?.target_languages?.[0] || sessionData?.source_language || "ko"
-      const langName = getLanguageInfo(docLang).name
+      const srcLang = sessionData?.source_language || "ko"
+      const tgtLang = sessionData?.target_languages?.[0] || "en"
+      const srcLangName = getLanguageInfo(srcLang).name
+      const tgtLangName = getLanguageInfo(tgtLang).name
       
-      const response = await fetch("/api/gemini/summarize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: contentText,
-          targetLanguage: docLang,
-          customPrompt: `다음은 실시간 음성 통역 내용입니다. 이 내용을 ${langName}로 깔끔한 회의록/문서 형태로 정리해주세요.
-
-요약이 아닌, 실제 발언 내용을 모두 포함하되:
-1. 문맥에 맞게 문장을 다듬어주세요
-2. 끊어진 문장은 자연스럽게 연결해주세요
-3. 중복되는 내용은 한 번만 정리해주세요
-4. 시간순으로 정리해주세요
-5. 주제별로 구분이 필요하면 소제목을 달아주세요
-
-원본 내용:
-${contentText}
-
-정리된 문서:`,
-        }),
-      })
+      // 원어 텍스트만 추출
+      const originalTexts = utterances
+        .map((u: { original_text: string }) => u.original_text)
+        .join("\n")
       
-      const result = await response.json()
+      // 번역 텍스트만 추출
+      const translatedTexts = utterances
+        .map((u: { translations: Array<{ translated_text: string }> }) => u.translations?.[0]?.translated_text || "")
+        .filter((t: string) => t)
+        .join("\n")
       
-      if (!result.success) {
-        throw new Error(result.error || "문서 정리 실패")
+      // 원어와 번역어가 같으면 하나만 정리
+      if (srcLang === tgtLang || !translatedTexts) {
+        const response = await fetch("/api/gemini/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: originalTexts,
+            targetLanguage: srcLang,
+            customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+          }),
+        })
+        
+        const result = await response.json()
+        if (!result.success) throw new Error(result.error || "문서 정리 실패")
+        
+        setDocumentTextOriginal(result.summary)
+        setDocumentTextTranslated("") // 번역어 회의록 없음
+      } else {
+        // 원어와 번역어 각각 정리 (병렬 처리)
+        const [originalResponse, translatedResponse] = await Promise.all([
+          fetch("/api/gemini/summarize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: originalTexts,
+              targetLanguage: srcLang,
+              customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+            }),
+          }),
+          fetch("/api/gemini/summarize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: translatedTexts,
+              targetLanguage: tgtLang,
+              customPrompt: `${getDocumentPrompt(tgtLangName)}\n\n원본 텍스트:\n${translatedTexts}`,
+            }),
+          }),
+        ])
+        
+        const [originalResult, translatedResult] = await Promise.all([
+          originalResponse.json(),
+          translatedResponse.json(),
+        ])
+        
+        if (!originalResult.success) throw new Error(originalResult.error || "원어 문서 정리 실패")
+        if (!translatedResult.success) throw new Error(translatedResult.error || "번역어 문서 정리 실패")
+        
+        setDocumentTextOriginal(originalResult.summary)
+        setDocumentTextTranslated(translatedResult.summary)
       }
       
-      setDocumentText(result.summary)
+      setDocumentViewTab("original")
       setShowDocumentModal(true)
       
     } catch (err) {
@@ -1812,50 +1965,75 @@ ${contentText}
     }
     
     setIsDocumenting(true)
+    setDocumentTextOriginal("")
+    setDocumentTextTranslated("")
+    
     try {
-      // 전체 내용 텍스트 생성
-      const contentText = transcripts
-        .map((t, idx) => {
-          const time = t.timestamp.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
-          const original = t.original
-          const translated = t.translated && t.targetLanguage !== "none" ? `\n   → ${t.translated}` : ""
-          return `[${time}] ${original}${translated}`
+      const srcLangName = getLanguageInfo(sourceLanguage).name
+      const tgtLangName = getLanguageInfo(targetLanguage).name
+      
+      // 원어 텍스트만 추출
+      const originalTexts = transcripts.map(t => t.original).join("\n")
+      
+      // 번역 텍스트만 추출 (번역이 있는 경우만)
+      const translatedTexts = transcripts
+        .filter(t => t.translated && t.targetLanguage !== "none")
+        .map(t => t.translated)
+        .join("\n")
+      
+      // 원어와 번역어가 같거나 번역이 없으면 원어만 정리
+      if (sourceLanguage === targetLanguage || targetLanguage === "none" || !translatedTexts) {
+        const response = await fetch("/api/gemini/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: originalTexts,
+            targetLanguage: sourceLanguage,
+            customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+          }),
         })
-        .join("\n\n")
-      
-      // 문서 정리 언어 결정
-      const docLang = targetLanguage === "none" ? sourceLanguage : targetLanguage
-      const langName = getLanguageInfo(docLang).name
-      
-      const response = await fetch("/api/gemini/summarize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: contentText,
-          targetLanguage: docLang,
-          customPrompt: `다음은 실시간 음성 통역 내용입니다. 이 내용을 ${langName}로 깔끔한 회의록/문서 형태로 정리해주세요.
-
-요약이 아닌, 실제 발언 내용을 모두 포함하되:
-1. 문맥에 맞게 문장을 다듬어주세요
-2. 끊어진 문장은 자연스럽게 연결해주세요
-3. 중복되는 내용은 한 번만 정리해주세요
-4. 시간순으로 정리해주세요
-5. 주제별로 구분이 필요하면 소제목을 달아주세요
-
-원본 내용:
-${contentText}
-
-정리된 문서:`,
-        }),
-      })
-      
-      const result = await response.json()
-      
-      if (!result.success) {
-        throw new Error(result.error || "문서 정리 실패")
+        
+        const result = await response.json()
+        if (!result.success) throw new Error(result.error || "문서 정리 실패")
+        
+        setDocumentTextOriginal(result.summary)
+        setDocumentTextTranslated("")
+      } else {
+        // 원어와 번역어 각각 정리 (병렬 처리)
+        const [originalResponse, translatedResponse] = await Promise.all([
+          fetch("/api/gemini/summarize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: originalTexts,
+              targetLanguage: sourceLanguage,
+              customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+            }),
+          }),
+          fetch("/api/gemini/summarize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: translatedTexts,
+              targetLanguage: targetLanguage,
+              customPrompt: `${getDocumentPrompt(tgtLangName)}\n\n원본 텍스트:\n${translatedTexts}`,
+            }),
+          }),
+        ])
+        
+        const [originalResult, translatedResult] = await Promise.all([
+          originalResponse.json(),
+          translatedResponse.json(),
+        ])
+        
+        if (!originalResult.success) throw new Error(originalResult.error || "원어 문서 정리 실패")
+        if (!translatedResult.success) throw new Error(translatedResult.error || "번역어 문서 정리 실패")
+        
+        setDocumentTextOriginal(originalResult.summary)
+        setDocumentTextTranslated(translatedResult.summary)
       }
       
-      setDocumentText(result.summary)
+      setDocumentViewTab("original")
       setShowDocumentModal(true)
       
     } catch (err) {
@@ -2402,20 +2580,46 @@ ${contentText}
                   </div>
                   <div>
                     <h2 className="text-xl font-bold text-teal-800">회의기록</h2>
-                    <p className="text-sm text-teal-600">AI가 정리한 문서</p>
+                    <p className="text-sm text-teal-600">AI가 정리한 문서 (구어체→문어체)</p>
                   </div>
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => setShowDocumentModal(false)} className="hover:bg-teal-200">
                   <X className="h-5 w-5 text-teal-700" />
                 </Button>
               </div>
+              
+              {/* 언어 탭 (번역어 회의록이 있을 때만 표시) */}
+              {documentTextTranslated && (
+                <div className="flex gap-2 mt-4">
+                  <Button
+                    onClick={() => setDocumentViewTab("original")}
+                    variant={documentViewTab === "original" ? "default" : "outline"}
+                    size="sm"
+                    className={documentViewTab === "original" 
+                      ? "bg-teal-600 text-white hover:bg-teal-700" 
+                      : "border-teal-400 text-teal-700 hover:bg-teal-100"}
+                  >
+                    {getLanguageInfo(sourceLanguage).flag} {getLanguageInfo(sourceLanguage).name}
+                  </Button>
+                  <Button
+                    onClick={() => setDocumentViewTab("translated")}
+                    variant={documentViewTab === "translated" ? "default" : "outline"}
+                    size="sm"
+                    className={documentViewTab === "translated" 
+                      ? "bg-teal-600 text-white hover:bg-teal-700" 
+                      : "border-teal-400 text-teal-700 hover:bg-teal-100"}
+                  >
+                    {getLanguageInfo(targetLanguage).flag} {getLanguageInfo(targetLanguage).name}
+                  </Button>
+                </div>
+              )}
             </div>
 
             {/* 본문 */}
             <div className="flex-1 overflow-y-auto p-6">
               <div className="prose prose-slate dark:prose-invert max-w-none">
                 <div className="whitespace-pre-wrap text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {documentText}
+                  {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
                 </div>
               </div>
             </div>
@@ -2424,7 +2628,8 @@ ${contentText}
             <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex gap-2">
               <Button
                 onClick={async () => {
-                  await navigator.clipboard.writeText(documentText)
+                  const text = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
+                  await navigator.clipboard.writeText(text)
                   setError(null)
                   alert("클립보드에 복사되었습니다!")
                 }}
@@ -2436,11 +2641,15 @@ ${contentText}
               </Button>
               <Button
                 onClick={() => {
-                  const blob = new Blob([documentText], { type: "text/plain;charset=utf-8" })
+                  const text = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
+                  const langSuffix = documentViewTab === "original" 
+                    ? getLanguageInfo(sourceLanguage).name 
+                    : getLanguageInfo(targetLanguage).name
+                  const blob = new Blob([text], { type: "text/plain;charset=utf-8" })
                   const url = URL.createObjectURL(blob)
                   const a = document.createElement("a")
                   a.href = url
-                  a.download = `회의기록_${new Date().toISOString().slice(0, 10)}.txt`
+                  a.download = `회의기록_${langSuffix}_${new Date().toISOString().slice(0, 10)}.txt`
                   a.click()
                   URL.revokeObjectURL(url)
                 }}
@@ -3104,7 +3313,7 @@ ${contentText}
                     </Button>
                     
                     {/* 회의기록보기 버튼 (문서가 생성된 경우에만) */}
-                    {documentText && (
+                    {documentTextOriginal && (
                       <Button
                         onClick={() => setShowDocumentModal(true)}
                         size="sm"
@@ -3281,7 +3490,7 @@ ${contentText}
 
             <div
               ref={transcriptContainerRef}
-              className="h-[400px] overflow-y-auto space-y-4 p-2"
+              className="space-y-4 p-2"
             >
               {transcripts.length === 0 && !currentTranscript && (
                 <div className="h-full flex items-center justify-center text-slate-400">
@@ -3446,6 +3655,29 @@ ${contentText}
                   </p>
                 </div>
               ))}
+
+              {/* 더 보기 버튼 */}
+              {hasMoreUtterances && (
+                <div className="flex justify-center py-4">
+                  <Button
+                    onClick={loadMoreUtterances}
+                    disabled={isLoadingMore}
+                    variant="outline"
+                    className="px-6 py-2 text-teal-600 border-teal-300 hover:bg-teal-50"
+                  >
+                    {isLoadingMore ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        로딩 중...
+                      </>
+                    ) : (
+                      <>
+                        더 보기 ({transcripts.length}/{totalUtteranceCount})
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
 
               {/* 실시간 인식 텍스트와 번역 중 표시는 상단으로 이동됨 */}
             </div>
