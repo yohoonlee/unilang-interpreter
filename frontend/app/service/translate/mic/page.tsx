@@ -482,6 +482,17 @@ function MicTranslatePageContent() {
     return ttsAudioContextRef.current
   }
 
+  // AudioContext가 완전히 활성화될 때까지 대기
+  const waitForAudioContextRunning = async (ctx: AudioContext, maxWait = 1000): Promise<boolean> => {
+    if (ctx.state === "running") return true
+    
+    const startTime = Date.now()
+    while (ctx.state !== "running" && Date.now() - startTime < maxWait) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    return ctx.state === "running"
+  }
+
   // Google Cloud TTS로 재생 (AudioContext 사용 - 브라우저 정책 우회)
   const playTTS = async (text: string, lang: string) => {
     isSpeakingRef.current = true
@@ -494,7 +505,15 @@ function MicTranslatePageContent() {
       const audioContext = getAudioContext()
       if (audioContext.state === "suspended") {
         await audioContext.resume()
-        console.log("🔓 AudioContext 활성화")
+        console.log("🔓 AudioContext resume 요청")
+      }
+      
+      // AudioContext가 완전히 running 상태가 될 때까지 대기
+      const isRunning = await waitForAudioContextRunning(audioContext)
+      if (!isRunning) {
+        console.warn("⚠️ AudioContext가 running 상태가 아님:", audioContext.state)
+      } else {
+        console.log("✅ AudioContext running 상태 확인")
       }
       
       const response = await fetch("/api/tts", {
@@ -543,8 +562,29 @@ function MicTranslatePageContent() {
       // AudioContext로 디코딩 및 재생
       const audioBuffer = await audioContext.decodeAudioData(bytes.buffer.slice(0))
       
+      // 🔑 무음 버퍼 추가 (앞부분 잘림 방지)
+      const silenceDuration = 0.05 // 50ms 무음
+      const sampleRate = audioContext.sampleRate
+      const silenceSamples = Math.floor(silenceDuration * sampleRate)
+      const totalSamples = silenceSamples + audioBuffer.length
+      
+      // 새 버퍼 생성 (무음 + 원본)
+      const newBuffer = audioContext.createBuffer(
+        audioBuffer.numberOfChannels,
+        totalSamples,
+        sampleRate
+      )
+      
+      for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+        const newChannelData = newBuffer.getChannelData(channel)
+        const originalData = audioBuffer.getChannelData(channel)
+        // 앞부분 무음 (이미 0으로 초기화됨)
+        // 원본 데이터 복사
+        newChannelData.set(originalData, silenceSamples)
+      }
+      
       const sourceNode = audioContext.createBufferSource()
-      sourceNode.buffer = audioBuffer
+      sourceNode.buffer = newBuffer
       sourceNode.connect(audioContext.destination)
       
       sourceNode.onended = () => {
