@@ -446,15 +446,9 @@ function MicTranslatePageContent() {
   // TTS 오디오 참조
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
 
-  // TTS 재생 (Google Cloud TTS) - YouTube 페이지와 동일한 방식
+  // TTS 재생 (Google Cloud TTS) - YouTube 페이지와 완전히 동일한 방식
   const speakText = async (text: string, languageCode: string) => {
     if (!text?.trim()) return
-    
-    // 현재 재생 중이면 중지
-    if (ttsAudioRef.current) {
-      ttsAudioRef.current.pause()
-      URL.revokeObjectURL(ttsAudioRef.current.src)
-    }
     
     setIsSpeaking(true)
     
@@ -468,7 +462,7 @@ function MicTranslatePageContent() {
         body: JSON.stringify({
           text: text,
           languageCode: languageCode,
-          speed: audioSettings.ttsRate,
+          speed: audioSettings.ttsRate || 1.0,
           gender: audioSettings.ttsGender || "male",
         }),
       })
@@ -494,9 +488,14 @@ function MicTranslatePageContent() {
       )
       const audioUrl = URL.createObjectURL(audioBlob)
       
-      // 오디오 재생
+      // 이전 오디오 정리 (API 호출 후 - YouTube와 동일)
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.pause()
+        URL.revokeObjectURL(ttsAudioRef.current.src)
+      }
+      
+      // 오디오 재생 (YouTube와 동일하게 volume 설정 제거)
       const audio = new Audio(audioUrl)
-      audio.volume = audioSettings.ttsVolume
       ttsAudioRef.current = audio
       
       audio.onended = () => {
