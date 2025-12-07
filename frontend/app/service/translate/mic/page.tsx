@@ -169,6 +169,13 @@ function MicTranslatePageContent() {
   const [selectedForMerge, setSelectedForMerge] = useState<Set<string>>(new Set()) // 수동 병합용 선택된 항목
   const [mergeMode, setMergeMode] = useState(false) // 수동 병합 모드
   
+  // 시스템 오디오 캡처 관련 (PC 소리 인식)
+  const [isSystemAudioMode, setIsSystemAudioMode] = useState(false)
+  const [isCapturingSystemAudio, setIsCapturingSystemAudio] = useState(false)
+  const systemAudioStreamRef = useRef<MediaStream | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const deepgramWSRef = useRef<WebSocket | null>(null)
+  
   const supabase = createClient()
   
   // 오디오 설정 (로컬 스토리지에서 불러오기)
@@ -240,6 +247,75 @@ function MicTranslatePageContent() {
     }
     getUser()
   }, [supabase])
+
+  // Supabase 실시간 구독 (translation_sessions 테이블 변경 감지)
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null
+    
+    const setupRealtimeSubscription = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        console.log("⚠️ 실시간 구독: 로그인 필요")
+        return
+      }
+      
+      console.log("📡 [Mic] 실시간 구독 설정 중...")
+      
+      channel = supabase
+        .channel(`translation_sessions_${user.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'translation_sessions',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('📡 [Mic] 실시간: INSERT 감지', payload)
+            loadSessions()
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'DELETE',
+            schema: 'public',
+            table: 'translation_sessions',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('📡 [Mic] 실시간: DELETE 감지', payload)
+            loadSessions()
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'translation_sessions',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('📡 [Mic] 실시간: UPDATE 감지', payload)
+            loadSessions()
+          }
+        )
+        .subscribe((status) => {
+          console.log('📡 [Mic] 실시간 구독 상태:', status)
+        })
+    }
+    
+    setupRealtimeSubscription()
+    
+    return () => {
+      if (channel) {
+        console.log("📡 [Mic] 실시간 구독 해제")
+        supabase.removeChannel(channel)
+      }
+    }
+  }, [])
 
   // 오디오 장치 목록 가져오기
   useEffect(() => {
@@ -1630,6 +1706,208 @@ function MicTranslatePageContent() {
     return LANGUAGES.find((l) => l.code === code) || LANGUAGES[0]
   }
 
+  // ============ 시스템 오디오 캡처 (PC 소리 인식) ============
+  
+  // 시스템 오디오 캡처 시작
+  const startSystemAudioCapture = async () => {
+    try {
+      console.log("[System Audio] 시스템 오디오 캡처 시작 요청")
+      
+      // getDisplayMedia로 화면 + 시스템 오디오 캡처
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true, // 화면 공유 필수 (오디오만 불가)
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        }
+      })
+
+      // 오디오 트랙 확인
+      const audioTracks = stream.getAudioTracks()
+      if (audioTracks.length === 0) {
+        setError("⚠️ 오디오가 캡처되지 않았습니다!\n\n화면 공유 팝업에서:\n1. 'Chrome 탭' 선택\n2. 오디오가 재생되는 탭 선택\n3. '오디오 공유' 체크 ✅\n4. '공유' 클릭")
+        stream.getTracks().forEach(track => track.stop())
+        return
+      }
+
+      console.log("[System Audio] 오디오 트랙 캡처 성공:", audioTracks[0].label)
+      
+      // 비디오 트랙은 필요 없으므로 중지 (오디오만 사용)
+      stream.getVideoTracks().forEach(track => track.stop())
+      
+      systemAudioStreamRef.current = stream
+      setIsCapturingSystemAudio(true)
+      setIsSystemAudioMode(true)
+      setTranscripts([])
+      
+      // 스트림 종료 감지
+      audioTracks[0].onended = () => {
+        console.log("[System Audio] 오디오 트랙 종료됨")
+        stopSystemAudioCapture()
+      }
+      
+      // 안내 메시지 - Deepgram 연결 대기
+      setError("⏳ Deepgram 연결 중... 잠시만 기다려주세요.")
+      
+      // Deepgram으로 오디오 전송 시작
+      await startDeepgramStream(new MediaStream(audioTracks))
+      
+    } catch (err) {
+      console.error("[System Audio] 캡처 오류:", err)
+      if ((err as Error).name === "NotAllowedError") {
+        setError("화면 공유가 취소되었습니다.")
+      } else {
+        setError("시스템 오디오 캡처에 실패했습니다. 브라우저가 이 기능을 지원하는지 확인해주세요.")
+      }
+    }
+  }
+
+  // Deepgram 스트리밍 시작 (시스템 오디오용)
+  const startDeepgramStream = async (audioStream: MediaStream) => {
+    try {
+      console.log("[Deepgram] 스트리밍 시작")
+      
+      // 1. API 키 가져오기
+      const tokenResponse = await fetch("/api/deepgram/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+      
+      const tokenData = await tokenResponse.json()
+      
+      if (!tokenData.apiKey) {
+        setError(`Deepgram 연결 실패: ${tokenData.error || "API 키 가져오기 실패"}`)
+        stopSystemAudioCapture()
+        return
+      }
+      
+      console.log("[Deepgram] API 키 가져오기 성공")
+      
+      // 2. 언어 코드 설정
+      const deepgramLang = sourceLanguage === "ko" ? "ko" : sourceLanguage === "ja" ? "ja" : sourceLanguage === "zh" ? "zh" : sourceLanguage === "es" ? "es" : sourceLanguage === "fr" ? "fr" : sourceLanguage === "de" ? "de" : "en"
+      
+      // 3. WebSocket 연결
+      const ws = new WebSocket(
+        `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-2&language=${deepgramLang}&punctuate=true&interim_results=true`,
+        ["token", tokenData.apiKey]
+      )
+      
+      deepgramWSRef.current = ws
+      
+      ws.onopen = () => {
+        console.log("[Deepgram] WebSocket 연결됨")
+        setError(null)
+        setIsListening(true)
+        
+        // 4. 오디오 데이터 전송
+        const audioContext = new AudioContext({ sampleRate: 16000 })
+        audioContextRef.current = audioContext
+        const source = audioContext.createMediaStreamSource(audioStream)
+        const processor = audioContext.createScriptProcessor(4096, 1, 1)
+        
+        source.connect(processor)
+        // 하울링 방지를 위해 GainNode를 0으로 설정
+        const gainNode = audioContext.createGain()
+        gainNode.gain.value = 0 // 소리 출력 안함
+        processor.connect(gainNode)
+        gainNode.connect(audioContext.destination)
+        
+        processor.onaudioprocess = (e) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            const inputData = e.inputBuffer.getChannelData(0)
+            // Float32 to Int16 변환 (PCM 16-bit)
+            const int16Array = new Int16Array(inputData.length)
+            for (let i = 0; i < inputData.length; i++) {
+              const s = Math.max(-1, Math.min(1, inputData[i]))
+              int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
+            }
+            ws.send(int16Array.buffer)
+          }
+        }
+      }
+      
+      ws.onmessage = async (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          
+          // Deepgram 응답 형식 처리
+          if (data.type === "Results" && data.channel?.alternatives?.[0]) {
+            const transcript = data.channel.alternatives[0].transcript
+            
+            if (data.is_final && transcript?.trim()) {
+              console.log("[Deepgram] 최종 인식:", transcript)
+              setCurrentTranscript("")
+              // 번역 및 저장
+              await addTranscriptItem(transcript.trim())
+            } else if (transcript) {
+              setCurrentTranscript(transcript)
+            }
+          }
+        } catch (err) {
+          console.error("[Deepgram] 메시지 파싱 오류:", err)
+        }
+      }
+      
+      ws.onerror = (err) => {
+        console.error("[Deepgram] WebSocket 오류:", err)
+        setError("Deepgram 연결 오류가 발생했습니다.")
+      }
+      
+      ws.onclose = (event) => {
+        console.log("[Deepgram] WebSocket 종료:", event.code, event.reason)
+        setIsListening(false)
+      }
+      
+    } catch (err) {
+      console.error("[Deepgram] 스트리밍 오류:", err)
+      setError("Deepgram 스트리밍 실패")
+      stopSystemAudioCapture()
+    }
+  }
+
+  // 시스템 오디오 캡처 중지
+  const stopSystemAudioCapture = () => {
+    console.log("[System Audio] 캡처 중지")
+    
+    // Deepgram WebSocket 종료
+    if (deepgramWSRef.current) {
+      deepgramWSRef.current.close()
+      deepgramWSRef.current = null
+    }
+    
+    // 음성 인식 중지
+    if (recognitionRef.current) {
+      isListeningRef.current = false
+      recognitionRef.current.stop()
+      setIsListening(false)
+    }
+    
+    // 스트림 정리
+    if (systemAudioStreamRef.current) {
+      systemAudioStreamRef.current.getTracks().forEach(track => track.stop())
+      systemAudioStreamRef.current = null
+    }
+    
+    // 오디오 컨텍스트 정리
+    if (audioContextRef.current) {
+      audioContextRef.current.close()
+      audioContextRef.current = null
+    }
+    
+    setIsCapturingSystemAudio(false)
+    setIsSystemAudioMode(false)
+  }
+
+  // 시스템 오디오 캡처 토글
+  const toggleSystemAudioCapture = () => {
+    if (isCapturingSystemAudio) {
+      stopSystemAudioCapture()
+    } else {
+      startSystemAudioCapture()
+    }
+  }
+
   return (
     <div className="h-screen flex flex-col overflow-hidden" style={{ backgroundColor: '#FFFFFF' }}>
       {/* 메인 콘텐츠 - 전체 배경 흰색 */}
@@ -2416,10 +2694,17 @@ function MicTranslatePageContent() {
             {/* 컨트롤 버튼 + 상태 (한 줄 레이아웃) */}
             <div className="flex items-center justify-between gap-3 pt-3 border-t border-teal-200 dark:border-teal-700">
               {/* 왼쪽: 상태 표시 */}
-              <div className="flex items-center gap-2 text-sm min-w-[120px]">
-                <div className={`h-2.5 w-2.5 rounded-full ${isListening ? "bg-green-500 animate-pulse" : sessionId ? "bg-yellow-500" : "bg-slate-300"}`} />
+              <div className="flex items-center gap-2 text-sm min-w-[140px]">
+                <div className={`h-2.5 w-2.5 rounded-full ${
+                  isListening 
+                    ? isSystemAudioMode ? "bg-purple-500 animate-pulse" : "bg-green-500 animate-pulse" 
+                    : sessionId ? "bg-yellow-500" : "bg-slate-300"
+                }`} />
                 <span className="text-teal-700 dark:text-teal-300 font-medium">
-                  {isListening ? "녹음 중" : sessionId ? "일시정지" : "대기 중"}
+                  {isListening 
+                    ? isSystemAudioMode ? "PC 소리 인식 중" : "마이크 녹음 중"
+                    : sessionId ? "일시정지" : "대기 중"
+                  }
                 </span>
                 {sessionId && (
                   <span className="text-teal-500 text-xs">
@@ -2446,13 +2731,17 @@ function MicTranslatePageContent() {
                 {/* 마이크 버튼 */}
                 <Button
                   onClick={toggleListening}
-                  className={`h-12 px-6 rounded-full shadow-lg transition-all ${
-                    isListening
+                  disabled={isCapturingSystemAudio}
+                  className={`h-12 px-5 rounded-full shadow-lg transition-all ${
+                    isListening && !isSystemAudioMode
                       ? "bg-red-500 hover:bg-red-600 animate-pulse"
-                      : "bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600"
+                      : isCapturingSystemAudio
+                        ? "bg-slate-300 cursor-not-allowed"
+                        : "bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600"
                   }`}
+                  title="마이크로 음성 인식"
                 >
-                  {isListening ? (
+                  {isListening && !isSystemAudioMode ? (
                     <>
                       <MicOff className="h-5 w-5 mr-1" />
                       <span className="font-bold">중지</span>
@@ -2460,7 +2749,33 @@ function MicTranslatePageContent() {
                   ) : (
                     <>
                       <Mic className="h-5 w-5 mr-1" />
-                      <span className="font-bold">시작</span>
+                      <span className="font-bold">마이크</span>
+                    </>
+                  )}
+                </Button>
+                
+                {/* PC 소리 버튼 */}
+                <Button
+                  onClick={toggleSystemAudioCapture}
+                  disabled={isListening && !isSystemAudioMode}
+                  className={`h-12 px-5 rounded-full shadow-lg transition-all ${
+                    isCapturingSystemAudio
+                      ? "bg-red-500 hover:bg-red-600 animate-pulse"
+                      : isListening && !isSystemAudioMode
+                        ? "bg-slate-300 cursor-not-allowed"
+                        : "bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                  }`}
+                  title="PC에서 재생되는 소리 인식 (영상, 음악 등)"
+                >
+                  {isCapturingSystemAudio ? (
+                    <>
+                      <VolumeX className="h-5 w-5 mr-1" />
+                      <span className="font-bold">중지</span>
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="h-5 w-5 mr-1" />
+                      <span className="font-bold">PC소리</span>
                     </>
                   )}
                 </Button>
@@ -2577,7 +2892,7 @@ function MicTranslatePageContent() {
                   <p className="text-sm mt-1">마이크 버튼을 눌러 통역을 시작해보세요.</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                <div className="space-y-3">
                   {sessions.map((session) => (
                     <div
                       key={session.id}
