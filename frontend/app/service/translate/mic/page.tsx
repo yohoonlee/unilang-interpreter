@@ -446,20 +446,22 @@ function MicTranslatePageContent() {
   // TTS 오디오 참조
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
 
-  // TTS 재생 (Google Cloud TTS)
+  // TTS 재생 (Google Cloud TTS) - YouTube 페이지와 동일한 방식
   const speakText = async (text: string, languageCode: string) => {
     if (!text?.trim()) return
     
     // 현재 재생 중이면 중지
     if (ttsAudioRef.current) {
       ttsAudioRef.current.pause()
-      ttsAudioRef.current.currentTime = 0
+      URL.revokeObjectURL(ttsAudioRef.current.src)
     }
     
     setIsSpeaking(true)
     
     try {
-      // Google Cloud TTS API 호출 (서버에서 SSML로 무음 구간 추가)
+      console.log(`🎤 Cloud TTS 요청: ${text.substring(0, 30)}...`)
+      
+      // Google Cloud TTS API 호출
       const response = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -471,25 +473,31 @@ function MicTranslatePageContent() {
         }),
       })
       
-      const result = await response.json()
-      
-      if (!result.success || !result.audioContent) {
-        throw new Error(result.error || "TTS 응답 오류")
+      if (!response.ok) {
+        console.error("TTS API 오류:", response.status)
+        setIsSpeaking(false)
+        return
       }
       
-      // Base64 오디오를 Blob으로 변환
-      const audioBlob = await fetch(`data:audio/mp3;base64,${result.audioContent}`).then(r => r.blob())
+      const data = await response.json()
+      
+      if (!data.audioContent) {
+        console.error("TTS 오디오 없음")
+        setIsSpeaking(false)
+        return
+      }
+      
+      // Base64 → Blob → URL (YouTube와 동일한 방식)
+      const audioBlob = new Blob(
+        [Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0))],
+        { type: "audio/mp3" }
+      )
       const audioUrl = URL.createObjectURL(audioBlob)
       
-      // 오디오 재생 (로드 완료 후 재생)
-      const audio = new Audio()
+      // 오디오 재생
+      const audio = new Audio(audioUrl)
       audio.volume = audioSettings.ttsVolume
-      audio.preload = "auto"
       ttsAudioRef.current = audio
-      
-      audio.oncanplaythrough = () => {
-        audio.play().catch(console.error)
-      }
       
       audio.onended = () => {
         setIsSpeaking(false)
@@ -501,8 +509,8 @@ function MicTranslatePageContent() {
         URL.revokeObjectURL(audioUrl)
       }
       
-      // src 설정하면 자동으로 로드 시작 → oncanplaythrough에서 재생
-      audio.src = audioUrl
+      await audio.play()
+      console.log(`🎤 Cloud TTS 재생 중: ${data.voice}`)
       
     } catch (err) {
       console.error("TTS 오류:", err)
