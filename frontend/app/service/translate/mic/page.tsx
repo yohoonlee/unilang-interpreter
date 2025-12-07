@@ -246,6 +246,44 @@ function MicTranslatePageContent() {
   // TTS 재생 중 여부 (ref로 관리 - YouTube와 동일)
   const isSpeakingRef = useRef(false)
   
+  // 오디오 컨텍스트 활성화 상태
+  const audioUnlockedRef = useRef(false)
+  
+  // 🔑 핵심: 페이지의 첫 번째 클릭에서 오디오 컨텍스트 활성화
+  // (YouTube는 비디오 플레이어가 있어서 이미 활성화됨, mic 페이지는 수동으로 해야 함)
+  useEffect(() => {
+    const unlockAudioContext = async () => {
+      if (audioUnlockedRef.current) return
+      
+      try {
+        // 무음 MP3 재생으로 오디오 컨텍스트 활성화
+        const silentMp3 = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwmHAAAAAAD/+1DEAAAGAAGn9AAAIywiLP80YARERERBAUEH/4g5znOc/E7znIHOc5+gQ5znOc5+IOc5yAhyBDnOQICAIwmD/8QBAwY/6gAAANABjGMYwAAQhGCJk5CIhP9hDL//JQQQPw/B8HwfB+sH6wAAA0AGOQ5DkOR//xznOc5z/IOc5znOc/EHOc5AQ5Ah/kBDnOQEOQIf5AQ/yDlAQ5A5//8g5/8g5/kDn+Qc/yByByDn//WD/IOYHMDkBz//4Pgh+H4f/E="
+        
+        const audio = new Audio(silentMp3)
+        audio.volume = 0.01
+        await audio.play()
+        
+        audioUnlockedRef.current = true
+        console.log("🔓 오디오 컨텍스트 활성화 완료 (첫 클릭)")
+        
+        // 이벤트 리스너 제거
+        document.removeEventListener("click", unlockAudioContext)
+        document.removeEventListener("touchstart", unlockAudioContext)
+      } catch (err) {
+        console.log("오디오 활성화 대기 중...")
+      }
+    }
+    
+    // 클릭 또는 터치 이벤트에서 활성화
+    document.addEventListener("click", unlockAudioContext)
+    document.addEventListener("touchstart", unlockAudioContext)
+    
+    return () => {
+      document.removeEventListener("click", unlockAudioContext)
+      document.removeEventListener("touchstart", unlockAudioContext)
+    }
+  }, [])
+  
   // 세션 ID 변경 시 ref 업데이트 (비동기 문제 해결)
   useEffect(() => {
     sessionIdRef.current = sessionId
