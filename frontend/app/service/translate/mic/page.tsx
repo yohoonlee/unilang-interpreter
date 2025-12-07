@@ -1957,7 +1957,7 @@ function MicTranslatePageContent() {
       }
       
       setDocumentViewTab("original")
-      setShowDocumentModal(true)
+      setShowDocumentInPanel(true)
       
     } catch (err) {
       console.error("문서 정리 오류:", err)
@@ -2044,7 +2044,7 @@ function MicTranslatePageContent() {
       }
       
       setDocumentViewTab("original")
-      setShowDocumentModal(true)
+      setShowDocumentInPanel(true)
       
     } catch (err) {
       console.error("문서 정리 오류:", err)
@@ -3604,7 +3604,7 @@ function MicTranslatePageContent() {
                     {/* 회의기록보기 버튼 (문서가 생성된 경우에만) */}
                     {documentTextOriginal && (
                       <Button
-                        onClick={() => setShowDocumentModal(true)}
+                        onClick={() => setShowDocumentInPanel(true)}
                         size="sm"
                         variant="outline"
                         className="h-10 px-3 rounded-full border-2 border-emerald-400 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-500 hover:text-emerald-700 dark:hover:bg-emerald-900/30"
@@ -3744,74 +3744,203 @@ function MicTranslatePageContent() {
           </Card>
         )}
 
-        {/* 4. 통역 결과 (통역이 시작된 후에만 표시) */}
-        {(sessionId || transcripts.length > 0) && (
+        {/* 4. 통역 결과 또는 회의기록 보기 */}
+        {(sessionId || transcripts.length > 0 || showDocumentInPanel) && (
         <Card className="mb-4">
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
-              <Globe className="h-5 w-5 text-teal-500" />
-              통역 결과
-              {isSpeaking && (
-                <span className="text-xs text-teal-500 animate-pulse ml-2">🔊 재생 중...</span>
+              {showDocumentInPanel ? (
+                <>
+                  <FileText className="h-5 w-5 text-green-500" />
+                  회의기록
+                  {/* 언어 전환 탭 */}
+                  <div className="flex gap-1 ml-4">
+                    <Button
+                      onClick={() => { setDocumentViewTab("original"); if (isEditingDocument) setEditDocumentText(documentTextOriginal); }}
+                      variant={documentViewTab === "original" ? "default" : "ghost"}
+                      size="sm"
+                      className={`h-7 px-2 text-xs ${documentViewTab === "original" ? "bg-teal-500 text-white" : ""}`}
+                    >
+                      {getLanguageInfo(sourceLanguage).flag} 원문
+                    </Button>
+                    {documentTextTranslated && (
+                      <Button
+                        onClick={() => { setDocumentViewTab("translated"); if (isEditingDocument) setEditDocumentText(documentTextTranslated); }}
+                        variant={documentViewTab === "translated" ? "default" : "ghost"}
+                        size="sm"
+                        className={`h-7 px-2 text-xs ${documentViewTab === "translated" ? "bg-teal-500 text-white" : ""}`}
+                      >
+                        {getLanguageInfo(targetLanguage).flag} 번역
+                      </Button>
+                    )}
+                  </div>
+                  {/* 편집/저장 버튼 */}
+                  <div className="flex gap-1 ml-auto">
+                    {isEditingDocument ? (
+                      <>
+                        <Button
+                          onClick={saveEditedDocument}
+                          disabled={isSavingDocument}
+                          size="sm"
+                          className="h-7 px-2 text-xs bg-green-500 hover:bg-green-600 text-white"
+                        >
+                          {isSavingDocument ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3 mr-1" />}
+                          저장
+                        </Button>
+                        <Button
+                          onClick={cancelEditingDocument}
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          onClick={startEditingDocument}
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          title="마크다운 편집"
+                        >
+                          <Pencil className="h-3 w-3 mr-1" />
+                          편집
+                        </Button>
+                        <Button
+                          onClick={printDocument}
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          title="프린트"
+                        >
+                          <Printer className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          onClick={downloadMarkdown}
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          title=".md 다운로드"
+                        >
+                          <Download className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          onClick={() => setShowDocumentInPanel(false)}
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs text-slate-500"
+                          title="통역 결과로 돌아가기"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Globe className="h-5 w-5 text-teal-500" />
+                  통역 결과
+                  {isSpeaking && (
+                    <span className="text-xs text-teal-500 animate-pulse ml-2">🔊 재생 중...</span>
+                  )}
+                  {/* 회의기록 보기 버튼 */}
+                  {documentTextOriginal && (
+                    <Button
+                      onClick={() => setShowDocumentInPanel(true)}
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs ml-auto text-green-600 hover:text-green-700"
+                      title="회의기록 보기"
+                    >
+                      <FileText className="h-3 w-3 mr-1" />
+                      회의기록
+                    </Button>
+                  )}
+                </>
               )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {/* 병합 모드 안내 */}
-            {mergeMode && (
-              <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800">
-                <p className="text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
-                  <Edit3 className="h-4 w-4" />
-                  <strong>수동 병합 모드</strong>: 합칠 문장을 클릭하여 선택하세요 (2개 이상)
-                </p>
+            {/* 회의기록 보기 모드 */}
+            {showDocumentInPanel ? (
+              <div className="min-h-[300px]">
+                {isEditingDocument ? (
+                  // 편집 모드
+                  <textarea
+                    value={editDocumentText}
+                    onChange={(e) => setEditDocumentText(e.target.value)}
+                    className="w-full min-h-[400px] p-4 font-mono text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    placeholder="마크다운 형식으로 편집하세요..."
+                  />
+                ) : (
+                  // 마크다운 렌더링
+                  <div className="prose prose-slate dark:prose-invert max-w-none prose-headings:text-teal-700 prose-h1:border-b-2 prose-h1:border-teal-200 prose-h1:pb-2 prose-h2:text-lg prose-strong:text-teal-600 prose-blockquote:border-l-teal-500 prose-code:bg-slate-100 prose-code:px-1 prose-code:rounded prose-pre:bg-slate-100 prose-table:border-collapse prose-th:bg-teal-50 prose-th:border prose-th:border-slate-300 prose-th:p-2 prose-td:border prose-td:border-slate-300 prose-td:p-2 prose-ul:list-disc prose-ol:list-decimal">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
+                    </ReactMarkdown>
+                  </div>
+                )}
               </div>
-            )}
-
-            {/* AI 재정리 중 안내 */}
-            {isReorganizing && (
-              <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-900/30 rounded-lg border border-purple-200 dark:border-purple-800">
-                <p className="text-sm text-purple-700 dark:text-purple-300 flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  AI가 끊어진 문장을 분석하고 재구성 중입니다...
-                </p>
-              </div>
-            )}
-
-            <div
-              ref={transcriptContainerRef}
-              className="space-y-4 p-2"
-            >
-              {transcripts.length === 0 && !currentTranscript && (
-                <div className="h-full flex items-center justify-center text-slate-400">
-                  <div className="text-center">
-                    <Mic className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>마이크 버튼을 눌러 말씀해주세요</p>
-                    <p className="text-sm mt-2">음성이 실시간으로 번역됩니다</p>
+            ) : (
+              <>
+                {/* 병합 모드 안내 */}
+                {mergeMode && (
+                  <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <p className="text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                      <Edit3 className="h-4 w-4" />
+                      <strong>수동 병합 모드</strong>: 합칠 문장을 클릭하여 선택하세요 (2개 이상)
+                    </p>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* 현재 인식 중인 텍스트 (상단 고정) */}
-              {currentTranscript && (
-                <div className="bg-teal-50 dark:bg-teal-900/20 rounded-lg p-4 border-2 border-teal-300 dark:border-teal-700 shadow-md sticky top-0 z-10">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                    <span className="text-xs font-medium text-teal-700 dark:text-teal-300">실시간 인식 중...</span>
+                {/* AI 재정리 중 안내 */}
+                {isReorganizing && (
+                  <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-900/30 rounded-lg border border-purple-200 dark:border-purple-800">
+                    <p className="text-sm text-purple-700 dark:text-purple-300 flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      AI가 끊어진 문장을 분석하고 재구성 중입니다...
+                    </p>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-lg">{getLanguageInfo(sourceLanguage).flag}</span>
-                    <p className="text-slate-700 dark:text-slate-300 font-medium">{currentTranscript}</p>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {/* 번역 중 표시 */}
-              {isTranslating && (
-                <div className="flex items-center justify-center gap-2 text-teal-500 py-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">번역 중...</span>
-                </div>
-              )}
+                <div
+                  ref={transcriptContainerRef}
+                  className="space-y-4 p-2"
+                >
+                  {transcripts.length === 0 && !currentTranscript && (
+                    <div className="h-full flex items-center justify-center text-slate-400">
+                      <div className="text-center">
+                        <Mic className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>마이크 버튼을 눌러 말씀해주세요</p>
+                        <p className="text-sm mt-2">음성이 실시간으로 번역됩니다</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 현재 인식 중인 텍스트 (상단 고정) */}
+                  {currentTranscript && (
+                    <div className="bg-teal-50 dark:bg-teal-900/20 rounded-lg p-4 border-2 border-teal-300 dark:border-teal-700 shadow-md sticky top-0 z-10">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                        <span className="text-xs font-medium text-teal-700 dark:text-teal-300">실시간 인식 중...</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-lg">{getLanguageInfo(sourceLanguage).flag}</span>
+                        <p className="text-slate-700 dark:text-slate-300 font-medium">{currentTranscript}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 번역 중 표시 */}
+                  {isTranslating && (
+                    <div className="flex items-center justify-center gap-2 text-teal-500 py-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span className="text-sm">번역 중...</span>
+                    </div>
+                  )}
 
               {transcripts.map((item) => (
                 <div
@@ -3969,7 +4098,9 @@ function MicTranslatePageContent() {
               )}
 
               {/* 실시간 인식 텍스트와 번역 중 표시는 상단으로 이동됨 */}
-            </div>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
         )}
