@@ -27,6 +27,9 @@ import {
   Languages,
   Menu,
   Play,
+  Eye,
+  Copy,
+  Download,
 } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -168,6 +171,11 @@ function MicTranslatePageContent() {
   const [isReorganizing, setIsReorganizing] = useState(false) // AI 재정리 중
   const [selectedForMerge, setSelectedForMerge] = useState<Set<string>>(new Set()) // 수동 병합용 선택된 항목
   const [mergeMode, setMergeMode] = useState(false) // 수동 병합 모드
+  
+  // 문서 정리 관련
+  const [documentText, setDocumentText] = useState("") // 정리된 문서 내용
+  const [isDocumenting, setIsDocumenting] = useState(false) // 문서 정리 중
+  const [showDocumentModal, setShowDocumentModal] = useState(false) // 문서 보기 모달
   
   // 시스템 오디오 캡처 관련 (PC 소리 인식)
   const [isSystemAudioMode, setIsSystemAudioMode] = useState(false)
@@ -1704,6 +1712,70 @@ function MicTranslatePageContent() {
     return LANGUAGES.find((l) => l.code === code) || LANGUAGES[0]
   }
 
+  // ============ 문서 정리 (회의록 생성) ============
+  
+  // 문서로 정리하기
+  const generateDocument = async () => {
+    if (transcripts.length === 0) {
+      setError("정리할 내용이 없습니다.")
+      return
+    }
+    
+    setIsDocumenting(true)
+    try {
+      // 전체 내용 텍스트 생성
+      const contentText = transcripts
+        .map((t, idx) => {
+          const time = t.timestamp.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+          const original = t.original
+          const translated = t.translated && t.targetLanguage !== "none" ? `\n   → ${t.translated}` : ""
+          return `[${time}] ${original}${translated}`
+        })
+        .join("\n\n")
+      
+      // 문서 정리 언어 결정
+      const docLang = targetLanguage === "none" ? sourceLanguage : targetLanguage
+      const langName = getLanguageInfo(docLang).name
+      
+      const response = await fetch("/api/gemini/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: contentText,
+          targetLanguage: docLang,
+          customPrompt: `다음은 실시간 음성 통역 내용입니다. 이 내용을 ${langName}로 깔끔한 회의록/문서 형태로 정리해주세요.
+
+요약이 아닌, 실제 발언 내용을 모두 포함하되:
+1. 문맥에 맞게 문장을 다듬어주세요
+2. 끊어진 문장은 자연스럽게 연결해주세요
+3. 중복되는 내용은 한 번만 정리해주세요
+4. 시간순으로 정리해주세요
+5. 주제별로 구분이 필요하면 소제목을 달아주세요
+
+원본 내용:
+${contentText}
+
+정리된 문서:`,
+        }),
+      })
+      
+      const result = await response.json()
+      
+      if (!result.success) {
+        throw new Error(result.error || "문서 정리 실패")
+      }
+      
+      setDocumentText(result.summary)
+      setShowDocumentModal(true)
+      
+    } catch (err) {
+      console.error("문서 정리 오류:", err)
+      setError(err instanceof Error ? err.message : "문서 정리 중 오류가 발생했습니다.")
+    } finally {
+      setIsDocumenting(false)
+    }
+  }
+
   // ============ 시스템 오디오 캡처 (PC 소리 인식) ============
   
   // 시스템 오디오 캡처 시작
@@ -2221,6 +2293,78 @@ function MicTranslatePageContent() {
                 variant="outline"
               >
                 기록 목록 보기
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Modal - 회의기록 보기 */}
+      {showDocumentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            {/* 헤더 */}
+            <div className="p-6 border-b border-slate-200 dark:border-slate-700" style={{ backgroundColor: '#CCFBF1' }}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-teal-500">
+                    <FileText className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-teal-800">회의기록</h2>
+                    <p className="text-sm text-teal-600">AI가 정리한 문서</p>
+                  </div>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setShowDocumentModal(false)} className="hover:bg-teal-200">
+                  <X className="h-5 w-5 text-teal-700" />
+                </Button>
+              </div>
+            </div>
+
+            {/* 본문 */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="prose prose-slate dark:prose-invert max-w-none">
+                <div className="whitespace-pre-wrap text-slate-700 dark:text-slate-300 leading-relaxed">
+                  {documentText}
+                </div>
+              </div>
+            </div>
+
+            {/* 하단 버튼 */}
+            <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex gap-2">
+              <Button
+                onClick={async () => {
+                  await navigator.clipboard.writeText(documentText)
+                  setError(null)
+                  alert("클립보드에 복사되었습니다!")
+                }}
+                variant="outline"
+                className="flex-1"
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                복사
+              </Button>
+              <Button
+                onClick={() => {
+                  const blob = new Blob([documentText], { type: "text/plain;charset=utf-8" })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement("a")
+                  a.href = url
+                  a.download = `회의기록_${new Date().toISOString().slice(0, 10)}.txt`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                }}
+                variant="outline"
+                className="flex-1"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                다운로드
+              </Button>
+              <Button
+                onClick={() => setShowDocumentModal(false)}
+                className="flex-1 bg-gradient-to-r from-teal-500 to-cyan-500 text-white"
+              >
+                닫기
               </Button>
             </div>
           </div>
@@ -2845,6 +2989,37 @@ function MicTranslatePageContent() {
                           <X className="h-4 w-4" />
                         </Button>
                       </>
+                    )}
+                    
+                    {/* 문서로 정리 버튼 */}
+                    <Button
+                      onClick={generateDocument}
+                      disabled={isDocumenting}
+                      size="sm"
+                      variant="outline"
+                      className="h-10 px-3 rounded-full border-2 border-green-400 text-green-600 hover:bg-green-100 hover:border-green-500 hover:text-green-700 dark:hover:bg-green-900/30"
+                      title="통역 내용을 문서로 정리합니다"
+                    >
+                      {isDocumenting ? (
+                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      ) : (
+                        <FileText className="h-4 w-4 mr-1" />
+                      )}
+                      문서 정리
+                    </Button>
+                    
+                    {/* 회의기록보기 버튼 (문서가 생성된 경우에만) */}
+                    {documentText && (
+                      <Button
+                        onClick={() => setShowDocumentModal(true)}
+                        size="sm"
+                        variant="outline"
+                        className="h-10 px-3 rounded-full border-2 border-emerald-400 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-500 hover:text-emerald-700 dark:hover:bg-emerald-900/30"
+                        title="정리된 문서 보기"
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        회의기록
+                      </Button>
                     )}
                   </>
                 )}
