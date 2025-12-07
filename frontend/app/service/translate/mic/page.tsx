@@ -3000,8 +3000,8 @@ function MicTranslatePageContent() {
       {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
-            <div className="p-6">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="p-6 pb-8">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white">오디오 설정</h2>
                 <Button variant="ghost" size="icon" onClick={() => setShowSettings(false)}>
@@ -3730,14 +3730,14 @@ function MicTranslatePageContent() {
 
         {/* 3. 기록 목록 (통역이 시작되지 않았을 때 메인에 표시) */}
         {!sessionId && transcripts.length === 0 && (
-          <Card className="border-teal-200 dark:border-teal-800 overflow-hidden">
+          <Card className="border-teal-200 dark:border-teal-800 overflow-hidden" style={{ backgroundColor: '#CCFBF1' }}>
             <CardHeader className="pb-2 pt-4" style={{ backgroundColor: '#CCFBF1' }}>
               <CardTitle className="text-lg flex items-center gap-2 text-teal-800">
                 <List className="h-5 w-5" />
                 통역 기록
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-4">
+            <CardContent className="p-4 bg-white dark:bg-slate-900">
               {isLoadingSessions ? (
                 <div className="flex items-center justify-center py-10">
                   <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
