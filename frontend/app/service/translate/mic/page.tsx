@@ -243,18 +243,23 @@ function MicTranslatePageContent() {
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null) // 침묵 타이머
   const SILENCE_THRESHOLD = 1500 // 1.5초 침묵 후 번역 실행
 
-  // 사용자 정보 가져오기 + 세션 목록 로드
+  // 사용자 정보 가져오기
   useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         setUserId(user.id)
-        // 페이지 진입 시 세션 목록 자동 로드
-        loadSessions()
       }
     }
     getUser()
   }, [supabase])
+
+  // userId가 설정되면 세션 목록 로드
+  useEffect(() => {
+    if (userId) {
+      loadSessions()
+    }
+  }, [userId])
 
   // Supabase 실시간 구독 (translation_sessions 테이블 변경 감지)
   useEffect(() => {
@@ -1714,7 +1719,92 @@ function MicTranslatePageContent() {
 
   // ============ 문서 정리 (회의록 생성) ============
   
-  // 문서로 정리하기
+  // 세션 ID로 문서 정리하기 (목록에서 클릭 시)
+  const generateDocumentForSession = async (targetSessionId: string) => {
+    setIsDocumenting(true)
+    try {
+      // 세션의 발화 데이터 가져오기
+      const { data: utterances, error } = await supabase
+        .from("utterances")
+        .select(`
+          id,
+          original_text,
+          source_language,
+          created_at,
+          translations (
+            translated_text,
+            target_language
+          )
+        `)
+        .eq("session_id", targetSessionId)
+        .order("created_at", { ascending: true })
+      
+      if (error || !utterances || utterances.length === 0) {
+        setError("통역 내용이 없습니다.")
+        return
+      }
+      
+      // 텍스트 생성
+      const contentText = utterances
+        .map((u: { original_text: string; created_at: string; translations: Array<{ translated_text: string; target_language: string }> }) => {
+          const time = new Date(u.created_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })
+          const original = u.original_text
+          const translation = u.translations?.[0]
+          const translated = translation?.translated_text ? `\n   → ${translation.translated_text}` : ""
+          return `[${time}] ${original}${translated}`
+        })
+        .join("\n\n")
+      
+      // 세션 정보 가져오기
+      const { data: sessionData } = await supabase
+        .from("translation_sessions")
+        .select("source_language, target_languages")
+        .eq("id", targetSessionId)
+        .single()
+      
+      const docLang = sessionData?.target_languages?.[0] || sessionData?.source_language || "ko"
+      const langName = getLanguageInfo(docLang).name
+      
+      const response = await fetch("/api/gemini/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: contentText,
+          targetLanguage: docLang,
+          customPrompt: `다음은 실시간 음성 통역 내용입니다. 이 내용을 ${langName}로 깔끔한 회의록/문서 형태로 정리해주세요.
+
+요약이 아닌, 실제 발언 내용을 모두 포함하되:
+1. 문맥에 맞게 문장을 다듬어주세요
+2. 끊어진 문장은 자연스럽게 연결해주세요
+3. 중복되는 내용은 한 번만 정리해주세요
+4. 시간순으로 정리해주세요
+5. 주제별로 구분이 필요하면 소제목을 달아주세요
+
+원본 내용:
+${contentText}
+
+정리된 문서:`,
+        }),
+      })
+      
+      const result = await response.json()
+      
+      if (!result.success) {
+        throw new Error(result.error || "문서 정리 실패")
+      }
+      
+      setDocumentText(result.summary)
+      setShowDocumentModal(true)
+      
+    } catch (err) {
+      console.error("문서 정리 오류:", err)
+      setError(err instanceof Error ? err.message : "문서 정리 중 오류가 발생했습니다.")
+    } finally {
+      setIsDocumenting(false)
+    }
+  }
+  
+  // 문서로 정리하기 (현재 세션)
   const generateDocument = async () => {
     if (transcripts.length === 0) {
       setError("정리할 내용이 없습니다.")
@@ -2832,6 +2922,11 @@ ${contentText}
                 <Settings className="h-5 w-5" />
               </Button>
             </div>
+            
+            {/* 언어 안내 문구 */}
+            <p className="text-xs text-teal-600 dark:text-teal-400 mb-3 -mt-2 px-1">
+              * 음성언어와 번역언어가 동일하게 선택되면 해당 언어로만 문서정리를 해줍니다
+            </p>
 
             {/* 컨트롤 버튼 + 상태 (한 줄 레이아웃) */}
             <div className="flex items-center justify-between gap-3 pt-3 border-t border-teal-200 dark:border-teal-700">
@@ -3046,8 +3141,8 @@ ${contentText}
 
         {/* 3. 기록 목록 (통역이 시작되지 않았을 때 메인에 표시) */}
         {!sessionId && transcripts.length === 0 && (
-          <Card className="border-teal-200 dark:border-teal-800">
-            <CardHeader className="pb-2" style={{ backgroundColor: '#CCFBF1' }}>
+          <Card className="border-teal-200 dark:border-teal-800 overflow-hidden">
+            <CardHeader className="pb-2 pt-4" style={{ backgroundColor: '#CCFBF1' }}>
               <CardTitle className="text-lg flex items-center gap-2 text-teal-800">
                 <List className="h-5 w-5" />
                 통역 기록
@@ -3108,6 +3203,17 @@ ${contentText}
                         </div>
                         
                         <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              generateDocumentForSession(session.id)
+                            }}
+                            title="회의록 보기"
+                          >
+                            <FileText className="h-4 w-4 text-green-500" />
+                          </Button>
                           <Button
                             size="sm"
                             variant="ghost"
