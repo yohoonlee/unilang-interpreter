@@ -3486,34 +3486,6 @@ function MicTranslatePageContent() {
                 </div>
               )}
             </div>
-
-            <div className="p-4 border-t border-slate-200 dark:border-slate-700 space-y-2">
-              <Button
-                onClick={() => {
-                  setShowSummaryModal(false)
-                  // 요약 후 새 세션 시작 가능하도록 초기화
-                  setSessionId(null)
-                  setTranscripts([])
-                  setCurrentSessionTitle("")
-                  setCurrentSessionCreatedAt(null)
-                  setDetectedLanguage(null)
-                }}
-                className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white hover:from-teal-600 hover:to-cyan-600"
-              >
-                완료 - 새 통역 시작
-              </Button>
-              <Button
-                onClick={() => {
-                  setShowSummaryModal(false)
-                  setShowSessionList(true)
-                  loadSessions()
-                }}
-                className="w-full"
-                variant="outline"
-              >
-                기록 목록 보기
-              </Button>
-            </div>
           </div>
         </div>
       )}
