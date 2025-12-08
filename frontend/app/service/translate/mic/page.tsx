@@ -4797,8 +4797,8 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                     <Button
                       onClick={() => setShowDocumentInPanel(true)}
                       size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-xs ml-auto text-green-600 hover:text-green-700"
+                      className="h-7 px-3 text-xs ml-auto text-white hover:opacity-90"
+                      style={{ backgroundColor: '#00BAB7' }}
                       title="회의기록 보기"
                     >
                       <FileText className="h-3 w-3 mr-1" />

@@ -4792,17 +4792,17 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                   {isSpeaking && (
                     <span className="text-xs text-teal-500 animate-pulse ml-2">🔊 재생 중...</span>
                   )}
-                  {/* 회의기록 보기 버튼 */}
+                  {/* 통역기록 보기 버튼 */}
                   {documentTextOriginal && (
                     <Button
                       onClick={() => setShowDocumentInPanel(true)}
                       size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-xs ml-auto text-green-600 hover:text-green-700"
-                      title="회의기록 보기"
+                      className="h-7 px-3 text-xs ml-auto text-white hover:opacity-90"
+                      style={{ backgroundColor: '#00BAB7' }}
+                      title="통역기록 보기"
                     >
                       <FileText className="h-3 w-3 mr-1" />
-                      회의기록
+                      통역기록
                     </Button>
                   )}
                 </>
