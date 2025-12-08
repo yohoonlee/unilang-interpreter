@@ -180,6 +180,11 @@ function MicTranslatePageContent() {
   const [summarySessionId, setSummarySessionId] = useState<string | null>(null)
   const [summaryLanguage, setSummaryLanguage] = useState("ko")
   const [savedSummaries, setSavedSummaries] = useState<Record<string, string>>({}) // 언어별 저장된 요약
+  
+  // 커스텀 확인 모달 관련
+  const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [confirmModalMessage, setConfirmModalMessage] = useState("")
+  const [confirmModalCallback, setConfirmModalCallback] = useState<(() => void) | null>(null)
   const [hasExistingSummary, setHasExistingSummary] = useState(false)
   const [previewSummary, setPreviewSummary] = useState<{sessionId: string, text: string} | null>(null) // 목록 말풍선 요약
   
@@ -992,24 +997,31 @@ function MicTranslatePageContent() {
     return { queued: true }
   }
 
+  // 커스텀 확인 모달 표시
+  const showConfirm = (message: string, onConfirm: () => void) => {
+    setConfirmModalMessage(message)
+    setConfirmModalCallback(() => onConfirm)
+    setShowConfirmModal(true)
+  }
+
   // 발화 삭제
   const deleteTranscriptItem = async (item: TranscriptItem) => {
-    if (!confirm("이 발화를 삭제하시겠습니까?")) return
-    
-    // 로컬 상태에서 제거
-    setTranscripts(prev => prev.filter(t => t.id !== item.id))
-    
-    // DB에서도 삭제
-    if (item.utteranceId && saveToDb) {
-      try {
-        await supabase
-          .from("utterances")
-          .delete()
-          .eq("id", item.utteranceId)
-      } catch (err) {
-        console.error("발화 삭제 오류:", err)
+    showConfirm("이 발화를 삭제하시겠습니까?", async () => {
+      // 로컬 상태에서 제거
+      setTranscripts(prev => prev.filter(t => t.id !== item.id))
+      
+      // DB에서도 삭제
+      if (item.utteranceId) {
+        try {
+          await supabase
+            .from("utterances")
+            .delete()
+            .eq("id", item.utteranceId)
+        } catch (err) {
+          console.error("발화 삭제 오류:", err)
+        }
       }
-    }
+    })
   }
 
   // 발화 수정 및 재번역
@@ -1130,31 +1142,31 @@ function MicTranslatePageContent() {
 
   // 세션 삭제
   const deleteSession = async (sessionIdToDelete: string) => {
-    if (!confirm("이 통역 기록을 삭제하시겠습니까?")) return
-    
-    try {
-      const { error } = await supabase
-        .from("translation_sessions")
-        .delete()
-        .eq("id", sessionIdToDelete)
-      
-      if (error) {
-        console.error("세션 삭제 실패:", error)
-        return
+    showConfirm("이 회의록을 삭제하시겠습니까?", async () => {
+      try {
+        const { error } = await supabase
+          .from("translation_sessions")
+          .delete()
+          .eq("id", sessionIdToDelete)
+        
+        if (error) {
+          console.error("세션 삭제 실패:", error)
+          return
+        }
+        
+        // 로컬 상태에서 제거
+        setSessions(prev => prev.filter(s => s.id !== sessionIdToDelete))
+        
+        // 현재 세션이 삭제되면 세션 초기화
+        if (sessionId === sessionIdToDelete) {
+          setSessionId(null)
+          setTranscripts([])
+          setCurrentSessionTitle("")
+        }
+      } catch (err) {
+        console.error("세션 삭제 오류:", err)
       }
-      
-      // 로컬 상태에서 제거
-      setSessions(prev => prev.filter(s => s.id !== sessionIdToDelete))
-      
-      // 현재 세션이 삭제되면 세션 초기화
-      if (sessionId === sessionIdToDelete) {
-        setSessionId(null)
-        setTranscripts([])
-        setCurrentSessionTitle("")
-      }
-    } catch (err) {
-      console.error("세션 삭제 오류:", err)
-    }
+    })
   }
 
   // 세션 불러오기 (과거 기록 보기)
@@ -3566,6 +3578,64 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                 <Mic className="h-4 w-4 mr-2" />
                 새 통역 시작
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 커스텀 확인 모달 */}
+      {showConfirmModal && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowConfirmModal(false)
+              setConfirmModalCallback(null)
+            }
+          }}
+        >
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* 헤더 - 민트색 */}
+            <div className="p-4" style={{ backgroundColor: '#00BBAE' }}>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
+                  <Trash2 className="h-5 w-5 text-white" />
+                </div>
+                <h3 className="text-lg font-bold text-white">삭제 확인</h3>
+              </div>
+            </div>
+            
+            {/* 메시지 */}
+            <div className="p-6">
+              <p className="text-slate-700 dark:text-slate-300 text-center">
+                {confirmModalMessage}
+              </p>
+            </div>
+            
+            {/* 버튼 */}
+            <div className="flex border-t border-slate-200 dark:border-slate-700">
+              <button
+                onClick={() => {
+                  setShowConfirmModal(false)
+                  setConfirmModalCallback(null)
+                }}
+                className="flex-1 py-3 text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 font-medium transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => {
+                  setShowConfirmModal(false)
+                  if (confirmModalCallback) {
+                    confirmModalCallback()
+                  }
+                  setConfirmModalCallback(null)
+                }}
+                className="flex-1 py-3 font-medium transition-colors border-l border-slate-200 dark:border-slate-700"
+                style={{ backgroundColor: '#00BBAE', color: 'white' }}
+              >
+                확인
+              </button>
             </div>
           </div>
         </div>
