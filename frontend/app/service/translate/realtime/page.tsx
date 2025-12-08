@@ -4690,7 +4690,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
         {/* 4. 통역 결과 또는 회의기록 보기 */}
         {(sessionId || transcripts.length > 0 || showDocumentInPanel) && (
         <Card className="mb-4">
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-2 rounded-t-lg" style={{ backgroundColor: '#CCFBF1' }}>
             <CardTitle className="text-lg flex items-center gap-2">
               {showDocumentInPanel ? (
                 <>
