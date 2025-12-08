@@ -2280,7 +2280,7 @@ Please write the transcript following this exact format.`
                   {sessions.map((session) => (
                     <div
                       key={session.id}
-                      className="p-3 rounded-lg border transition-colors cursor-pointer border-teal-200"
+                      className="p-3 rounded-lg border transition-colors cursor-pointer border-teal-200 flex items-center justify-between"
                       style={{ backgroundColor: 'white' }}
                       onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#CCFBF1'}
                       onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
