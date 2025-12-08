@@ -2262,20 +2262,28 @@ Please write the transcript following this exact format.`
 
           {/* 4. 녹음 기록 목록 */}
           {sessions.length > 0 && !sessionId && transcripts.length === 0 && (
-            <Card className="border-2 shadow-lg overflow-hidden" style={{ borderColor: '#96F7E4', backgroundColor: '#CCFBF1' }}>
-              <CardContent className="p-0">
-                <div className="p-4 border-b border-teal-200" style={{ backgroundColor: '#CCFBF1' }}>
-                  <h3 className="font-bold text-teal-800 flex items-center gap-2">
-                    <List className="h-5 w-5" />
-                    녹음 기록 ({sessions.length}개)
-                  </h3>
-                </div>
-                
-                <div className="divide-y divide-teal-100">
+            <Card className="border-teal-200 overflow-hidden" style={{ backgroundColor: '#CCFBF1' }}>
+              <CardHeader className="pb-2 pt-4" style={{ backgroundColor: '#CCFBF1' }}>
+                <CardTitle className="text-lg flex items-center gap-2 text-teal-800">
+                  <List className="h-5 w-5" />
+                  녹음 기록
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 bg-white">
+                {sessions.length === 0 ? (
+                  <div className="text-center py-10 text-slate-500">
+                    <Headphones className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                    <p>저장된 기록이 없습니다.</p>
+                  </div>
+                ) : (
+                <div className="space-y-3">
                   {sessions.map((session) => (
                     <div
                       key={session.id}
-                      className="p-4 hover:bg-teal-50 transition-colors cursor-pointer flex items-center justify-between"
+                      className="p-3 rounded-lg border transition-colors cursor-pointer border-teal-200"
+                      style={{ backgroundColor: 'white' }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#CCFBF1'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                       onClick={() => loadSessionData(session)}
                     >
                       <div className="flex-1 min-w-0">
@@ -2335,6 +2343,7 @@ Please write the transcript following this exact format.`
                     </div>
                   ))}
                 </div>
+                )}
               </CardContent>
             </Card>
           )}
