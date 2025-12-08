@@ -3331,6 +3331,19 @@ function MicTranslatePageContent() {
                             >
                               <Edit3 className="h-4 w-4 text-slate-500" />
                             </Button>
+                            {/* 회의록보기 버튼 */}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                await loadSessionData(session)
+                                setShowDocumentInPanel(true)
+                              }}
+                              title="회의록보기"
+                            >
+                              <FileText className="h-4 w-4 text-emerald-600" />
+                            </Button>
                             <div className="relative">
                               <Button
                                 size="sm"
@@ -4157,13 +4170,17 @@ function MicTranslatePageContent() {
                   )}
                 </Button>
                 
-                {/* 회의 종료 버튼 */}
+                {/* 회의 종료 버튼 - 회의기록 저장 후 회색 표시 */}
                 {sessionId && (
                   <Button
                     onClick={finalizeSession}
                     size="sm"
                     variant="outline"
-                    className="h-10 px-3 rounded-full border-2 border-orange-400 text-orange-600 hover:bg-orange-100 hover:border-orange-500 hover:text-orange-700 dark:hover:bg-orange-900/30 dark:hover:text-orange-400"
+                    className={`h-10 px-3 rounded-full border-2 ${
+                      documentTextOriginal
+                        ? "border-slate-300 text-slate-400 bg-slate-50 hover:bg-slate-100 hover:text-slate-500"
+                        : "border-orange-400 text-orange-600 hover:bg-orange-100 hover:border-orange-500 hover:text-orange-700 dark:hover:bg-orange-900/30 dark:hover:text-orange-400"
+                    }`}
                   >
                     <Save className="h-4 w-4 mr-1" />
                     종료
@@ -4178,7 +4195,11 @@ function MicTranslatePageContent() {
                       disabled={isReorganizing}
                       size="sm"
                       variant="outline"
-                      className="h-10 px-3 rounded-full border-2 border-purple-400 text-purple-600 hover:bg-purple-100 hover:border-purple-500 hover:text-purple-700 dark:hover:bg-purple-900/30"
+                      className={`h-10 px-3 rounded-full border-2 ${
+                        documentTextOriginal
+                          ? "border-slate-300 text-slate-400 bg-slate-50 hover:bg-slate-100 hover:text-slate-500"
+                          : "border-purple-400 text-purple-600 hover:bg-purple-100 hover:border-purple-500 hover:text-purple-700 dark:hover:bg-purple-900/30"
+                      }`}
                       title="AI가 끊어진 문장을 자동으로 합쳐서 재번역합니다"
                     >
                       {isReorganizing ? (
@@ -4194,7 +4215,11 @@ function MicTranslatePageContent() {
                         onClick={() => setMergeMode(true)}
                         size="sm"
                         variant="outline"
-                        className="h-10 px-3 rounded-full border-2 border-blue-400 text-blue-600 hover:bg-blue-100 hover:border-blue-500 hover:text-blue-700 dark:hover:bg-blue-900/30"
+                        className={`h-10 px-3 rounded-full border-2 ${
+                          documentTextOriginal
+                            ? "border-slate-300 text-slate-400 bg-slate-50 hover:bg-slate-100 hover:text-slate-500"
+                            : "border-blue-400 text-blue-600 hover:bg-blue-100 hover:border-blue-500 hover:text-blue-700 dark:hover:bg-blue-900/30"
+                        }`}
                         title="문장을 직접 선택하여 합칩니다"
                       >
                         <Edit3 className="h-4 w-4 mr-1" />
@@ -4226,13 +4251,17 @@ function MicTranslatePageContent() {
                       </>
                     )}
                     
-                    {/* 문서로 정리 버튼 */}
+                    {/* 문서로 정리 버튼 - 회의기록 저장 후 회색 표시 */}
                     <Button
                       onClick={generateDocument}
                       disabled={isDocumenting}
                       size="sm"
                       variant="outline"
-                      className="h-10 px-3 rounded-full border-2 border-green-400 text-green-600 hover:bg-green-100 hover:border-green-500 hover:text-green-700 dark:hover:bg-green-900/30"
+                      className={`h-10 px-3 rounded-full border-2 ${
+                        documentTextOriginal
+                          ? "border-slate-300 text-slate-400 bg-slate-50 hover:bg-slate-100 hover:text-slate-500"
+                          : "border-green-400 text-green-600 hover:bg-green-100 hover:border-green-500 hover:text-green-700 dark:hover:bg-green-900/30"
+                      }`}
                       title="통역 내용을 문서로 정리합니다"
                     >
                       {isDocumenting ? (
@@ -4355,13 +4384,14 @@ function MicTranslatePageContent() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={(e) => {
+                            onClick={async (e) => {
                               e.stopPropagation()
-                              generateDocumentForSession(session.id)
+                              await loadSessionData(session)
+                              setShowDocumentInPanel(true)
                             }}
                             title="회의록 보기"
                           >
-                            <FileText className="h-4 w-4 text-green-500" />
+                            <FileText className="h-4 w-4 text-emerald-600" />
                           </Button>
                           <Button
                             size="sm"
