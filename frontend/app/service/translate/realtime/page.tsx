@@ -3885,8 +3885,8 @@ function MicTranslatePageContent() {
                 <Mic className="h-6 w-6 text-white" />
               </div>
               <div className="flex-1">
-                <h1 className="text-xl font-bold">회의록 자동작성</h1>
-                <p className="text-sm text-white/80">회의 내용을 자동으로 기록하고 문서화합니다</p>
+                <h1 className="text-xl font-bold">실시간 음성 통역</h1>
+                <p className="text-sm text-white/80">마이크로 말하면 실시간으로 번역됩니다</p>
               </div>
               {/* 우측 버튼들 */}
               <div className="flex items-center gap-2">

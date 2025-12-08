@@ -31,6 +31,7 @@ import { createClient } from "@/lib/supabase/client"
 
 const menuItems = [
   { id: "home", label: "홈", icon: Home },
+  { id: "minutes", label: "회의록 자동작성", icon: FileText },
   { id: "translate", label: "실시간 통역", icon: Mic },
   { id: "record", label: "녹음 통역", icon: FileAudio },
   { id: "videocall", label: "화상회의", icon: Monitor },
@@ -77,6 +78,8 @@ export default function ServicePage() {
     switch (activeMenu) {
       case "home":
         return <HomeContent onStartTranslation={startTranslation} />
+      case "minutes":
+        return <MinutesContent />
       case "translate":
         return <TranslateContent />
       case "record":
@@ -242,12 +245,25 @@ function HomeContent({ onStartTranslation }: { onStartTranslation: () => void })
   )
 }
 
-// 실시간 통역 서비스 - iframe으로 기존 통역 페이지 로드 (embedded 모드)
-function TranslateContent() {
+// 회의록 자동작성 서비스 - 기존 mic 페이지 (회의록 자동작성 기능 포함)
+function MinutesContent() {
   return (
     <div className="h-full">
       <iframe 
         src="/service/translate/mic?embedded=true" 
+        className="w-full h-full border-0"
+        title="회의록 자동작성"
+      />
+    </div>
+  )
+}
+
+// 실시간 통역 서비스 - 새 통역 전용 페이지
+function TranslateContent() {
+  return (
+    <div className="h-full">
+      <iframe 
+        src="/service/translate/realtime?embedded=true" 
         className="w-full h-full border-0"
         title="실시간 통역"
       />
