@@ -3189,10 +3189,15 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
       setIsSystemAudioMode(true)
       setTranscripts([])
       
-      // 새 세션이면 타이머 초기화 및 시작
+      // 새 세션이면 세션 생성 및 타이머 초기화
       if (!sessionId) {
         setSessionStartTime(new Date())
         setElapsedSeconds(0)
+        // 세션 생성 (마이크와 동일)
+        const newSessionId = await createSession()
+        setSessionId(newSessionId)
+        sessionIdRef.current = newSessionId
+        console.log("🆕 [PC소리] 새 세션 생성:", newSessionId)
       }
       startSessionTimer()
       
@@ -3293,8 +3298,8 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
             if (data.is_final && transcript?.trim()) {
               console.log("[Deepgram] 최종 인식:", transcript)
               setCurrentTranscript("")
-              // 번역 및 저장
-              await addTranscriptItem(transcript.trim())
+              // 번역 및 저장 (마이크와 동일한 함수 사용)
+              await translateAndAdd(transcript.trim())
             } else if (transcript) {
               setCurrentTranscript(transcript)
             }
