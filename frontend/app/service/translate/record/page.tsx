@@ -2262,14 +2262,14 @@ Please write the transcript following this exact format.`
 
           {/* 4. 녹음 기록 목록 */}
           {sessions.length > 0 && !sessionId && transcripts.length === 0 && (
-            <Card className="border-teal-200 overflow-hidden bg-white">
+            <Card className="border-teal-200 overflow-hidden" style={{ backgroundColor: '#CCFBF1' }}>
               <CardHeader className="pb-2 pt-4" style={{ backgroundColor: '#CCFBF1' }}>
                 <CardTitle className="text-lg flex items-center gap-2 text-teal-800">
                   <List className="h-5 w-5" />
                   녹음 기록
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-4 bg-white">
+              <CardContent className="p-4 bg-white rounded-b-xl">
                 {sessions.length === 0 ? (
                   <div className="text-center py-10 text-slate-500">
                     <Headphones className="h-12 w-12 mx-auto mb-3 opacity-30" />
