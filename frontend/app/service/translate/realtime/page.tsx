@@ -857,6 +857,7 @@ function MicTranslatePageContent() {
           .from("translation_sessions")
           .select("*", { count: "exact", head: true })
           .eq("user_id", userId)
+          .eq("service_type", "realtime")
         
         const sessionNumber = (count || 0) + 1
         titleToUse = `통역 ${sessionNumber}`
@@ -868,6 +869,7 @@ function MicTranslatePageContent() {
           user_id: userId,
           title: titleToUse,
           session_type: "mic",
+          service_type: "realtime", // 실시간 통역
           source_language: sourceLanguage,
           target_languages: [targetLanguage],
           status: "active"
@@ -1078,6 +1080,7 @@ function MicTranslatePageContent() {
         .select("*")
         .eq("user_id", userId)
         .eq("session_type", "mic")
+        .eq("service_type", "realtime") // 실시간 통역만 조회
         .order("created_at", { ascending: false })
       
       console.log("📋 세션 목록 결과:", { data, error })
