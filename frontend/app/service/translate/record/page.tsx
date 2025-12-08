@@ -1973,8 +1973,20 @@ Please write the transcript following this exact format.`
                                 const findInput = document.getElementById("findSpeaker") as HTMLInputElement
                                 const replaceInput = document.getElementById("replaceSpeaker") as HTMLInputElement
                                 if (findInput?.value && replaceInput?.value) {
-                                  const regex = new RegExp(`\\[${findInput.value}\\]`, "g")
-                                  setEditDocumentText(prev => prev.replace(regex, `[${replaceInput.value}]`))
+                                  // **[화자 A]** 형태와 [화자 A] 형태 모두 지원
+                                  const findText = findInput.value.trim()
+                                  const replaceText = replaceInput.value.trim()
+                                  
+                                  // 볼드 + 대괄호 형태: **[화자 A]** → **[이요훈]**
+                                  const boldRegex = new RegExp(`\\*\\*\\[${findText}\\]\\*\\*`, "g")
+                                  // 대괄호만 형태: [화자 A] → [이요훈]
+                                  const bracketRegex = new RegExp(`\\[${findText}\\]`, "g")
+                                  
+                                  setEditDocumentText(prev => {
+                                    let result = prev.replace(boldRegex, `**[${replaceText}]**`)
+                                    result = result.replace(bracketRegex, `[${replaceText}]`)
+                                    return result
+                                  })
                                   findInput.value = ""
                                   replaceInput.value = ""
                                 }
