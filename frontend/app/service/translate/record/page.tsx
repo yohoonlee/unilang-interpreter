@@ -1431,11 +1431,9 @@ Please organize the content into logical topics and write following this format.
                 <Button 
                   variant="ghost" 
                   size="icon"
-                  onClick={() => {
-                    setShowSessionList(true)
-                    loadSessions()
-                  }}
+                  onClick={startNewRecording}
                   className="text-white hover:bg-white/20"
+                  title="메인 화면으로"
                 >
                   <List className="h-5 w-5" />
                 </Button>
@@ -1729,12 +1727,9 @@ Please organize the content into logical topics and write following this format.
               {/* 결과 있을 때 - 컨트롤 버튼들 */}
               {transcripts.length > 0 && !isProcessing && (
                 <div className="flex items-center flex-wrap gap-2">
-                  {/* 목록 버튼 */}
+                  {/* 목록 버튼 - 메인 화면으로 이동 */}
                   <Button
-                    onClick={() => {
-                      setShowSessionList(true)
-                      loadSessions()
-                    }}
+                    onClick={startNewRecording}
                     size="sm"
                     variant="outline"
                     className="h-10 px-3 rounded-full bg-teal-100 border border-teal-300 text-teal-700 hover:bg-teal-200"
@@ -1856,7 +1851,7 @@ Please organize the content into logical topics and write following this format.
 
           {/* 3. 통역 결과 / 녹음기록 패널 */}
           {(transcripts.length > 0 || showDocumentInPanel) && (
-            <Card className="border-2 shadow-lg overflow-hidden" style={{ borderColor: '#96F7E4', backgroundColor: '#CCFBF1' }}>
+            <Card className="border-2 border-teal-200 bg-white shadow-lg overflow-hidden">
               <CardContent className="p-0">
                 {/* 녹음기록 보기 모드 */}
                 {showDocumentInPanel && documentTextOriginal ? (
@@ -1961,7 +1956,7 @@ Please organize the content into logical topics and write following this format.
                     </div>
                     
                     {/* 본문 */}
-                    <div className="p-6 max-h-[500px] overflow-y-auto" style={{ backgroundColor: '#F8FAFC' }}>
+                    <div className="p-6">
                       <div className="prose prose-slate max-w-none prose-headings:text-teal-800 prose-strong:text-teal-700 prose-li:marker:text-teal-500">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                           {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
@@ -2050,7 +2045,7 @@ Please organize the content into logical topics and write following this format.
                     )}
                     
                     {/* 발화 목록 */}
-                    <div className="max-h-[500px] overflow-y-auto p-4 space-y-3" style={{ backgroundColor: '#F8FAFC' }}>
+                    <div className="p-4 space-y-3">
                       {transcripts.map((item) => {
                         const color = getSpeakerColor(item.speaker)
                         const isEditing = editingItemId === item.id
@@ -2101,8 +2096,8 @@ Please organize the content into logical topics and write following this format.
                                     <Volume2 className={`h-4 w-4 ${speakingId === `${item.id}-original` ? "animate-pulse" : ""}`} />
                                   </button>
                                   
-                                  {/* 번역 TTS */}
-                                  {item.translated && (
+                                  {/* 번역 TTS - 번역안함이 아니고, 번역 텍스트가 있고, 원문과 다를 때만 표시 */}
+                                  {targetLanguage !== "none" && item.translated && item.translated !== item.original && (
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation()
@@ -2156,7 +2151,8 @@ Please organize the content into logical topics and write following this format.
                                     rows={2}
                                   />
                                 </div>
-                                {item.translated && (
+                                {/* 번역안함이 아니고, 번역 텍스트가 있고, 원문과 다를 때만 편집 필드 표시 */}
+                                {targetLanguage !== "none" && item.translated && item.translated !== item.original && (
                                   <div>
                                     <label className="text-xs text-slate-500 mb-1 block">번역</label>
                                     <textarea
@@ -2179,7 +2175,8 @@ Please organize the content into logical topics and write following this format.
                             ) : (
                               <>
                                 <p className="text-slate-700">{item.original}</p>
-                                {item.translated && (
+                                {/* 번역안함(none)이 아니고, 번역 텍스트가 있고, 원문과 다를 때만 표시 */}
+                                {targetLanguage !== "none" && item.translated && item.translated !== item.original && (
                                   <p className="mt-2 text-sm text-slate-500 border-t pt-2 border-slate-200">
                                     🌐 {item.translated}
                                   </p>
@@ -2196,153 +2193,6 @@ Please organize the content into logical topics and write following this format.
             </Card>
           )}
 
-          {/* 4. 하단 녹음 기록 패널 */}
-          {sessions.length > 0 && (
-            <Card className="border-2 shadow-lg overflow-hidden" style={{ borderColor: '#96F7E4', backgroundColor: '#CCFBF1' }}>
-              <CardContent className="p-0">
-                <div className="p-4 border-b" style={{ backgroundColor: '#CCFBF1', borderColor: '#96F7E4' }}>
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-teal-800 flex items-center gap-2">
-                      <List className="h-5 w-5" />
-                      녹음 기록 ({sessions.length}개)
-                    </h3>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setShowSessionList(true)
-                        loadSessions()
-                      }}
-                      className="text-teal-700 hover:bg-teal-100"
-                    >
-                      전체 보기
-                    </Button>
-                  </div>
-                </div>
-                
-                <div className="p-4 space-y-2" style={{ backgroundColor: '#F8FAFC' }}>
-                  {sessions.slice(0, 5).map((session) => (
-                    <div
-                      key={session.id}
-                      className={`p-3 rounded-lg border transition-colors cursor-pointer flex items-center justify-between ${
-                        sessionId === session.id 
-                          ? "border-teal-400 bg-teal-50" 
-                          : "border-teal-200 hover:bg-teal-50"
-                      }`}
-                      onClick={() => loadSessionData(session)}
-                    >
-                      <div className="flex-1 min-w-0">
-                        {editingSessionId === session.id ? (
-                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            <input
-                              type="text"
-                              value={editingSessionTitle}
-                              onChange={(e) => setEditingSessionTitle(e.target.value)}
-                              className="flex-1 px-2 py-1 text-sm border border-teal-300 rounded bg-white"
-                              autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  updateSessionTitle(session.id, editingSessionTitle)
-                                  setEditingSessionId(null)
-                                  setEditingSessionTitle("")
-                                } else if (e.key === "Escape") {
-                                  setEditingSessionId(null)
-                                  setEditingSessionTitle("")
-                                }
-                              }}
-                            />
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                updateSessionTitle(session.id, editingSessionTitle)
-                                setEditingSessionId(null)
-                                setEditingSessionTitle("")
-                              }}
-                            >
-                              <Check className="h-4 w-4 text-teal-500" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setEditingSessionId(null)
-                                setEditingSessionTitle("")
-                              }}
-                            >
-                              <X className="h-4 w-4 text-slate-500" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <h4 className="font-semibold text-slate-900 truncate">
-                            {session.title}
-                          </h4>
-                        )}
-                        <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
-                          <Calendar className="h-3 w-3" />
-                          {new Date(session.created_at).toLocaleDateString("ko-KR", {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit"
-                          })}
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setEditingSessionId(session.id)
-                            setEditingSessionTitle(session.title)
-                          }}
-                          title="제목 수정"
-                        >
-                          <Edit3 className="h-4 w-4 text-teal-500" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={async (e) => {
-                            e.stopPropagation()
-                            await loadSessionData(session)
-                            setShowDocumentInPanel(true)
-                          }}
-                          title="회의록 보기"
-                        >
-                          <FileText className="h-4 w-4 text-emerald-600" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setShowSummaryModal(true)
-                          }}
-                          title="요약 보기"
-                        >
-                          <Sparkles className="h-4 w-4 text-amber-500" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            deleteSession(session.id)
-                          }}
-                          title="삭제"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </main>
 
