@@ -166,6 +166,11 @@ function MicTranslatePageContent() {
   const [isEditingCurrentTitle, setIsEditingCurrentTitle] = useState(false)
   const [editCurrentTitleText, setEditCurrentTitleText] = useState("")
   
+  // 회의 진행 시간 관련
+  const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null) // 세션 시작 시간
+  const [elapsedSeconds, setElapsedSeconds] = useState(0) // 경과 시간 (초)
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null) // 타이머 인터벌
+  
   // 언어 자동 감지 기능 제거됨 (Web Speech API 호환성 문제)
   
   // 요약 관련
@@ -1444,14 +1449,19 @@ function MicTranslatePageContent() {
       stopSystemAudioCapture()
     }
     
+    // 타이머 중지
+    stopSessionTimer()
+    const finalElapsedSeconds = elapsedSeconds
+    
     try {
-      // 세션 상태를 완료로 변경
+      // 세션 상태를 완료로 변경 (경과 시간 포함)
       await supabase
         .from("translation_sessions")
         .update({
           ended_at: new Date().toISOString(),
           status: "completed",
-          total_utterances: transcripts.length
+          total_utterances: transcripts.length,
+          duration_seconds: finalElapsedSeconds // 총 소요 시간 저장
         })
         .eq("id", sessionId)
       
@@ -1478,6 +1488,8 @@ function MicTranslatePageContent() {
         setSessionId(null)
         setCurrentSessionTitle("")
         setCurrentSessionCreatedAt(null)
+        setSessionStartTime(null)
+        setElapsedSeconds(0)
         setShowSessionList(true)
         loadSessions()
       }
@@ -2318,11 +2330,59 @@ function MicTranslatePageContent() {
     return recognition
   }
 
+  // 회의 진행 시간 타이머 시작
+  const startSessionTimer = () => {
+    // 이미 타이머가 돌고 있으면 중지하지 않음 (이어서 작업)
+    if (timerIntervalRef.current) return
+    
+    // 새 세션이면 시작 시간과 경과 시간 초기화
+    if (!sessionStartTime) {
+      setSessionStartTime(new Date())
+      setElapsedSeconds(0)
+    }
+    
+    timerIntervalRef.current = setInterval(() => {
+      setElapsedSeconds(prev => prev + 1)
+    }, 1000)
+  }
+  
+  // 회의 진행 시간 타이머 일시정지 (세션 유지)
+  const pauseSessionTimer = () => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current)
+      timerIntervalRef.current = null
+    }
+  }
+  
+  // 회의 진행 시간 타이머 완전 중지 및 초기화
+  const stopSessionTimer = () => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current)
+      timerIntervalRef.current = null
+    }
+    // 시작 시간은 유지 (최종 저장용), 타이머만 중지
+  }
+  
+  // 경과 시간 포맷팅 (HH:MM:SS)
+  const formatElapsedTime = (seconds: number) => {
+    const hrs = Math.floor(seconds / 3600)
+    const mins = Math.floor((seconds % 3600) / 60)
+    const secs = seconds % 60
+    
+    if (hrs > 0) {
+      return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+    }
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
   // 녹음 시작/중지
   const toggleListening = async () => {
     if (isListening) {
       // 중지 - 세션은 유지 (종료하지 않음)
       isListeningRef.current = false
+      
+      // 진행 시간 타이머 일시정지
+      pauseSessionTimer()
       
       // 타이머 클리어
       if (silenceTimerRef.current) {
@@ -2356,13 +2416,18 @@ function MicTranslatePageContent() {
           console.log("▶️ 기존 세션에 이어서 작업:", sessionId)
           sessionIdRef.current = sessionId
         } else {
-          // 새 세션 생성
+          // 새 세션 생성 + 타이머 시작 시간 초기화
+          setSessionStartTime(new Date())
+          setElapsedSeconds(0)
           const newSessionId = await createSession()
           setSessionId(newSessionId)
           sessionIdRef.current = newSessionId
           console.log("🆕 새 세션 생성:", newSessionId)
         }
       }
+      
+      // 타이머 시작
+      startSessionTimer()
       
       // 기존 인스턴스 정리 후 새로 생성
       if (recognitionRef.current) {
@@ -2425,39 +2490,36 @@ function MicTranslatePageContent() {
   // ============ 문서 정리 (회의록 생성) ============
   
   // 문서 정리 프롬프트 생성 (상세 회의록)
-  const getDocumentPrompt = (langName: string) => `당신은 전문 회의록 작성 전문가입니다. 다음 음성 인식 텍스트를 ${langName}로 완전한 회의록으로 문서화하세요.
+  // 회의기록 프롬프트 (상세 문서화 - 요약 아님!)
+  const getDocumentPrompt = (langName: string) => `당신은 회의록 작성 전문가입니다. 음성 인식 텍스트를 ${langName} 회의록으로 변환합니다.
 
-⚠️ **매우 중요: 이것은 요약이 아닙니다!** 
-- 모든 발언 내용을 **100% 빠짐없이** 포함해야 합니다.
-- 내용을 축약하거나 생략하면 안 됩니다.
-- 1시간 회의면 최소 A4 10페이지 이상 분량이어야 합니다.
+🚨 **절대 규칙: 요약 금지!**
+- 이것은 요약이 **아닙니다**. 모든 발언 내용을 **그대로** 문서화하세요.
+- 입력 텍스트의 90% 이상을 회의록에 포함해야 합니다.
+- 내용을 축약하거나 핵심만 추리면 **실패**입니다.
 
-**문서화 규칙:**
-1. **구어체 → 문어체 변환만 수행**
-   - "그래서 이게 뭐냐면요" → "이것은 ~입니다"
-   - "그니까 우리가 해야 될 게" → "수행해야 할 업무는"
-   
-2. **불필요한 추임새만 제거** (내용은 절대 생략 금지)
-   - 제거 대상: "음..", "어..", "그..", "아..", "네네", "그러니까", "저기", "이제"
-   
-3. **끊어진 문장 자연스럽게 연결**
-   - 문맥상 연결되는 문장은 하나로 합치기
-   
-4. **시간 순서 유지** - 발언 순서 그대로 정리
+**변환 규칙 (내용 유지, 형식만 변경):**
 
-5. **발언 단위 구분** - 주제나 화자가 바뀌면 단락 구분
+1. **구어체 → 문어체 변환** (의미는 100% 유지)
+   - "그래서 이게 뭐냐면요" → "이것은 다음과 같습니다"
+   - "뭐 그니까 우리가 해야 될 게" → "수행해야 할 업무는"
+   - "좀 그런 거 있잖아요" → "해당 사항이 있습니다"
 
-6. **논의된 모든 세부사항 포함**
-   - 숫자, 날짜, 이름, 구체적 항목 모두 기록
-   - 질문과 답변 모두 포함
-   - 결정사항과 미결사항 모두 포함
+2. **제거 대상 (이것만 제거, 나머지 모두 유지)**
+   - 무의미한 추임새: "음..", "어..", "그..", "아..", "흠.."
+   - 습관적 표현: "네네", "그러니까", "저기", "이제", "뭐"
 
-**출력 형식:**
-- 마크다운 형식 사용
-- 주요 주제는 ## 제목으로 구분
-- 세부 항목은 번호 또는 불릿 사용
-- 중요 결정사항은 **굵게** 표시
-- 날짜/숫자 등 핵심 정보도 **굵게** 표시`
+3. **구조화 방식**
+   - 발언 순서대로 작성 (시간순)
+   - 주제가 바뀌면 단락 구분
+   - 구체적인 숫자, 날짜, 이름, 항목은 **굵게** 표시
+
+**출력 형식 (마크다운):**
+- 제목 없이 바로 내용 시작
+- 문단 단위로 구분
+- 중요 결정사항/액션아이템은 별도 표시
+
+📌 **품질 체크**: 원본 텍스트 대비 회의록 분량이 70% 미만이면 다시 작성하세요.`
 
   // 세션 ID로 문서 정리하기 (목록에서 클릭 시)
   const generateDocumentForSession = async (targetSessionId: string) => {
@@ -2888,6 +2950,13 @@ function MicTranslatePageContent() {
       setIsSystemAudioMode(true)
       setTranscripts([])
       
+      // 새 세션이면 타이머 초기화 및 시작
+      if (!sessionId) {
+        setSessionStartTime(new Date())
+        setElapsedSeconds(0)
+      }
+      startSessionTimer()
+      
       // 스트림 종료 감지
       audioTracks[0].onended = () => {
         console.log("[System Audio] 오디오 트랙 종료됨")
@@ -3016,6 +3085,9 @@ function MicTranslatePageContent() {
   // 시스템 오디오 캡처 중지
   const stopSystemAudioCapture = () => {
     console.log("[System Audio] 캡처 중지")
+    
+    // 타이머 일시정지
+    pauseSessionTimer()
     
     // Deepgram WebSocket 종료
     if (deepgramWSRef.current) {
@@ -3853,19 +3925,32 @@ function MicTranslatePageContent() {
                     )}
                   </div>
                   
-                  {/* 생성일시 */}
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                    📅 {currentSessionCreatedAt && !isNaN(currentSessionCreatedAt.getTime())
-                      ? currentSessionCreatedAt.toLocaleDateString("ko-KR", {
-                          year: "numeric",
-                          month: "2-digit",
-                          day: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit"
-                        })
-                      : sessionId ? "생성 중..." : "마이크 시작 시 생성됩니다"
-                    }
-                  </p>
+                  {/* 생성일시 + 진행시간 */}
+                  <div className="flex items-center gap-4 mt-1">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      📅 {currentSessionCreatedAt && !isNaN(currentSessionCreatedAt.getTime())
+                        ? currentSessionCreatedAt.toLocaleDateString("ko-KR", {
+                            year: "numeric",
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit"
+                          })
+                        : sessionId ? "생성 중..." : "마이크 시작 시 생성됩니다"
+                      }
+                    </p>
+                    {/* 진행 시간 표시 */}
+                    {sessionId && (
+                      <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-sm font-mono ${
+                        isListening || isCapturingSystemAudio
+                          ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                          : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                      }`}>
+                        <span className={isListening || isCapturingSystemAudio ? "animate-pulse" : ""}>⏱️</span>
+                        <span>{formatElapsedTime(elapsedSeconds)}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -3928,6 +4013,11 @@ function MicTranslatePageContent() {
               {/* 목록 버튼 - 민트색 배경 */}
               <Button
                 onClick={() => {
+                  // 타이머 중지 및 초기화
+                  stopSessionTimer()
+                  setSessionStartTime(null)
+                  setElapsedSeconds(0)
+                  
                   setSessionId(null)
                   setTranscripts([])
                   setCurrentSessionTitle("")
