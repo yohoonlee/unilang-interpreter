@@ -1996,11 +1996,19 @@ Please write the transcript following this exact format.`
                                   // 대괄호만 형태: [화자 A] → [이요훈]
                                   const bracketRegex = new RegExp(`\\[${findText}\\]`, "g")
                                   
+                                  // 1. 녹음기록 문서에서 변경
                                   setEditDocumentText(prev => {
                                     let result = prev.replace(boldRegex, `**[${replaceText}]**`)
                                     result = result.replace(bracketRegex, `[${replaceText}]`)
                                     return result
                                   })
+                                  
+                                  // 2. 통역기록(transcripts)에서도 화자명 변경
+                                  setTranscripts(prev => prev.map(t => ({
+                                    ...t,
+                                    speakerName: t.speakerName === findText ? replaceText : t.speakerName
+                                  })))
+                                  
                                   findInput.value = ""
                                   replaceInput.value = ""
                                 }
