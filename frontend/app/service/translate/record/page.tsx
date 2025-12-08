@@ -2193,6 +2193,85 @@ Please organize the content into logical topics and write following this format.
             </Card>
           )}
 
+          {/* 4. 녹음 기록 목록 */}
+          {sessions.length > 0 && !sessionId && transcripts.length === 0 && (
+            <Card className="border-2 border-teal-200 bg-white shadow-lg">
+              <CardContent className="p-0">
+                <div className="p-4 border-b border-teal-200" style={{ backgroundColor: '#CCFBF1' }}>
+                  <h3 className="font-bold text-teal-800 flex items-center gap-2">
+                    <List className="h-5 w-5" />
+                    녹음 기록 ({sessions.length}개)
+                  </h3>
+                </div>
+                
+                <div className="divide-y divide-teal-100">
+                  {sessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className="p-4 hover:bg-teal-50 transition-colors cursor-pointer flex items-center justify-between"
+                      onClick={() => loadSessionData(session)}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-slate-900 truncate">
+                          {session.title}
+                        </h4>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                          <Calendar className="h-3 w-3" />
+                          {new Date(session.created_at).toLocaleDateString("ko-KR", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit"
+                          })}
+                          {session.total_utterances && (
+                            <span className="ml-2">• {session.total_utterances}개 발화</span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            await loadSessionData(session)
+                            setShowDocumentInPanel(true)
+                          }}
+                          title="녹음기록 보기"
+                        >
+                          <FileText className="h-4 w-4 text-emerald-600" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setShowSummaryModal(true)
+                          }}
+                          title="요약 보기"
+                        >
+                          <Sparkles className="h-4 w-4 text-amber-500" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteSession(session.id)
+                          }}
+                          title="삭제"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
         </div>
       </main>
 
