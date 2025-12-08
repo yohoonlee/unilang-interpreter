@@ -1856,13 +1856,13 @@ Please organize the content into logical topics and write following this format.
 
           {/* 3. 통역 결과 / 녹음기록 패널 */}
           {(transcripts.length > 0 || showDocumentInPanel) && (
-            <Card className="border-2 border-teal-200 bg-white shadow-lg">
+            <Card className="border-2 shadow-lg overflow-hidden" style={{ borderColor: '#96F7E4', backgroundColor: '#CCFBF1' }}>
               <CardContent className="p-0">
                 {/* 녹음기록 보기 모드 */}
                 {showDocumentInPanel && documentTextOriginal ? (
                   <div>
                     {/* 헤더 */}
-                    <div className="p-4 border-b border-slate-200" style={{ backgroundColor: '#CCFBF1' }}>
+                    <div className="p-4 border-b" style={{ backgroundColor: '#CCFBF1', borderColor: '#96F7E4' }}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <FileText className="h-5 w-5 text-teal-700" />
@@ -1892,19 +1892,77 @@ Please organize the content into logical topics and write following this format.
                             )}
                           </div>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowDocumentInPanel(false)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
+                        {/* 액션 버튼들 */}
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setIsEditingDocument(!isEditingDocument)
+                              if (!isEditingDocument) {
+                                setEditDocumentText(documentViewTab === "original" ? documentTextOriginal : documentTextTranslated)
+                              }
+                            }}
+                            className="text-slate-600 hover:text-teal-700"
+                            title="편집"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const content = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
+                              const printWindow = window.open("", "_blank")
+                              if (printWindow) {
+                                printWindow.document.write(`
+                                  <html><head><title>녹음기록</title>
+                                  <style>body{font-family:sans-serif;padding:20px;line-height:1.6}h1,h2,h3{color:#0f766e}ul,ol{margin-left:20px}</style>
+                                  </head><body>${content.replace(/\n/g, "<br>")}</body></html>
+                                `)
+                                printWindow.document.close()
+                                printWindow.print()
+                              }
+                            }}
+                            className="text-slate-600 hover:text-teal-700"
+                            title="인쇄"
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const content = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
+                              const langLabel = documentViewTab === "original" ? "원문" : "번역"
+                              const blob = new Blob([content], { type: "text/markdown" })
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement("a")
+                              a.href = url
+                              a.download = `녹음기록_${langLabel}_${new Date().toLocaleDateString()}.md`
+                              a.click()
+                              URL.revokeObjectURL(url)
+                            }}
+                            className="text-slate-600 hover:text-teal-700"
+                            title="다운로드"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowDocumentInPanel(false)}
+                            className="text-slate-600 hover:text-red-500"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
                     
                     {/* 본문 */}
-                    <div className="p-6 max-h-[500px] overflow-y-auto">
-                      <div className="prose prose-slate max-w-none">
+                    <div className="p-6 max-h-[500px] overflow-y-auto" style={{ backgroundColor: '#F8FAFC' }}>
+                      <div className="prose prose-slate max-w-none prose-headings:text-teal-800 prose-strong:text-teal-700 prose-li:marker:text-teal-500">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                           {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
                         </ReactMarkdown>
@@ -1914,7 +1972,7 @@ Please organize the content into logical topics and write following this format.
                 ) : (
                   /* 통역 결과 목록 */
                   <div>
-                    <div className="p-4 border-b border-slate-200" style={{ backgroundColor: '#CCFBF1' }}>
+                    <div className="p-4 border-b" style={{ backgroundColor: '#CCFBF1', borderColor: '#96F7E4' }}>
                       <div className="flex items-center justify-between">
                         <h3 className="font-bold text-teal-800 flex items-center gap-2">
                           <Languages className="h-5 w-5" />
@@ -1992,7 +2050,7 @@ Please organize the content into logical topics and write following this format.
                     )}
                     
                     {/* 발화 목록 */}
-                    <div className="max-h-[500px] overflow-y-auto p-4 space-y-3">
+                    <div className="max-h-[500px] overflow-y-auto p-4 space-y-3" style={{ backgroundColor: '#F8FAFC' }}>
                       {transcripts.map((item) => {
                         const color = getSpeakerColor(item.speaker)
                         const isEditing = editingItemId === item.id
@@ -2140,9 +2198,9 @@ Please organize the content into logical topics and write following this format.
 
           {/* 4. 하단 녹음 기록 패널 */}
           {sessions.length > 0 && (
-            <Card className="border-2 border-teal-200 bg-white shadow-lg">
+            <Card className="border-2 shadow-lg overflow-hidden" style={{ borderColor: '#96F7E4', backgroundColor: '#CCFBF1' }}>
               <CardContent className="p-0">
-                <div className="p-4 border-b border-slate-200" style={{ backgroundColor: '#CCFBF1' }}>
+                <div className="p-4 border-b" style={{ backgroundColor: '#CCFBF1', borderColor: '#96F7E4' }}>
                   <div className="flex items-center justify-between">
                     <h3 className="font-bold text-teal-800 flex items-center gap-2">
                       <List className="h-5 w-5" />
@@ -2162,7 +2220,7 @@ Please organize the content into logical topics and write following this format.
                   </div>
                 </div>
                 
-                <div className="p-4 space-y-2">
+                <div className="p-4 space-y-2" style={{ backgroundColor: '#F8FAFC' }}>
                   {sessions.slice(0, 5).map((session) => (
                     <div
                       key={session.id}
