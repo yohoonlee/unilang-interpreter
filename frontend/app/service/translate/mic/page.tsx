@@ -3408,7 +3408,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold flex items-center gap-2 text-teal-800">
                   <List className="h-5 w-5" />
-                  통역 기록
+                  회의록 기록
                 </h2>
                 <Button 
                   variant="ghost" 
@@ -3971,14 +3971,17 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
       {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="p-6 pb-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">실시간 통역 설정</h2>
-                <Button variant="ghost" size="icon" onClick={() => setShowSettings(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden">
+            {/* 설정 모달 헤더 */}
+            <div className="p-4 rounded-t-2xl" style={{ backgroundColor: '#00BBAE' }}>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-white">회의록 설정</h2>
+                <Button variant="ghost" size="icon" onClick={() => setShowSettings(false)} className="text-white hover:bg-white/20">
                   <X className="h-5 w-5" />
                 </Button>
               </div>
+            </div>
+            <div className="p-6 pb-8 overflow-y-auto max-h-[calc(90vh-80px)]">
 
               <div className="space-y-4">
                 {/* 음성 식별 (TTS 성별) */}
@@ -4165,7 +4168,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                     loadSessions()
                   }}
                   className="text-white hover:bg-white/20 relative"
-                  title="통역 기록 목록"
+                  title="회의록 기록 목록"
                 >
                   <List className="h-5 w-5" />
                   {sessions.length > 0 && (
@@ -4361,7 +4364,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                 }}
                 size="sm"
                 className="h-10 px-4 rounded-full bg-teal-100 text-teal-700 hover:bg-teal-200 hover:text-teal-800 border border-teal-300"
-                title="통역 기록 목록으로 이동"
+                title="회의록 기록 목록으로 이동"
               >
                 <List className="h-4 w-4 mr-1" />
                 목록
@@ -4585,7 +4588,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
             <CardHeader className="pb-2 pt-4" style={{ backgroundColor: '#CCFBF1' }}>
               <CardTitle className="text-lg flex items-center gap-2 text-teal-800">
                 <List className="h-5 w-5" />
-                통역 기록
+                회의록 기록
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 bg-white dark:bg-slate-900">

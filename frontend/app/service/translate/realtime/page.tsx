@@ -3971,14 +3971,17 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
       {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="p-6 pb-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">실시간 통역 설정</h2>
-                <Button variant="ghost" size="icon" onClick={() => setShowSettings(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden">
+            {/* 설정 모달 헤더 */}
+            <div className="p-4 rounded-t-2xl" style={{ backgroundColor: '#00BBAE' }}>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-white">실시간 통역 설정</h2>
+                <Button variant="ghost" size="icon" onClick={() => setShowSettings(false)} className="text-white hover:bg-white/20">
                   <X className="h-5 w-5" />
                 </Button>
               </div>
+            </div>
+            <div className="p-6 pb-8 overflow-y-auto max-h-[calc(90vh-80px)]">
 
               <div className="space-y-4">
                 {/* 음성 식별 (TTS 성별) */}
