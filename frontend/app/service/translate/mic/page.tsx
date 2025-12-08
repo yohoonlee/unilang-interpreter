@@ -1532,7 +1532,7 @@ function MicTranslatePageContent() {
           body: JSON.stringify({
             text: originalTexts,
             targetLanguage: sourceLanguage,
-            customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+            customPrompt: `${getDocumentPrompt(sourceLanguage, srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
           }),
         })
         
@@ -1553,7 +1553,7 @@ function MicTranslatePageContent() {
             body: JSON.stringify({
               text: originalTexts,
               targetLanguage: sourceLanguage,
-              customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+              customPrompt: `${getDocumentPrompt(sourceLanguage, srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
             }),
           }),
           fetch("/api/gemini/summarize", {
@@ -1562,7 +1562,7 @@ function MicTranslatePageContent() {
             body: JSON.stringify({
               text: translatedTexts,
               targetLanguage: targetLanguage,
-              customPrompt: `${getDocumentPrompt(tgtLangName)}\n\n원본 텍스트:\n${translatedTexts}`,
+              customPrompt: `${getDocumentPrompt(targetLanguage, tgtLangName)}\n\n원본 텍스트:\n${translatedTexts}`,
             }),
           }),
         ])
@@ -2509,9 +2509,155 @@ function MicTranslatePageContent() {
 
   // ============ 문서 정리 (회의록 생성) ============
   
-  // 문서 정리 프롬프트 생성 (상세 회의록)
-  // 회의기록 프롬프트 (상세 문서화 - 마크다운 형식)
-  const getDocumentPrompt = (langName: string) => `당신은 전문 회의록 작성 비서입니다. 음성 인식 텍스트를 ${langName} 회의록으로 변환합니다.
+  // 문서 정리 프롬프트 생성 (상세 회의록) - 언어별 분리
+  const getDocumentPrompt = (langCode: string, langName: string) => {
+    // 영어 프롬프트
+    if (langCode === "en") {
+      return `You are a professional meeting minutes writer. Convert the speech recognition text into ${langName} meeting minutes.
+IMPORTANT: Your ENTIRE response MUST be in English. Do not use any other language.
+
+## 📋 Meeting Minutes Rules
+
+### 1. Use Markdown Format
+- Use bullet points (-, *) to organize content
+- Use **## Bold headings** for main categories
+- Use **bold** for important words and keywords
+- Add blank lines between paragraphs for readability
+
+### 2. Document Structure
+For each main topic:
+- **Topic Title** (bold)
+- Summary of the topic (1-2 sentences)
+- Detailed discussion points (bullet points)
+
+### 3. Writing Style (Required)
+- Do NOT use colloquial language
+- Use clear, logical, formal writing
+- Use formal endings and expressions
+- Examples:
+  - ❌ "So we gotta do this thing"
+  - ✅ "This task needs to be completed"
+  - ❌ "Maybe we could try something like this"
+  - ✅ "The following approach is recommended"
+
+### 4. Exclude
+- Meaningless fillers: "um..", "uh..", "well..", "hmm.."
+- Habitual expressions: "you know", "like", "basically"
+- **Off-topic conversations** (jokes, small talk, etc.)
+
+### 5. Include (Must Record)
+- All discussed business matters
+- Specific **numbers**, **dates**, **responsible persons**, **deadlines**
+- **Decisions made** and **pending items**
+- **Action items** (follow-up tasks)
+
+## 📝 Output Format
+
+**## [Topic 1: Category Name]**
+
+Summary of the key points for this topic (1-2 sentences)
+
+- Detailed discussion point 1
+- Detailed discussion point 2
+  - Sub-details if applicable
+- Detailed discussion point 3
+
+**## [Topic 2: Category Name]**
+
+...
+
+---
+
+**## 📌 Summary**
+
+- **Key Discussion Points**: Summary of main agenda
+- **Decisions Made**: Agreed items
+- **Action Items**: Follow-up tasks and responsible persons
+
+---
+
+Follow this format to write the meeting minutes. Faithfully reflect the original content in a structured format.`
+    }
+    
+    // 일본어 프롬프트
+    if (langCode === "ja") {
+      return `あなたはプロの議事録作成者です。音声認識テキストを${langName}の議事録に変換してください。
+重要：回答は必ず日本語で行ってください。
+
+## 📋 議事録作成ルール
+
+### 1. マークダウン形式を使用
+- 箇条書き(-, *)で内容を整理
+- 主要カテゴリは**## 太字見出し**で区分
+- 重要な単語とキーワードは**太字**で表示
+- 段落間に空行を入れて読みやすく
+
+### 2. 文書構造
+各主要トピックごとに以下の構造に従う：
+- **トピックタイトル**（太字）
+- そのトピックの要約（1-2文）
+- 詳細な議論内容（箇条書き）
+
+### 3. 記述方式（必須）
+- 口語体使用**禁止**
+- 明確で論理的な文語体を使用
+- 例：
+  - ❌ 「それでこれをやらないといけないんですけど」
+  - ✅ 「該当業務の遂行が必要である」
+
+### 4. 除外対象
+- 無意味な間投詞：「えーと」「あの」「うーん」
+- 習慣的表現：「なんか」「とりあえず」
+- **会議と無関係な会話**（冗談、雑談等）
+
+### 5. 含める対象（必ず記録）
+- 議論された全ての業務内容
+- 具体的な**数字**、**日付**、**担当者**、**期限**
+- **決定事項**と**未決事項**
+- **アクションアイテム**
+
+## 📝 出力形式に従って議事録を作成してください。`
+    }
+    
+    // 중국어 프롬프트
+    if (langCode === "zh") {
+      return `您是专业的会议纪要撰写者。请将语音识别文本转换为${langName}会议纪要。
+重要：您的回复必须完全用中文。
+
+## 📋 会议纪要规则
+
+### 1. 使用Markdown格式
+- 使用要点符号(-, *)整理内容
+- 使用**## 粗体标题**区分主要类别
+- 重要词汇和关键词用**粗体**标注
+- 段落之间添加空行以提高可读性
+
+### 2. 文档结构
+每个主要主题遵循以下结构：
+- **主题标题**（粗体）
+- 主题摘要（1-2句）
+- 详细讨论内容（要点列表）
+
+### 3. 写作风格（必须）
+- **禁止**使用口语
+- 使用清晰、逻辑性强的书面语
+
+### 4. 排除内容
+- 无意义的语气词
+- **与会议无关的对话**
+
+### 5. 必须包含
+- 所有讨论的业务内容
+- 具体的**数字**、**日期**、**负责人**、**截止日期**
+- **决定事项**和**待定事项**
+- **行动项目**
+
+请按照此格式撰写会议纪要。`
+    }
+    
+    // 한국어 (기본) 프롬프트
+    return `당신은 전문 회의록 작성 비서입니다. 음성 인식 텍스트를 ${langName} 회의록으로 변환합니다.
+중요: 반드시 한국어로 작성해주세요.
 
 ## 📋 회의록 작성 규칙
 
@@ -2574,6 +2720,7 @@ function MicTranslatePageContent() {
 ---
 
 위 형식에 맞춰 회의록을 작성하세요. 원본 내용을 충실히 반영하되, 구조화된 형식으로 정리합니다.`
+  }
 
   // 세션 ID로 문서 정리하기 (목록에서 클릭 시)
   const generateDocumentForSession = async (targetSessionId: string) => {
@@ -2634,7 +2781,7 @@ function MicTranslatePageContent() {
           body: JSON.stringify({
             text: originalTexts,
             targetLanguage: srcLang,
-            customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+            customPrompt: `${getDocumentPrompt(srcLang, srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
           }),
         })
         
@@ -2652,7 +2799,7 @@ function MicTranslatePageContent() {
             body: JSON.stringify({
               text: originalTexts,
               targetLanguage: srcLang,
-              customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+              customPrompt: `${getDocumentPrompt(srcLang, srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
             }),
           }),
           fetch("/api/gemini/summarize", {
@@ -2661,7 +2808,7 @@ function MicTranslatePageContent() {
             body: JSON.stringify({
               text: translatedTexts,
               targetLanguage: tgtLang,
-              customPrompt: `${getDocumentPrompt(tgtLangName)}\n\n원본 텍스트:\n${translatedTexts}`,
+              customPrompt: `${getDocumentPrompt(tgtLang, tgtLangName)}\n\n원본 텍스트:\n${translatedTexts}`,
             }),
           }),
         ])
@@ -2721,7 +2868,7 @@ function MicTranslatePageContent() {
           body: JSON.stringify({
             text: originalTexts,
             targetLanguage: sourceLanguage,
-            customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+            customPrompt: `${getDocumentPrompt(sourceLanguage, srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
           }),
         })
         
@@ -2739,7 +2886,7 @@ function MicTranslatePageContent() {
             body: JSON.stringify({
               text: originalTexts,
               targetLanguage: sourceLanguage,
-              customPrompt: `${getDocumentPrompt(srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
+              customPrompt: `${getDocumentPrompt(sourceLanguage, srcLangName)}\n\n원본 텍스트:\n${originalTexts}`,
             }),
           }),
           fetch("/api/gemini/summarize", {
@@ -2748,7 +2895,7 @@ function MicTranslatePageContent() {
             body: JSON.stringify({
               text: translatedTexts,
               targetLanguage: targetLanguage,
-              customPrompt: `${getDocumentPrompt(tgtLangName)}\n\n원본 텍스트:\n${translatedTexts}`,
+              customPrompt: `${getDocumentPrompt(targetLanguage, tgtLangName)}\n\n원본 텍스트:\n${translatedTexts}`,
             }),
           }),
         ])
