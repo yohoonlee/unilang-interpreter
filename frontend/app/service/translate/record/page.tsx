@@ -1100,7 +1100,39 @@ Please write the meeting minutes following this format.`
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
   
-  // 새 녹음 시작
+  // 세션 종료 및 AI 처리
+  const finalizeSession = async () => {
+    if (!sessionId || transcripts.length === 0) {
+      // 내용이 없으면 그냥 초기화
+      startNewRecording()
+      return
+    }
+    
+    try {
+      // 1. AI 재정리
+      setError("🔄 AI 재정리 중...")
+      await reorganizeSentences()
+      
+      // 2. 문서 정리
+      setError("📝 녹음기록 작성 중...")
+      await generateDocument()
+      
+      // 3. 요약 생성
+      setError("✨ 요약본 생성 중...")
+      await generateSummaryForSession(sessionId)
+      
+      setError(null)
+      
+      // 세션 목록 새로고침
+      await loadSessions()
+      
+    } catch (err) {
+      console.error("세션 종료 처리 오류:", err)
+      setError(null)
+    }
+  }
+  
+  // 새 녹음 시작 (초기화)
   const startNewRecording = () => {
     setSessionId(null)
     setCurrentSessionTitle("")
@@ -1659,9 +1691,9 @@ Please write the meeting minutes following this format.`
                     목록
                   </Button>
 
-                  {/* 새 녹음 버튼 */}
+                  {/* 종료 버튼 - AI 처리 후 저장 */}
                   <Button
-                    onClick={startNewRecording}
+                    onClick={finalizeSession}
                     size="sm"
                     variant="outline"
                     className={`h-10 px-3 rounded-full border-2 ${
