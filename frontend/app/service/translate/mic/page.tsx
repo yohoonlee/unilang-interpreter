@@ -2028,17 +2028,34 @@ function MicTranslatePageContent() {
     
     setSummaryLanguage(language)
     
-    // 저장된 요약이 있으면 바로 표시
+    // 메모리에 저장된 요약이 있으면 바로 표시
     if (savedSummaries[language]) {
       setSummaryText(savedSummaries[language])
       return
     }
     
-    // 없으면 새로 생성
+    // 메모리에 없으면 DB에서 확인
     setIsSummarizing(true)
     setSummaryText("")
     
     try {
+      // DB에서 해당 언어 요약 확인
+      const { data: existingSummary } = await supabase
+        .from("session_summaries")
+        .select("summary_text")
+        .eq("session_id", summarySessionId)
+        .eq("language", language)
+        .single()
+      
+      if (existingSummary?.summary_text) {
+        // DB에 있으면 로드
+        setSummaryText(existingSummary.summary_text)
+        setSavedSummaries(prev => ({ ...prev, [language]: existingSummary.summary_text }))
+        setIsSummarizing(false)
+        return
+      }
+      
+      // DB에도 없으면 새로 생성
       const { data: utterances } = await supabase
         .from("utterances")
         .select("original_text")
@@ -3406,20 +3423,29 @@ function MicTranslatePageContent() {
 
       {/* Summary Modal */}
       {showSummaryModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={(e) => {
+            // 배경 클릭 시 닫기
+            if (e.target === e.currentTarget) {
+              setShowSummaryModal(false)
+            }
+          }}
+        >
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
-            <div className="p-6 border-b border-slate-200 dark:border-slate-700">
+            {/* 타이틀 영역 - 바탕색 #00BBAE */}
+            <div className="p-6 border-b border-slate-200 dark:border-slate-700" style={{ backgroundColor: '#00BBAE' }}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-500">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20">
                     <Sparkles className="h-5 w-5 text-white" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">요약</h2>
-                    <p className="text-sm text-slate-500">AI가 생성한 내용 요약</p>
+                    <h2 className="text-xl font-bold text-white">요약</h2>
+                    <p className="text-sm text-white/80">AI가 생성한 내용 요약</p>
                   </div>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => setShowSummaryModal(false)}>
+                <Button variant="ghost" size="icon" onClick={() => setShowSummaryModal(false)} className="text-white hover:bg-white/20">
                   <X className="h-5 w-5" />
                 </Button>
               </div>
@@ -3433,7 +3459,11 @@ function MicTranslatePageContent() {
                   value={summaryLanguage}
                   onChange={(e) => loadOrGenerateSummaryForLanguage(e.target.value)}
                   disabled={isSummarizing}
-                  className="px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  className={`px-3 py-1 rounded-lg border text-sm focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
+                    savedSummaries[summaryLanguage]
+                      ? "border-teal-400 bg-teal-50 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300 dark:border-teal-600"
+                      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  }`}
                 >
                   {TARGET_LANGUAGES.filter(l => l.code !== "none").map((lang) => (
                     <option key={lang.code} value={lang.code}>
@@ -3442,13 +3472,27 @@ function MicTranslatePageContent() {
                   ))}
                 </select>
                 
-                {/* 저장된 요약 표시 */}
+                {/* 저장된 요약 언어 버튼들 */}
                 {Object.keys(savedSummaries).length > 0 && (
-                  <span className="text-xs text-teal-600 dark:text-teal-400">
-                    저장됨: {Object.keys(savedSummaries).map(code => 
-                      LANGUAGES.find(l => l.code === code)?.flag || code
-                    ).join(" ")}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-slate-500 mr-1">저장됨:</span>
+                    {Object.keys(savedSummaries).map(code => {
+                      const lang = LANGUAGES.find(l => l.code === code)
+                      return (
+                        <button
+                          key={code}
+                          onClick={() => loadOrGenerateSummaryForLanguage(code)}
+                          className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
+                            summaryLanguage === code
+                              ? "bg-teal-500 text-white"
+                              : "bg-teal-100 text-teal-700 hover:bg-teal-200"
+                          }`}
+                        >
+                          {lang?.flag || code}
+                        </button>
+                      )
+                    })}
+                  </div>
                 )}
                 
                 {!isSummarizing && summaryText && summarySessionId && (
