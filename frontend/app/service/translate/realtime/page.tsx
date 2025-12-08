@@ -4692,8 +4692,8 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
 
         {/* 4. 통역 결과 또는 회의기록 보기 */}
         {(sessionId || transcripts.length > 0 || showDocumentInPanel) && (
-        <Card className="mb-4">
-          <CardHeader className="pb-2 rounded-t-lg" style={{ backgroundColor: '#CCFBF1' }}>
+        <Card className="mb-4" style={{ backgroundColor: '#CCFBF1' }}>
+          <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
               {showDocumentInPanel ? (
                 <>
@@ -4809,7 +4809,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
               )}
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="bg-white dark:bg-slate-900">
             {/* 회의기록 보기 모드 */}
             {showDocumentInPanel ? (
               <div className="min-h-[300px]">
