@@ -1486,8 +1486,8 @@ function MicTranslatePageContent() {
         setError("🔄 AI 재정리 중...")
         await reorganizeSentences()
         
-        // 🔄 Step 2: 문서 정리 (상세 회의록 생성)
-        setError("📝 회의록 작성 중...")
+        // 🔄 Step 2: 문서 정리 (상세 통역결과 생성)
+        setError("📝 통역결과 작성중...")
         await generateAndSaveDocument()
         
         // 🔄 Step 3: 요약 생성
@@ -3098,7 +3098,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
       <!DOCTYPE html>
       <html>
       <head>
-        <title>회의기록 - ${langName}</title>
+        <title>통역기록 - ${langName}</title>
         <style>
           body { 
             font-family: 'Malgun Gothic', sans-serif; 
@@ -3149,7 +3149,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `회의기록_${langName}_${new Date().toISOString().slice(0, 10)}.md`
+    a.download = `통역기록_${langName}_${new Date().toISOString().slice(0, 10)}.md`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -3792,7 +3792,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                     <FileText className="h-5 w-5 text-white" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold text-teal-800">회의기록</h2>
+                    <h2 className="text-xl font-bold text-teal-800">통역기록</h2>
                     <p className="text-sm text-teal-600">
                       {isEditingDocument ? "마크다운 편집 모드" : "AI가 정리한 문서"}
                     </p>
@@ -4537,7 +4537,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                       문서 정리
                     </Button>
                     
-                    {/* 회의기록보기 버튼 (문서가 생성된 경우에만) */}
+                    {/* 통역기록보기 버튼 (문서가 생성된 경우에만) */}
                     {documentTextOriginal && (
                       <Button
                         onClick={() => setShowDocumentInPanel(true)}
@@ -4547,7 +4547,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                         title="정리된 문서 보기"
                       >
                         <Eye className="h-4 w-4 mr-1" />
-                        회의기록
+                        통역기록
                       </Button>
                     )}
                     
@@ -4698,7 +4698,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
               {showDocumentInPanel ? (
                 <>
                   <FileText className="h-5 w-5 text-green-500" />
-                  회의기록
+                  통역기록
                   {/* 언어 전환 탭 */}
                   <div className="flex gap-1 ml-4">
                     <Button
