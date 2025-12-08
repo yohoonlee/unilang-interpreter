@@ -306,6 +306,89 @@ export function useAssemblyAI(options: UseAssemblyAIOptions = {}) {
     }
   }, [languageCode, speakerLabels, onError, onProcessingStart, onTranscriptReady])
 
+  // 파일에서 전사
+  const transcribeFromFile = useCallback(async (file: File): Promise<AssemblyAIResult | null> => {
+    try {
+      setIsProcessing(true)
+      onProcessingStart?.()
+
+      console.log("[AssemblyAI Hook] File upload started:", {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      })
+
+      // 1. 파일 업로드 (XMLHttpRequest로 진행률 추적)
+      onUploadProgress?.(5)
+      const formData = new FormData()
+      formData.append("file", file)
+
+      const uploadUrl = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 50) // 0-50%
+            onUploadProgress?.(percent)
+            console.log(`[AssemblyAI Hook] Upload progress: ${percent}%`)
+          }
+        }
+
+        xhr.onload = () => {
+          if (xhr.status === 200) {
+            const data = JSON.parse(xhr.responseText)
+            resolve(data.uploadUrl)
+          } else {
+            try {
+              const error = JSON.parse(xhr.responseText)
+              reject(new Error(error.error || "Upload failed"))
+            } catch {
+              reject(new Error("Upload failed"))
+            }
+          }
+        }
+
+        xhr.onerror = () => reject(new Error("Upload failed"))
+        xhr.open("POST", "/api/assemblyai/upload")
+        xhr.send(formData)
+      })
+
+      onUploadProgress?.(50)
+      console.log("[AssemblyAI Hook] File uploaded:", uploadUrl)
+
+      // 2. 전사 요청
+      onUploadProgress?.(60)
+      const response = await fetch("/api/assemblyai/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audioUrl: uploadUrl,
+          languageCode,
+          speakerLabels,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Transcription failed")
+      }
+
+      onUploadProgress?.(100)
+      const result: AssemblyAIResult = await response.json()
+      console.log("[AssemblyAI Hook] Transcription complete:", result)
+
+      setIsProcessing(false)
+      onTranscriptReady?.(result)
+      return result
+
+    } catch (error) {
+      console.error("[AssemblyAI Hook] File transcription error:", error)
+      setIsProcessing(false)
+      onError?.(error instanceof Error ? error.message : "Processing failed")
+      return null
+    }
+  }, [languageCode, speakerLabels, onError, onProcessingStart, onUploadProgress, onTranscriptReady])
+
   // 컴포넌트 언마운트 시 정리
   useEffect(() => {
     return () => {
@@ -325,6 +408,7 @@ export function useAssemblyAI(options: UseAssemblyAIOptions = {}) {
     stopRecording,
     cancelRecording,
     transcribeFromUrl,
+    transcribeFromFile,
   }
 }
 

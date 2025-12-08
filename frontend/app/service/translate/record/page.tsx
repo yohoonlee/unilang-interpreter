@@ -178,6 +178,18 @@ function RecordTranslatePageContent() {
   
   // 파일 업로드
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [processingStatus, setProcessingStatus] = useState("")
+  
+  // TTS 관련
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [speakingId, setSpeakingId] = useState<string | null>(null)
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
+  
+  // 항목 편집 관련
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
+  const [editingOriginal, setEditingOriginal] = useState("")
+  const [editingTranslated, setEditingTranslated] = useState("")
   
   const supabase = createClient()
   
@@ -248,6 +260,7 @@ function RecordTranslatePageContent() {
   async function handleTranscriptReady(res: AssemblyAIResult) {
     setAssemblyResult(res)
     setRecordMode("idle")
+    setProcessingStatus("음성 인식 완료! 데이터 처리 중...")
     
     // 세션 생성
     let newSessionId: string | null = null
@@ -261,6 +274,7 @@ function RecordTranslatePageContent() {
     }
     
     // 번역 및 변환
+    setProcessingStatus("번역 중...")
     if (targetLanguage !== "none" && res.utterances.length > 0) {
       await translateAndConvertUtterances(res, newSessionId)
     } else {
@@ -289,6 +303,9 @@ function RecordTranslatePageContent() {
     if (newSessionId) {
       await autoProcessAfterRecording(newSessionId)
     }
+    
+    setProcessingStatus("")
+    setUploadedFile(null)
   }
   
   // 세션 생성
@@ -854,6 +871,175 @@ Please write the meeting minutes following this format.`
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
   }
   
+  // TTS 재생
+  const playTTS = async (text: string, langCode: string, itemId: string) => {
+    if (!text.trim()) return
+    
+    // 이미 재생 중이면 중지
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause()
+      ttsAudioRef.current = null
+    }
+    
+    if (speakingId === itemId) {
+      setIsSpeaking(false)
+      setSpeakingId(null)
+      return
+    }
+    
+    try {
+      setIsSpeaking(true)
+      setSpeakingId(itemId)
+      
+      const ttsLangCode = LANGUAGES.find(l => l.code === langCode)?.ttsCode || "ko-KR"
+      
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          languageCode: ttsLangCode,
+          gender: "MALE",
+        }),
+      })
+      
+      if (!response.ok) throw new Error("TTS 요청 실패")
+      
+      const data = await response.json()
+      
+      // Base64 오디오 재생
+      const audioContent = data.audioContent
+      const audio = new Audio(`data:audio/mp3;base64,${audioContent}`)
+      ttsAudioRef.current = audio
+      
+      audio.onended = () => {
+        setIsSpeaking(false)
+        setSpeakingId(null)
+        ttsAudioRef.current = null
+      }
+      
+      audio.onerror = () => {
+        setIsSpeaking(false)
+        setSpeakingId(null)
+        ttsAudioRef.current = null
+      }
+      
+      await audio.play()
+    } catch (err) {
+      console.error("TTS 오류:", err)
+      setIsSpeaking(false)
+      setSpeakingId(null)
+    }
+  }
+  
+  // TTS 중지
+  const stopTTS = () => {
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause()
+      ttsAudioRef.current = null
+    }
+    setIsSpeaking(false)
+    setSpeakingId(null)
+  }
+  
+  // 항목 편집 시작
+  const startEditItem = (item: TranscriptItem) => {
+    setEditingItemId(item.id)
+    setEditingOriginal(item.original)
+    setEditingTranslated(item.translated)
+  }
+  
+  // 항목 편집 저장
+  const saveEditItem = (itemId: string) => {
+    setTranscripts(prev => prev.map(t => {
+      if (t.id === itemId) {
+        return {
+          ...t,
+          original: editingOriginal,
+          translated: editingTranslated,
+        }
+      }
+      return t
+    }))
+    setEditingItemId(null)
+    setEditingOriginal("")
+    setEditingTranslated("")
+  }
+  
+  // 항목 편집 취소
+  const cancelEditItem = () => {
+    setEditingItemId(null)
+    setEditingOriginal("")
+    setEditingTranslated("")
+  }
+  
+  // 항목 삭제
+  const deleteTranscriptItem = (itemId: string) => {
+    setConfirmModalMessage("이 항목을 삭제하시겠습니까?")
+    setConfirmModalCallback(() => () => {
+      setTranscripts(prev => prev.filter(t => t.id !== itemId))
+    })
+    setShowConfirmModal(true)
+  }
+  
+  // 수동 병합 선택 토글
+  const toggleMergeSelection = (itemId: string) => {
+    setSelectedForMerge(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(itemId)) {
+        newSet.delete(itemId)
+      } else {
+        newSet.add(itemId)
+      }
+      return newSet
+    })
+  }
+  
+  // 선택 항목 병합
+  const mergeSelectedItems = async () => {
+    if (selectedForMerge.size < 2) {
+      setError("병합할 항목을 2개 이상 선택하세요.")
+      return
+    }
+    
+    const selectedItems = transcripts
+      .filter(t => selectedForMerge.has(t.id))
+      .sort((a, b) => a.start - b.start)
+    
+    const mergedOriginal = selectedItems.map(t => t.original).join(" ")
+    const mergedTranslated = selectedItems.map(t => t.translated).filter(Boolean).join(" ")
+    
+    const firstItem = selectedItems[0]
+    const lastItem = selectedItems[selectedItems.length - 1]
+    
+    const newItem: TranscriptItem = {
+      id: `merged-${Date.now()}`,
+      speaker: firstItem.speaker,
+      speakerName: firstItem.speakerName,
+      original: mergedOriginal,
+      translated: mergedTranslated,
+      sourceLanguage: firstItem.sourceLanguage,
+      targetLanguage: firstItem.targetLanguage,
+      timestamp: firstItem.timestamp,
+      start: firstItem.start,
+      end: lastItem.end,
+    }
+    
+    // 선택 항목 제거 후 새 항목 추가
+    const otherItems = transcripts.filter(t => !selectedForMerge.has(t.id))
+    const insertIndex = transcripts.findIndex(t => t.id === firstItem.id)
+    
+    const newTranscripts = [
+      ...otherItems.slice(0, insertIndex),
+      newItem,
+      ...otherItems.slice(insertIndex),
+    ].sort((a, b) => a.start - b.start)
+    
+    setTranscripts(newTranscripts)
+    setSelectedForMerge(new Set())
+    setMergeMode(false)
+  }
+  
   // 녹음 시작
   const handleStartRecording = async () => {
     setError(null)
@@ -895,8 +1081,23 @@ Please write the meeting minutes following this format.`
     setDocumentTextOriginal("")
     setDocumentTextTranslated("")
     setRecordMode("file")
+    setUploadedFile(file)
+    setUploadProgress(0)
+    setProcessingStatus("파일 업로드 중...")
     
     await transcribeFromFile(file)
+    
+    // 완료 후 파일 입력 초기화
+    if (e.target) {
+      e.target.value = ""
+    }
+  }
+  
+  // 파일 크기 포맷
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
   
   // 새 녹음 시작
@@ -1295,6 +1496,63 @@ Please write the meeting minutes following this format.`
                 </div>
               )}
 
+              {/* 파일 업로드/처리 중 상태 표시 */}
+              {(recordMode === "file" || isProcessing) && (
+                <div className="space-y-4 p-4 bg-teal-50 rounded-xl border border-teal-200">
+                  {/* 파일 정보 */}
+                  {uploadedFile && (
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-teal-100">
+                        <FileAudio className="h-6 w-6 text-teal-600" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium text-slate-700 truncate">{uploadedFile.name}</div>
+                        <div className="text-sm text-slate-500">{formatFileSize(uploadedFile.size)}</div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* 진행률 바 */}
+                  {uploadProgress > 0 && uploadProgress < 100 && (
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-600">업로드 진행률</span>
+                        <span className="font-medium text-teal-600">{uploadProgress}%</span>
+                      </div>
+                      <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-teal-400 to-teal-600 transition-all duration-300"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* 처리 상태 메시지 */}
+                  <div className="flex items-center gap-3">
+                    <Loader2 className="h-5 w-5 text-teal-600 animate-spin" />
+                    <span className="text-teal-700 font-medium">
+                      {processingStatus || (uploadProgress >= 50 ? "음성 인식 처리 중..." : "파일 업로드 중...")}
+                    </span>
+                  </div>
+                  
+                  {/* 취소 버튼 */}
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      setRecordMode("idle")
+                      setUploadedFile(null)
+                      setUploadProgress(0)
+                      setProcessingStatus("")
+                    }}
+                    className="border-teal-300 text-teal-700 hover:bg-teal-100"
+                  >
+                    취소
+                  </Button>
+                </div>
+              )}
+
               {/* URL 입력 모드 */}
               {recordMode === "url" && !isProcessing && (
                 <div className="space-y-3">
@@ -1606,28 +1864,171 @@ Please write the meeting minutes following this format.`
                       </div>
                     )}
                     
+                    {/* 수동 병합 모드 안내 */}
+                    {mergeMode && (
+                      <div className="flex items-center justify-between p-3 bg-blue-50 border-b border-blue-200">
+                        <span className="text-sm text-blue-700">
+                          🔗 병합할 항목을 선택하세요 ({selectedForMerge.size}개 선택됨)
+                        </span>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={mergeSelectedItems}
+                            disabled={selectedForMerge.size < 2}
+                            className="bg-blue-500 hover:bg-blue-600 text-white"
+                          >
+                            병합하기
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setMergeMode(false)
+                              setSelectedForMerge(new Set())
+                            }}
+                          >
+                            취소
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    
                     {/* 발화 목록 */}
                     <div className="max-h-[500px] overflow-y-auto p-4 space-y-3">
                       {transcripts.map((item) => {
                         const color = getSpeakerColor(item.speaker)
+                        const isEditing = editingItemId === item.id
+                        const isSelected = selectedForMerge.has(item.id)
+                        const isThisSpeaking = speakingId === item.id
+                        
                         return (
                           <div
                             key={item.id}
-                            className={`p-3 rounded-lg border ${color.border} ${color.bg}`}
+                            className={`p-3 rounded-lg border transition-all ${color.border} ${color.bg} ${
+                              mergeMode ? "cursor-pointer" : ""
+                            } ${isSelected ? "ring-2 ring-blue-500" : ""}`}
+                            onClick={() => mergeMode && toggleMergeSelection(item.id)}
                           >
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className={`font-medium ${color.text}`}>
-                                {item.speakerName}
-                              </span>
-                              <span className="text-xs text-slate-400">
-                                {formatTimestamp(item.start)} - {formatTimestamp(item.end)}
-                              </span>
+                            {/* 헤더 */}
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                {mergeMode && (
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleMergeSelection(item.id)}
+                                    className="w-4 h-4 rounded text-blue-500"
+                                  />
+                                )}
+                                <span className={`font-medium ${color.text}`}>
+                                  {item.speakerName}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {formatTimestamp(item.start)} - {formatTimestamp(item.end)}
+                                </span>
+                              </div>
+                              
+                              {/* 액션 버튼들 */}
+                              {!mergeMode && !isEditing && (
+                                <div className="flex items-center gap-1">
+                                  {/* 원본 TTS */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      playTTS(item.original, item.sourceLanguage, `${item.id}-original`)
+                                    }}
+                                    className={`p-1.5 rounded-full hover:bg-white/50 transition-colors ${
+                                      speakingId === `${item.id}-original` ? "text-teal-600" : "text-slate-400"
+                                    }`}
+                                    title="원본 읽기"
+                                  >
+                                    <Volume2 className={`h-4 w-4 ${speakingId === `${item.id}-original` ? "animate-pulse" : ""}`} />
+                                  </button>
+                                  
+                                  {/* 번역 TTS */}
+                                  {item.translated && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        playTTS(item.translated, item.targetLanguage, `${item.id}-translated`)
+                                      }}
+                                      className={`p-1.5 rounded-full hover:bg-white/50 transition-colors ${
+                                        speakingId === `${item.id}-translated` ? "text-blue-600" : "text-slate-400"
+                                      }`}
+                                      title="번역 읽기"
+                                    >
+                                      <Globe className={`h-4 w-4 ${speakingId === `${item.id}-translated` ? "animate-pulse" : ""}`} />
+                                    </button>
+                                  )}
+                                  
+                                  {/* 편집 */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      startEditItem(item)
+                                    }}
+                                    className="p-1.5 rounded-full hover:bg-white/50 text-slate-400 hover:text-slate-600 transition-colors"
+                                    title="편집"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </button>
+                                  
+                                  {/* 삭제 */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      deleteTranscriptItem(item.id)
+                                    }}
+                                    className="p-1.5 rounded-full hover:bg-white/50 text-slate-400 hover:text-red-500 transition-colors"
+                                    title="삭제"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              )}
                             </div>
-                            <p className="text-slate-700">{item.original}</p>
-                            {item.translated && (
-                              <p className="mt-2 text-sm text-slate-500 border-t pt-2 border-slate-200">
-                                🌐 {item.translated}
-                              </p>
+                            
+                            {/* 본문 */}
+                            {isEditing ? (
+                              <div className="space-y-2">
+                                <div>
+                                  <label className="text-xs text-slate-500 mb-1 block">원문</label>
+                                  <textarea
+                                    value={editingOriginal}
+                                    onChange={(e) => setEditingOriginal(e.target.value)}
+                                    className="w-full p-2 border border-slate-300 rounded-lg text-sm resize-none"
+                                    rows={2}
+                                  />
+                                </div>
+                                {item.translated && (
+                                  <div>
+                                    <label className="text-xs text-slate-500 mb-1 block">번역</label>
+                                    <textarea
+                                      value={editingTranslated}
+                                      onChange={(e) => setEditingTranslated(e.target.value)}
+                                      className="w-full p-2 border border-slate-300 rounded-lg text-sm resize-none"
+                                      rows={2}
+                                    />
+                                  </div>
+                                )}
+                                <div className="flex justify-end gap-2">
+                                  <Button size="sm" variant="outline" onClick={cancelEditItem}>
+                                    취소
+                                  </Button>
+                                  <Button size="sm" onClick={() => saveEditItem(item.id)} className="bg-teal-500 hover:bg-teal-600 text-white">
+                                    저장
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <p className="text-slate-700">{item.original}</p>
+                                {item.translated && (
+                                  <p className="mt-2 text-sm text-slate-500 border-t pt-2 border-slate-200">
+                                    🌐 {item.translated}
+                                  </p>
+                                )}
+                              </>
                             )}
                           </div>
                         )
