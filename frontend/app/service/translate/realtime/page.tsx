@@ -2802,6 +2802,16 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
         
         setDocumentTextOriginal(result.summary)
         setDocumentTextTranslated("") // 번역어 회의록 없음
+        
+        // DB 저장 (targetSessionId 사용)
+        await supabase
+          .from("translation_sessions")
+          .update({
+            document_original_md: result.summary,
+            document_translated_md: null,
+            document_updated_at: new Date().toISOString(),
+          })
+          .eq("id", targetSessionId)
       } else {
         // 원어와 번역어 각각 정리 (병렬 처리)
         const [originalResponse, translatedResponse] = await Promise.all([
@@ -2835,6 +2845,16 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
         
         setDocumentTextOriginal(originalResult.summary)
         setDocumentTextTranslated(translatedResult.summary)
+        
+        // DB 저장 (targetSessionId 사용)
+        await supabase
+          .from("translation_sessions")
+          .update({
+            document_original_md: originalResult.summary,
+            document_translated_md: translatedResult.summary,
+            document_updated_at: new Date().toISOString(),
+          })
+          .eq("id", targetSessionId)
       }
       
       setDocumentViewTab("original")
@@ -2889,6 +2909,9 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
         
         setDocumentTextOriginal(result.summary)
         setDocumentTextTranslated("")
+        
+        // DB 저장
+        await saveDocumentToDb(result.summary, "")
       } else {
         // 원어와 번역어 각각 정리 (병렬 처리)
         const [originalResponse, translatedResponse] = await Promise.all([
@@ -2922,6 +2945,9 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
         
         setDocumentTextOriginal(originalResult.summary)
         setDocumentTextTranslated(translatedResult.summary)
+        
+        // DB 저장
+        await saveDocumentToDb(originalResult.summary, translatedResult.summary)
       }
       
       setDocumentViewTab("original")
