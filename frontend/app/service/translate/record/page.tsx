@@ -1844,10 +1844,10 @@ Please write the transcript following this exact format.`
           {/* 3. 통역 결과 / 녹음기록 패널 */}
           {(transcripts.length > 0 || showDocumentInPanel) && (
             <Card className="border-2 shadow-lg overflow-hidden" style={{ borderColor: '#96F7E4', backgroundColor: '#CCFBF1' }}>
-              <CardContent className="p-0">
+              <CardContent className="p-0 rounded-b-xl bg-white">
                 {/* 녹음기록 보기 모드 */}
                 {showDocumentInPanel && documentTextOriginal ? (
-                  <div>
+                  <div className="bg-white rounded-b-xl">
                     {/* 헤더 */}
                     <div className="p-4 border-b" style={{ backgroundColor: '#CCFBF1', borderColor: '#96F7E4' }}>
                       <div className="flex items-center justify-between">
@@ -2033,7 +2033,7 @@ Please write the transcript following this exact format.`
                   </div>
                 ) : (
                   /* 통역 결과 목록 */
-                  <div>
+                  <div className="bg-white rounded-b-xl">
                     <div className="p-4 border-b" style={{ backgroundColor: '#CCFBF1', borderColor: '#96F7E4' }}>
                       <div className="flex items-center justify-between">
                         <h3 className="font-bold text-teal-800 flex items-center gap-2">
