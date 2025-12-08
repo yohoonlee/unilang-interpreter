@@ -20,13 +20,93 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const langName = targetLanguage === "ko" ? "한국어" : 
-                     targetLanguage === "en" ? "영어" :
-                     targetLanguage === "ja" ? "일본어" :
-                     targetLanguage === "zh" ? "중국어" : "한국어"
+    // 언어별 프롬프트 설정
+    const getPromptByLanguage = (lang: string, content: string) => {
+      if (lang === "en") {
+        return `You are a professional meeting summarizer. Summarize the following meeting content in English.
+IMPORTANT: Your response MUST be entirely in English. Do not use any other language.
 
-    // customPrompt가 있으면 사용 (회의기록 생성용), 없으면 요약 프롬프트 사용
-    const prompt = customPrompt || `당신은 전문 회의 요약 전문가입니다. 다음 회의 내용을 ${langName}로 요약해주세요.
+📋 **Summary Format:**
+
+## Meeting Overview
+- Summarize the main discussion topics in 1-2 sentences
+
+## Key Discussion Points
+- List the main agenda items in bullet points
+- Include key details for each item
+
+## Decisions Made
+- List decisions made during the meeting
+- Include agreed-upon items
+
+## Action Items
+- List tasks to be done
+- Include responsible persons or deadlines if mentioned
+
+## One-line Summary
+- Summarize the entire meeting in one sentence
+
+---
+Meeting Content:
+${content}`
+      } else if (lang === "ja") {
+        return `あなたはプロの会議要約専門家です。以下の会議内容を日本語で要約してください。
+重要: 回答は必ず日本語で行ってください。
+
+📋 **要約形式:**
+
+## 会議概要
+- 主な議論トピックを1-2文で要約
+
+## 主要な議論事項
+- 主なアジェンダを箇条書きで整理
+- 各項目の主要内容を含む
+
+## 決定事項
+- 会議で決定された事項
+- 合意された内容
+
+## アクションアイテム
+- 今後行うべき業務
+- 担当者や期限があれば含む
+
+## 一行要約
+- 会議全体を一文で要約
+
+---
+会議内容:
+${content}`
+      } else if (lang === "zh") {
+        return `您是专业的会议摘要专家。请用中文总结以下会议内容。
+重要：您的回复必须完全用中文。
+
+📋 **摘要格式:**
+
+## 会议概述
+- 用1-2句话概述主要讨论主题
+
+## 核心讨论事项
+- 用要点列出主要议程
+- 包含每个议程的主要内容
+
+## 决定事项
+- 会议中做出的决定
+- 达成的共识
+
+## 后续行动
+- 需要完成的任务
+- 如有提及负责人或截止日期，请包含
+
+## 一句话总结
+- 用一句话总结整个会议
+
+---
+会议内容:
+${content}`
+      } else {
+        // 한국어 (기본)
+        return `당신은 전문 회의 요약 전문가입니다. 다음 회의 내용을 한국어로 요약해주세요.
+중요: 반드시 한국어로 응답해주세요.
 
 📋 **요약 형식:**
 
@@ -50,7 +130,12 @@ export async function POST(request: NextRequest) {
 
 ---
 회의 내용:
-${text}`
+${content}`
+      }
+    }
+
+    // customPrompt가 있으면 사용 (회의기록 생성용), 없으면 요약 프롬프트 사용
+    const prompt = customPrompt || getPromptByLanguage(targetLanguage, text)
 
     // Gemini API 호출 - 사용 가능한 모델 시도
     const modelConfigs = [
