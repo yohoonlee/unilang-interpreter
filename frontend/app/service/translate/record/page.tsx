@@ -275,11 +275,13 @@ function RecordTranslatePageContent() {
     
     // 번역 및 변환
     setProcessingStatus("번역 중...")
+    let processedItems: TranscriptItem[] = []
+    
     if (targetLanguage !== "none" && res.utterances.length > 0) {
-      await translateAndConvertUtterances(res, newSessionId)
+      processedItems = await translateAndConvertUtterances(res, newSessionId)
     } else {
       // 번역 없이 변환만
-      const items: TranscriptItem[] = res.utterances.map((u, idx) => ({
+      processedItems = res.utterances.map((u, idx) => ({
         id: `utterance-${idx}`,
         speaker: u.speaker,
         speakerName: `화자 ${u.speaker}`,
@@ -291,17 +293,17 @@ function RecordTranslatePageContent() {
         start: u.start,
         end: u.end,
       }))
-      setTranscripts(items)
+      setTranscripts(processedItems)
       
       // DB 저장
       if (newSessionId) {
-        await saveUtterancesToDb(items, newSessionId)
+        await saveUtterancesToDb(processedItems, newSessionId)
       }
     }
     
     // 자동 AI 처리 (녹음 종료 시)
-    if (newSessionId) {
-      await autoProcessAfterRecording(newSessionId)
+    if (newSessionId && processedItems.length > 0) {
+      await autoProcessAfterRecording(newSessionId, processedItems)
     }
     
     setProcessingStatus("")
@@ -352,7 +354,7 @@ function RecordTranslatePageContent() {
   }
   
   // 번역 및 변환
-  async function translateAndConvertUtterances(res: AssemblyAIResult, sessId: string | null) {
+  async function translateAndConvertUtterances(res: AssemblyAIResult, sessId: string | null): Promise<TranscriptItem[]> {
     setIsTranslating(true)
     const items: TranscriptItem[] = []
     
@@ -401,6 +403,8 @@ function RecordTranslatePageContent() {
     if (sessId) {
       await saveUtterancesToDb(items, sessId)
     }
+    
+    return items
   }
   
   // 발화 DB 저장
@@ -442,11 +446,13 @@ function RecordTranslatePageContent() {
   }
   
   // 녹음 종료 후 자동 AI 처리
-  async function autoProcessAfterRecording(sessId: string) {
+  async function autoProcessAfterRecording(sessId: string, items: TranscriptItem[]) {
     try {
-      // 1. AI 재정리
-      setError("🔄 AI 재정리 중...")
-      await reorganizeSentences()
+      // 1. AI 재정리 (items가 2개 이상일 때만)
+      if (items.length >= 2) {
+        setError("🔄 AI 재정리 중...")
+        await reorganizeSentences()
+      }
       
       // 2. 문서 정리
       setError("📝 녹음기록 작성 중...")
@@ -454,7 +460,7 @@ function RecordTranslatePageContent() {
       
       // 3. 요약 생성
       setError("✨ 요약본 생성 중...")
-      await generateSummaryForSession(sessId)
+      await generateSummaryForSession(sessId, items)
       
       setError(null)
     } catch (err) {
@@ -700,15 +706,16 @@ Please write the transcript following this exact format.`
   }
   
   // 요약 생성
-  const generateSummaryForSession = async (sessId: string) => {
-    if (transcripts.length === 0) {
+  const generateSummaryForSession = async (sessId: string, transcriptItems?: TranscriptItem[]) => {
+    const items = transcriptItems || transcripts
+    if (items.length === 0) {
       console.log("[요약] transcripts가 비어있음")
       return
     }
     
     setIsSummarizing(true)
     try {
-      const texts = transcripts.map(t => t.original)
+      const texts = items.map(t => t.original)
       const combinedText = texts.join("\n")
       
       console.log("[요약] 요약 생성 시작:", { sessId, textLength: combinedText.length })
