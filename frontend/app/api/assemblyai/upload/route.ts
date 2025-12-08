@@ -9,19 +9,41 @@ const client = new AssemblyAI({
 // 최대 파일 크기: 5GB
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024
 
-// 지원 오디오 형식
+// 지원 오디오 형식 (다양한 MIME 타입 변형 포함)
 const SUPPORTED_FORMATS = [
+  // WAV
   "audio/wav",
+  "audio/x-wav",
+  "audio/wave",
+  // MP3
   "audio/mp3",
   "audio/mpeg",
+  "audio/x-mpeg",
+  // M4A / AAC
   "audio/mp4",
   "audio/m4a",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/x-aac",
+  // OGG
   "audio/ogg",
+  "audio/x-ogg",
+  "application/ogg",
+  // WebM
   "audio/webm",
+  // FLAC
   "audio/flac",
+  "audio/x-flac",
+  // Video formats (for audio extraction)
   "video/mp4",
   "video/webm",
   "video/quicktime",
+  "video/x-m4v",
+  // 3GP
+  "audio/3gpp",
+  "video/3gpp",
+  // AMR
+  "audio/amr",
 ]
 
 export async function POST(request: NextRequest) {
