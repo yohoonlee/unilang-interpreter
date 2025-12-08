@@ -173,6 +173,8 @@ function RecordTranslatePageContent() {
   // 제목 편집
   const [isEditingCurrentTitle, setIsEditingCurrentTitle] = useState(false)
   const [editCurrentTitleText, setEditCurrentTitleText] = useState("")
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
+  const [editingSessionTitle, setEditingSessionTitle] = useState("")
   
   // 파일 업로드
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -707,6 +709,44 @@ Please write the meeting minutes following this format.`
     setShowConfirmModal(true)
   }
   
+  // 세션 제목 업데이트
+  const updateSessionTitle = async (sessionIdToUpdate: string, newTitle: string) => {
+    try {
+      const { error } = await supabase
+        .from("translation_sessions")
+        .update({ title: newTitle })
+        .eq("id", sessionIdToUpdate)
+      
+      if (error) {
+        console.error("세션 제목 업데이트 실패:", error)
+        return
+      }
+      
+      // 세션 목록 업데이트
+      setSessions(prev => prev.map(s => 
+        s.id === sessionIdToUpdate ? { ...s, title: newTitle } : s
+      ))
+      
+      // 현재 세션이면 제목도 업데이트
+      if (sessionId === sessionIdToUpdate) {
+        setCurrentSessionTitle(newTitle)
+      }
+    } catch (err) {
+      console.error("세션 제목 업데이트 오류:", err)
+    }
+  }
+  
+  // 현재 세션 제목 업데이트
+  const updateCurrentSessionTitle = async () => {
+    if (!sessionId || !editCurrentTitleText.trim()) {
+      setIsEditingCurrentTitle(false)
+      return
+    }
+    
+    await updateSessionTitle(sessionId, editCurrentTitleText.trim())
+    setIsEditingCurrentTitle(false)
+  }
+  
   // 세션 삭제
   const deleteSession = async (sessionIdToDelete: string) => {
     showConfirm("이 녹음 기록을 삭제하시겠습니까?", async () => {
@@ -971,9 +1011,66 @@ Please write the meeting minutes following this format.`
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-slate-900 truncate">
-                            {session.title}
-                          </h3>
+                          {editingSessionId === session.id ? (
+                            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="text"
+                                value={editingSessionTitle}
+                                onChange={(e) => setEditingSessionTitle(e.target.value)}
+                                className="flex-1 px-2 py-1 text-sm border border-teal-300 rounded bg-white"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    updateSessionTitle(session.id, editingSessionTitle)
+                                    setEditingSessionId(null)
+                                    setEditingSessionTitle("")
+                                  } else if (e.key === "Escape") {
+                                    setEditingSessionId(null)
+                                    setEditingSessionTitle("")
+                                  }
+                                }}
+                              />
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  updateSessionTitle(session.id, editingSessionTitle)
+                                  setEditingSessionId(null)
+                                  setEditingSessionTitle("")
+                                }}
+                              >
+                                <Check className="h-4 w-4 text-teal-500" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setEditingSessionId(null)
+                                  setEditingSessionTitle("")
+                                }}
+                              >
+                                <X className="h-4 w-4 text-slate-500" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <h3 className="font-semibold text-slate-900 truncate">
+                                {session.title}
+                              </h3>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setEditingSessionId(session.id)
+                                  setEditingSessionTitle(session.title)
+                                }}
+                                className="opacity-0 group-hover:opacity-100"
+                              >
+                                <Edit3 className="h-3 w-3 text-teal-500" />
+                              </Button>
+                            </div>
+                          )}
                           <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
                             <Calendar className="h-3 w-3" />
                             {new Date(session.created_at).toLocaleDateString("ko-KR", {
@@ -986,6 +1083,18 @@ Please write the meeting minutes following this format.`
                         </div>
                         
                         <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditingSessionId(session.id)
+                              setEditingSessionTitle(session.title)
+                            }}
+                            title="제목 수정"
+                          >
+                            <Edit3 className="h-4 w-4 text-teal-500" />
+                          </Button>
                           <Button
                             size="sm"
                             variant="ghost"
@@ -1053,12 +1162,63 @@ Please write the meeting minutes following this format.`
           <Card className="border-2 border-teal-200 bg-white shadow-lg">
             <CardContent className="p-5">
               {/* 세션 타이틀 */}
-              {currentSessionTitle && (
+              {(sessionId || transcripts.length > 0) && (
                 <div className="flex items-center gap-3 mb-4 pb-4 border-b border-teal-100">
                   <div className="flex-1 flex items-center gap-2">
-                    <span className="text-lg font-semibold text-teal-700">
-                      📁 {currentSessionTitle}
-                    </span>
+                    {isEditingCurrentTitle ? (
+                      <>
+                        <input
+                          type="text"
+                          value={editCurrentTitleText}
+                          onChange={(e) => setEditCurrentTitleText(e.target.value)}
+                          placeholder="녹음 세션 제목을 입력하세요..."
+                          className="flex-1 h-10 px-3 rounded-lg border border-teal-300 bg-white text-slate-900 font-semibold focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              updateCurrentSessionTitle()
+                            } else if (e.key === "Escape") {
+                              setIsEditingCurrentTitle(false)
+                              setEditCurrentTitleText(currentSessionTitle)
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <Button
+                          size="sm"
+                          onClick={updateCurrentSessionTitle}
+                          className="bg-teal-500 hover:bg-teal-600 text-white rounded-lg"
+                        >
+                          <Check className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setIsEditingCurrentTitle(false)
+                            setEditCurrentTitleText(currentSessionTitle)
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-lg font-semibold text-teal-700">
+                          📁 {currentSessionTitle || "새 녹음"}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditCurrentTitleText(currentSessionTitle)
+                            setIsEditingCurrentTitle(true)
+                          }}
+                          className="text-teal-600 hover:bg-teal-100"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -1515,9 +1675,52 @@ Please write the meeting minutes following this format.`
                       onClick={() => loadSessionData(session)}
                     >
                       <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-slate-900 truncate">
-                          {session.title}
-                        </h4>
+                        {editingSessionId === session.id ? (
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              value={editingSessionTitle}
+                              onChange={(e) => setEditingSessionTitle(e.target.value)}
+                              className="flex-1 px-2 py-1 text-sm border border-teal-300 rounded bg-white"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  updateSessionTitle(session.id, editingSessionTitle)
+                                  setEditingSessionId(null)
+                                  setEditingSessionTitle("")
+                                } else if (e.key === "Escape") {
+                                  setEditingSessionId(null)
+                                  setEditingSessionTitle("")
+                                }
+                              }}
+                            />
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                updateSessionTitle(session.id, editingSessionTitle)
+                                setEditingSessionId(null)
+                                setEditingSessionTitle("")
+                              }}
+                            >
+                              <Check className="h-4 w-4 text-teal-500" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setEditingSessionId(null)
+                                setEditingSessionTitle("")
+                              }}
+                            >
+                              <X className="h-4 w-4 text-slate-500" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <h4 className="font-semibold text-slate-900 truncate">
+                            {session.title}
+                          </h4>
+                        )}
                         <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
                           <Calendar className="h-3 w-3" />
                           {new Date(session.created_at).toLocaleDateString("ko-KR", {
@@ -1530,6 +1733,18 @@ Please write the meeting minutes following this format.`
                       </div>
                       
                       <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setEditingSessionId(session.id)
+                            setEditingSessionTitle(session.title)
+                          }}
+                          title="제목 수정"
+                        >
+                          <Edit3 className="h-4 w-4 text-teal-500" />
+                        </Button>
                         <Button
                           size="sm"
                           variant="ghost"
