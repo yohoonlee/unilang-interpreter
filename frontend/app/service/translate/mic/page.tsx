@@ -3580,11 +3580,33 @@ function MicTranslatePageContent() {
                   placeholder="마크다운 형식으로 편집하세요..."
                 />
               ) : (
-                // 보기 모드: 마크다운 시각화
-                <div className="prose prose-slate dark:prose-invert max-w-none prose-headings:text-teal-700 prose-h1:border-b-2 prose-h1:border-teal-200 prose-h1:pb-2 prose-strong:text-teal-600 prose-blockquote:border-l-teal-500 prose-code:bg-slate-100 prose-code:px-1 prose-code:rounded prose-pre:bg-slate-100 prose-table:border-collapse prose-th:bg-teal-50 prose-th:border prose-th:border-slate-300 prose-th:p-2 prose-td:border prose-td:border-slate-300 prose-td:p-2">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
-                  </ReactMarkdown>
+                // 보기 모드: 마크다운 시각화 (깔끔한 문서 스타일)
+                <div className="bg-white dark:bg-slate-800 rounded-lg p-4">
+                  <div className="document-view prose prose-lg prose-slate dark:prose-invert max-w-none
+                    prose-headings:font-bold prose-headings:text-slate-800 dark:prose-headings:text-slate-100
+                    prose-h1:text-2xl prose-h1:border-b-2 prose-h1:border-slate-300 prose-h1:pb-3 prose-h1:mb-6
+                    prose-h2:text-xl prose-h2:mt-8 prose-h2:mb-4 prose-h2:text-slate-700 dark:prose-h2:text-slate-200
+                    prose-h3:text-lg prose-h3:mt-6 prose-h3:mb-3
+                    prose-p:text-slate-700 dark:prose-p:text-slate-300 prose-p:leading-relaxed prose-p:mb-4
+                    prose-strong:text-slate-900 dark:prose-strong:text-white prose-strong:font-semibold
+                    prose-ul:my-4 prose-ul:space-y-2
+                    prose-ol:my-4 prose-ol:space-y-2
+                    prose-li:text-slate-700 dark:prose-li:text-slate-300 prose-li:leading-relaxed
+                    prose-li:marker:text-slate-500
+                    [&_ul]:list-disc [&_ul]:pl-6
+                    [&_ul_ul]:list-[circle] [&_ul_ul]:pl-6 [&_ul_ul]:mt-2
+                    [&_ul_ul_ul]:list-[square] [&_ul_ul_ul]:pl-6 [&_ul_ul_ul]:mt-2
+                    prose-blockquote:border-l-4 prose-blockquote:border-teal-500 prose-blockquote:bg-teal-50 dark:prose-blockquote:bg-teal-900/20 prose-blockquote:pl-4 prose-blockquote:py-2 prose-blockquote:italic
+                    prose-hr:my-8 prose-hr:border-slate-300
+                    prose-code:bg-slate-100 dark:prose-code:bg-slate-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm
+                    prose-table:border-collapse prose-table:w-full
+                    prose-th:bg-slate-100 dark:prose-th:bg-slate-700 prose-th:border prose-th:border-slate-300 prose-th:p-3 prose-th:text-left
+                    prose-td:border prose-td:border-slate-300 prose-td:p-3
+                  ">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
+                    </ReactMarkdown>
+                  </div>
                 </div>
               )}
             </div>
@@ -4505,11 +4527,33 @@ function MicTranslatePageContent() {
                     placeholder="마크다운 형식으로 편집하세요..."
                   />
                 ) : (
-                  // 마크다운 렌더링
-                  <div className="prose prose-slate dark:prose-invert max-w-none prose-headings:text-teal-700 prose-h1:border-b-2 prose-h1:border-teal-200 prose-h1:pb-2 prose-h2:text-lg prose-strong:text-teal-600 prose-blockquote:border-l-teal-500 prose-code:bg-slate-100 prose-code:px-1 prose-code:rounded prose-pre:bg-slate-100 prose-table:border-collapse prose-th:bg-teal-50 prose-th:border prose-th:border-slate-300 prose-th:p-2 prose-td:border prose-td:border-slate-300 prose-td:p-2 prose-ul:list-disc prose-ol:list-decimal">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
-                    </ReactMarkdown>
+                  // 마크다운 렌더링 (깔끔한 문서 스타일)
+                  <div className="bg-white dark:bg-slate-800 rounded-lg p-6 min-h-[400px] overflow-auto">
+                    <div className="document-view prose prose-lg prose-slate dark:prose-invert max-w-none
+                      prose-headings:font-bold prose-headings:text-slate-800 dark:prose-headings:text-slate-100
+                      prose-h1:text-2xl prose-h1:border-b-2 prose-h1:border-slate-300 prose-h1:pb-3 prose-h1:mb-6
+                      prose-h2:text-xl prose-h2:mt-8 prose-h2:mb-4 prose-h2:text-slate-700 dark:prose-h2:text-slate-200
+                      prose-h3:text-lg prose-h3:mt-6 prose-h3:mb-3
+                      prose-p:text-slate-700 dark:prose-p:text-slate-300 prose-p:leading-relaxed prose-p:mb-4
+                      prose-strong:text-slate-900 dark:prose-strong:text-white prose-strong:font-semibold
+                      prose-ul:my-4 prose-ul:space-y-2
+                      prose-ol:my-4 prose-ol:space-y-2
+                      prose-li:text-slate-700 dark:prose-li:text-slate-300 prose-li:leading-relaxed
+                      prose-li:marker:text-slate-500
+                      [&_ul]:list-disc [&_ul]:pl-6
+                      [&_ul_ul]:list-[circle] [&_ul_ul]:pl-6 [&_ul_ul]:mt-2
+                      [&_ul_ul_ul]:list-[square] [&_ul_ul_ul]:pl-6 [&_ul_ul_ul]:mt-2
+                      prose-blockquote:border-l-4 prose-blockquote:border-teal-500 prose-blockquote:bg-teal-50 dark:prose-blockquote:bg-teal-900/20 prose-blockquote:pl-4 prose-blockquote:py-2 prose-blockquote:italic
+                      prose-hr:my-8 prose-hr:border-slate-300
+                      prose-code:bg-slate-100 dark:prose-code:bg-slate-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm
+                      prose-table:border-collapse prose-table:w-full
+                      prose-th:bg-slate-100 dark:prose-th:bg-slate-700 prose-th:border prose-th:border-slate-300 prose-th:p-3 prose-th:text-left
+                      prose-td:border prose-td:border-slate-300 prose-td:p-3
+                    ">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 )}
               </div>
