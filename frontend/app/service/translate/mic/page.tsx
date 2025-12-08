@@ -203,6 +203,20 @@ function MicTranslatePageContent() {
   const audioContextRef = useRef<AudioContext | null>(null)
   const deepgramWSRef = useRef<WebSocket | null>(null)
   
+  // 네트워크 상태 및 오프라인 대기열 관련
+  const [isOnline, setIsOnline] = useState(true)
+  const [pendingQueue, setPendingQueue] = useState<{
+    sessionId: string
+    originalText: string
+    originalLang: string
+    translatedText: string
+    targetLang: string
+    localId: string
+    timestamp: number
+  }[]>([])
+  const [isProcessingQueue, setIsProcessingQueue] = useState(false)
+  const pendingQueueRef = useRef(pendingQueue)
+  
   const supabase = createClient()
   
   // 오디오 설정 (로컬 스토리지에서 불러오기)
@@ -322,6 +336,133 @@ function MicTranslatePageContent() {
   useEffect(() => {
     sessionIdRef.current = sessionId
   }, [sessionId])
+  
+  // pendingQueue ref 업데이트
+  useEffect(() => {
+    pendingQueueRef.current = pendingQueue
+  }, [pendingQueue])
+  
+  // 네트워크 상태 감지 및 대기열 처리
+  useEffect(() => {
+    // 초기 상태 설정
+    setIsOnline(navigator.onLine)
+    
+    // localStorage에서 대기열 복구
+    const savedQueue = localStorage.getItem("unilang_pending_queue")
+    if (savedQueue) {
+      try {
+        const parsed = JSON.parse(savedQueue)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setPendingQueue(parsed)
+          console.log(`📥 대기열 복구: ${parsed.length}개 항목`)
+        }
+      } catch (e) {
+        console.error("대기열 복구 실패:", e)
+      }
+    }
+    
+    const handleOnline = () => {
+      console.log("🌐 네트워크 연결됨")
+      setIsOnline(true)
+    }
+    
+    const handleOffline = () => {
+      console.log("📴 네트워크 끊김")
+      setIsOnline(false)
+    }
+    
+    window.addEventListener("online", handleOnline)
+    window.addEventListener("offline", handleOffline)
+    
+    return () => {
+      window.removeEventListener("online", handleOnline)
+      window.removeEventListener("offline", handleOffline)
+    }
+  }, [])
+  
+  // 대기열 변경 시 localStorage에 저장
+  useEffect(() => {
+    if (pendingQueue.length > 0) {
+      localStorage.setItem("unilang_pending_queue", JSON.stringify(pendingQueue))
+    } else {
+      localStorage.removeItem("unilang_pending_queue")
+    }
+  }, [pendingQueue])
+  
+  // 온라인 복구 시 대기열 처리
+  useEffect(() => {
+    const processQueue = async () => {
+      if (!isOnline || isProcessingQueue || pendingQueueRef.current.length === 0) return
+      
+      setIsProcessingQueue(true)
+      console.log(`🔄 대기열 처리 시작: ${pendingQueueRef.current.length}개 항목`)
+      
+      const queue = [...pendingQueueRef.current]
+      const failedItems: typeof queue = []
+      
+      for (const item of queue) {
+        try {
+          // 발화 저장
+          const { data: utterance, error: utteranceError } = await supabase
+            .from("utterances")
+            .insert({
+              session_id: item.sessionId,
+              user_id: userId,
+              speaker_id: userId,
+              original_text: item.originalText,
+              original_language: item.originalLang,
+            })
+            .select()
+            .single()
+          
+          if (utteranceError) {
+            console.error("대기열 발화 저장 실패:", utteranceError)
+            failedItems.push(item)
+            continue
+          }
+          
+          // 번역 저장
+          const { error: translationError } = await supabase
+            .from("translations")
+            .insert({
+              utterance_id: utterance.id,
+              translated_text: item.translatedText,
+              target_language: item.targetLang,
+              translation_provider: "google"
+            })
+          
+          if (translationError) {
+            console.error("대기열 번역 저장 실패:", translationError)
+            // 발화는 저장됐으므로 실패 목록에 추가하지 않음
+          }
+          
+          console.log(`✅ 대기열 항목 저장 완료: ${item.localId}`)
+          
+          // 성공한 항목 제거 (하나씩 처리)
+          setPendingQueue(prev => prev.filter(p => p.localId !== item.localId))
+          
+        } catch (err) {
+          console.error("대기열 처리 오류:", err)
+          failedItems.push(item)
+        }
+      }
+      
+      // 실패한 항목만 남김
+      if (failedItems.length > 0) {
+        setPendingQueue(failedItems)
+        console.log(`⚠️ 대기열 처리 완료, ${failedItems.length}개 실패`)
+      } else {
+        setPendingQueue([])
+        console.log("✅ 대기열 모두 처리 완료!")
+      }
+      
+      setIsProcessingQueue(false)
+    }
+    
+    if (isOnline && pendingQueue.length > 0 && !isProcessingQueue && userId) {
+      processQueue()
+    }
+  }, [isOnline, pendingQueue.length, userId, isProcessingQueue, supabase])
   
   // 사용 가능한 오디오 장치
   const [audioDevices, setAudioDevices] = useState<{
@@ -745,58 +886,101 @@ function MicTranslatePageContent() {
     }
   }
 
-  // 발화 및 번역 저장
+  // 발화 및 번역 저장 (네트워크 끊김 시 대기열에 추가)
   const saveUtterance = async (
     sessionId: string,
     originalText: string,
     originalLang: string,
     translatedText: string,
-    targetLang: string
-  ): Promise<{ utteranceId?: string; translationId?: string }> => {
+    targetLang: string,
+    localId?: string // 대기열 항목의 로컬 ID (재시도 시 사용)
+  ): Promise<{ utteranceId?: string; translationId?: string; queued?: boolean }> => {
     if (!userId || !saveToDb) return {}
     
-    try {
-      // 발화 저장
-      const { data: utterance, error: utteranceError } = await supabase
-        .from("utterances")
-        .insert({
-          session_id: sessionId,
-          user_id: userId,
-          speaker_id: userId,
-          original_text: originalText,
-          original_language: originalLang,
-        })
-        .select()
-        .single()
-      
-      if (utteranceError) {
-        console.error("발화 저장 실패:", utteranceError)
-        return {}
+    // 오프라인 상태면 즉시 대기열에 추가
+    if (!navigator.onLine) {
+      const queueItem = {
+        sessionId,
+        originalText,
+        originalLang,
+        translatedText,
+        targetLang,
+        localId: localId || `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
       }
-      
-      // 번역 저장
-      const { data: translation, error: translationError } = await supabase
-        .from("translations")
-        .insert({
-          utterance_id: utterance.id,
-          translated_text: translatedText,
-          target_language: targetLang,
-          translation_provider: "google"
-        })
-        .select()
-        .single()
-      
-      if (translationError) {
-        console.error("번역 저장 실패:", translationError)
-        return { utteranceId: utterance.id }
-      }
-      
-      return { utteranceId: utterance.id, translationId: translation.id }
-      
-    } catch (err) {
-      console.error("저장 오류:", err)
-      return {}
+      setPendingQueue(prev => [...prev, queueItem])
+      console.log("📴 오프라인 - 대기열에 추가:", queueItem.localId)
+      return { queued: true }
     }
+    
+    // 재시도 로직 (최대 3회)
+    const maxRetries = 3
+    let lastError: Error | null = null
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // 발화 저장
+        const { data: utterance, error: utteranceError } = await supabase
+          .from("utterances")
+          .insert({
+            session_id: sessionId,
+            user_id: userId,
+            speaker_id: userId,
+            original_text: originalText,
+            original_language: originalLang,
+          })
+          .select()
+          .single()
+        
+        if (utteranceError) {
+          throw new Error(`발화 저장 실패: ${utteranceError.message}`)
+        }
+        
+        // 번역 저장
+        const { data: translation, error: translationError } = await supabase
+          .from("translations")
+          .insert({
+            utterance_id: utterance.id,
+            translated_text: translatedText,
+            target_language: targetLang,
+            translation_provider: "google"
+          })
+          .select()
+          .single()
+        
+        if (translationError) {
+          console.error("번역 저장 실패:", translationError)
+          return { utteranceId: utterance.id }
+        }
+        
+        return { utteranceId: utterance.id, translationId: translation.id }
+        
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err))
+        console.warn(`저장 시도 ${attempt}/${maxRetries} 실패:`, lastError.message)
+        
+        // 마지막 시도가 아니면 잠시 대기 후 재시도
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt)) // 지수 백오프
+        }
+      }
+    }
+    
+    // 모든 재시도 실패 - 대기열에 추가
+    console.error("❌ 저장 실패 (모든 재시도 소진):", lastError?.message)
+    const queueItem = {
+      sessionId,
+      originalText,
+      originalLang,
+      translatedText,
+      targetLang,
+      localId: localId || `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: Date.now(),
+    }
+    setPendingQueue(prev => [...prev, queueItem])
+    console.log("📥 대기열에 추가:", queueItem.localId)
+    
+    return { queued: true }
   }
 
   // 발화 삭제
@@ -2828,6 +3012,29 @@ function MicTranslatePageContent() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden" style={{ backgroundColor: '#FFFFFF' }}>
+      {/* 오프라인/대기열 상태 배너 */}
+      {(!isOnline || pendingQueue.length > 0) && (
+        <div className={`shrink-0 px-4 py-2 flex items-center justify-center gap-2 text-sm font-medium ${
+          !isOnline 
+            ? "bg-red-500 text-white" 
+            : "bg-amber-500 text-white"
+        }`}>
+          {!isOnline ? (
+            <>
+              <span className="animate-pulse">📴</span>
+              오프라인 상태 - 인터넷 연결을 확인하세요. 새 데이터는 로컬에 저장됩니다.
+            </>
+          ) : (
+            <>
+              <span className="animate-spin">🔄</span>
+              {isProcessingQueue 
+                ? `저장 중... (${pendingQueue.length}개 남음)` 
+                : `대기 중인 항목 ${pendingQueue.length}개 - 곧 자동 저장됩니다`}
+            </>
+          )}
+        </div>
+      )}
+      
       {/* 메인 콘텐츠 - 전체 배경 흰색 */}
 
       {/* Session List Panel - YouTube와 동일한 슬라이드 패널 */}

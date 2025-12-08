@@ -1,5 +1,114 @@
 import { NextRequest, NextResponse } from "next/server"
 
+// 청크 크기 (한 번에 처리할 발화 수)
+const CHUNK_SIZE = 30
+
+// 발화 청크 처리 함수
+async function processChunk(
+  utterances: { id: number; text: string }[],
+  apiKey: string,
+  sourceLangName: string
+): Promise<{ merged_from: number[]; text: string }[]> {
+  const utteranceText = utterances
+    .map((u) => `[${u.id}] ${u.text}`)
+    .join("\n")
+
+  const prompt = `You are an expert at reorganizing fragmented speech text into complete sentences.
+
+Below are ${sourceLangName} speech segments. Each segment starts with [number].
+Reorganize them into natural, complete sentences.
+
+**RULES:**
+1. DO NOT TRANSLATE. Keep the EXACT same language as input.
+2. Convert spoken language (구어체) to written language (문어체).
+3. Remove filler words like "음", "어", "그", "저기", "um", "uh", "like", "you know".
+4. Merge related incomplete segments into complete sentences.
+5. Keep the original order (sort by first number in merged_from).
+
+Input (${sourceLangName}):
+${utteranceText}
+
+Return ONLY a valid JSON array with this exact format:
+[{"merged_from": [1, 2], "text": "완성된 문장"}, {"merged_from": [3], "text": "다른 문장"}]`
+
+  // Gemini API 모델 목록 (우선순위)
+  const modelConfigs = [
+    { model: "gemini-2.0-flash", version: "v1beta" },
+    { model: "gemini-1.5-flash", version: "v1beta" },
+    { model: "gemini-1.5-pro", version: "v1beta" },
+  ]
+
+  for (const { model, version } of modelConfigs) {
+    try {
+      console.log(`[Gemini] Trying model: ${model}`)
+      
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.2,
+              maxOutputTokens: 8192,
+              responseMimeType: "application/json",
+            },
+          }),
+        }
+      )
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error(`[Gemini] Model ${model} failed: ${response.status}`, errorText)
+        continue
+      }
+
+      const data = await response.json()
+      const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text
+
+      if (!resultText) {
+        console.error(`[Gemini] Model ${model} returned no text`)
+        continue
+      }
+
+      // JSON 파싱 시도
+      try {
+        // 직접 파싱 시도 (responseMimeType이 application/json인 경우)
+        const parsed = JSON.parse(resultText)
+        if (Array.isArray(parsed)) {
+          console.log(`[Gemini] Success with model: ${model}`)
+          return parsed
+        }
+      } catch {
+        // 마크다운 코드 블록 또는 텍스트에서 JSON 추출
+        const jsonMatch = resultText.match(/```(?:json)?\s*([\s\S]*?)```/) || 
+                          resultText.match(/(\[[\s\S]*\])/)
+        if (jsonMatch) {
+          try {
+            const parsed = JSON.parse(jsonMatch[1] || jsonMatch[0])
+            if (Array.isArray(parsed)) {
+              console.log(`[Gemini] Success with model: ${model} (extracted from text)`)
+              return parsed
+            }
+          } catch (e) {
+            console.error(`[Gemini] JSON parse error:`, e)
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[Gemini] Error with model ${model}:`, error)
+    }
+  }
+
+  // 모든 모델 실패 시 원본 데이터 반환 (fallback)
+  console.warn("[Gemini] All models failed, returning original data")
+  return utterances.map((u) => ({
+    merged_from: [u.id],
+    text: u.text,
+  }))
+}
+
 // Google Generative AI API를 사용한 문장 재정리
 export async function POST(request: NextRequest) {
   try {
@@ -20,117 +129,31 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 발화 데이터를 텍스트로 변환 (원문 사용)
-    const utteranceText = utterances
-      .map((u: { id: number; text: string; translated?: string }) => 
-        `[${u.id}] ${u.text}`
-      )
-      .join("\n")
-
-    // 원문 언어 감지 (첫 번째 발화 기준)
+    // 원문 언어 감지
     const firstText = utterances[0]?.text || ""
     const isKorean = /[가-힣]/.test(firstText)
     const sourceLangName = isKorean ? "한국어" : "영어"
 
-    const prompt = `You are an expert at reorganizing fragmented subtitle text into complete sentences.
+    console.log(`[Gemini] Processing ${utterances.length} utterances in ${sourceLangName}`)
 
-Below are ${sourceLangName} subtitle segments. Each segment starts with [number].
-Merge incomplete or related segments into natural, complete sentences.
-
-**CRITICAL RULES:**
-1. **DO NOT TRANSLATE.** Keep the EXACT same language as input.
-2. If input is English, output MUST be English.
-3. If input is Korean, output MUST be Korean.
-4. Merge related segments that form incomplete sentences.
-5. Keep the original order (sort by first number in merged_from).
-6. Output ONLY a JSON array. No explanations.
-
-Input (${sourceLangName}):
-${utteranceText}
-
-Output format (JSON array only):
-[
-  {"merged_from": [1, 2], "text": "merged sentence in ${sourceLangName}"},
-  {"merged_from": [3], "text": "single sentence in ${sourceLangName}"},
-  ...
-]`
-
-    // Gemini API 호출 - 사용 가능한 모델 시도
-    const modelConfigs = [
-      { model: "gemini-2.0-flash", version: "v1beta" },
-      { model: "gemini-2.5-flash", version: "v1beta" },
-      { model: "gemini-2.0-flash-lite", version: "v1beta" },
-    ]
-
-    let lastError = null
+    // 청크 분할 처리 (긴 입력 대응)
+    const allResults: { merged_from: number[]; text: string }[] = []
     
-    for (const { model, version } of modelConfigs) {
-      try {
-        console.log(`[Gemini] Trying model: ${model} with API ${version}`)
-        
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/${version}/models/${model}:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: {
-                temperature: 0.3,
-                maxOutputTokens: 4096,
-              },
-            }),
-          }
-        )
-
-        if (!response.ok) {
-          const errorText = await response.text()
-          console.error(`[Gemini] Model ${model} failed: ${response.status}`, errorText)
-          lastError = `${model}: ${response.status} - ${errorText}`
-          continue
-        }
-
-        const data = await response.json()
-        const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text
-
-        if (!resultText) {
-          console.error(`[Gemini] Model ${model} returned no text`)
-          lastError = `${model}: 응답 텍스트 없음`
-          continue
-        }
-
-        // JSON 파싱
-        const jsonMatch = resultText.match(/\[[\s\S]*\]/)
-        if (jsonMatch) {
-          try {
-            const reorganized = JSON.parse(jsonMatch[0])
-            console.log(`[Gemini] Success with model: ${model}`)
-            return NextResponse.json({
-              success: true,
-              data: reorganized,
-              model: model,
-            })
-          } catch (parseError) {
-            console.error(`[Gemini] JSON parse error for ${model}:`, parseError)
-            lastError = `${model}: JSON 파싱 실패`
-            continue
-          }
-        }
-      } catch (error) {
-        console.error(`[Gemini] Error with model ${model}:`, error)
-        lastError = `${model}: ${error instanceof Error ? error.message : "Unknown error"}`
-        continue
-      }
+    for (let i = 0; i < utterances.length; i += CHUNK_SIZE) {
+      const chunk = utterances.slice(i, i + CHUNK_SIZE)
+      console.log(`[Gemini] Processing chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(utterances.length / CHUNK_SIZE)}`)
+      
+      const chunkResults = await processChunk(chunk, apiKey, sourceLangName)
+      allResults.push(...chunkResults)
     }
 
-    // 모든 모델 실패
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: `AI 재정리 실패. Google Cloud Console에서 Generative Language API가 활성화되어 있는지 확인하세요. 마지막 오류: ${lastError}` 
-      },
-      { status: 500 }
-    )
+    console.log(`[Gemini] Completed: ${allResults.length} reorganized items`)
+
+    return NextResponse.json({
+      success: true,
+      data: allResults,
+      processedCount: utterances.length,
+    })
 
   } catch (error) {
     console.error("[Gemini] Reorganize error:", error)
@@ -140,6 +163,3 @@ Output format (JSON array only):
     )
   }
 }
-
-
-
