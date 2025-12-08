@@ -1420,7 +1420,7 @@ function MicTranslatePageContent() {
     }
   }
 
-  // 회의 최종 종료 (저장 + 회의록 자동작성)
+  // 회의 최종 종료 (저장 + 자동화: AI재처리 → 문서정리 → 요약)
   const finalizeSession = async () => {
     if (!sessionId) {
       setError("종료할 세션이 없습니다.")
@@ -1453,9 +1453,21 @@ function MicTranslatePageContent() {
         })
         .eq("id", sessionId)
       
-      // 내용이 있고 회의록 자동작성이 활성화되어 있으면 문서 자동 생성
+      // 내용이 있고 회의록 자동작성이 활성화되어 있으면 전체 자동화 실행
       if (transcripts.length > 0 && audioSettings.realtimeSummary) {
+        // 🔄 Step 1: AI 재정리 (끊어진 문장 합치기)
+        setError("🔄 AI 재정리 중...")
+        await reorganizeSentences()
+        
+        // 🔄 Step 2: 문서 정리 (상세 회의록 생성)
+        setError("📝 회의록 작성 중...")
         await generateAndSaveDocument()
+        
+        // 🔄 Step 3: 요약 생성
+        setError("✨ 요약본 생성 중...")
+        await summarizeCurrentSession()
+        
+        setError(null)
       } else if (transcripts.length > 0) {
         // 자동작성 비활성화 시 요약만 생성
         await summarizeCurrentSession()
@@ -2396,23 +2408,40 @@ function MicTranslatePageContent() {
 
   // ============ 문서 정리 (회의록 생성) ============
   
-  // 문서 정리 프롬프트 생성
-  const getDocumentPrompt = (langName: string) => `당신은 전문 회의록 작성자입니다. 다음 음성 인식 텍스트를 ${langName}로 깔끔한 문서로 정리해주세요.
+  // 문서 정리 프롬프트 생성 (상세 회의록)
+  const getDocumentPrompt = (langName: string) => `당신은 전문 회의록 작성 전문가입니다. 다음 음성 인식 텍스트를 ${langName}로 완전한 회의록으로 문서화하세요.
 
-**중요: 요약이 아닙니다! 모든 발언 내용을 빠짐없이 포함해야 합니다.**
+⚠️ **매우 중요: 이것은 요약이 아닙니다!** 
+- 모든 발언 내용을 **100% 빠짐없이** 포함해야 합니다.
+- 내용을 축약하거나 생략하면 안 됩니다.
+- 1시간 회의면 최소 A4 10페이지 이상 분량이어야 합니다.
 
-정리 규칙:
-1. 구어체를 문어체로 변환 (예: "그래서 이게 뭐냐면요" → "이것은 ~입니다")
-2. 불필요한 추임새 제거 (예: "음..", "어..", "그..", "아..", "네네", "그러니까" 등)
-3. 끊어진 문장은 문맥에 맞게 자연스럽게 연결
-4. 반복되는 내용은 한 번만 기술
-5. 시간 순서대로 정리
-6. 주제가 바뀌면 빈 줄로 구분
-7. 원래 발언자의 의도와 내용은 그대로 유지
+**문서화 규칙:**
+1. **구어체 → 문어체 변환만 수행**
+   - "그래서 이게 뭐냐면요" → "이것은 ~입니다"
+   - "그니까 우리가 해야 될 게" → "수행해야 할 업무는"
+   
+2. **불필요한 추임새만 제거** (내용은 절대 생략 금지)
+   - 제거 대상: "음..", "어..", "그..", "아..", "네네", "그러니까", "저기", "이제"
+   
+3. **끊어진 문장 자연스럽게 연결**
+   - 문맥상 연결되는 문장은 하나로 합치기
+   
+4. **시간 순서 유지** - 발언 순서 그대로 정리
 
-출력 형식:
-- 제목이나 머리말 없이 바로 내용만 출력
-- 깔끔하고 읽기 쉬운 문장으로 정리`
+5. **발언 단위 구분** - 주제나 화자가 바뀌면 단락 구분
+
+6. **논의된 모든 세부사항 포함**
+   - 숫자, 날짜, 이름, 구체적 항목 모두 기록
+   - 질문과 답변 모두 포함
+   - 결정사항과 미결사항 모두 포함
+
+**출력 형식:**
+- 마크다운 형식 사용
+- 주요 주제는 ## 제목으로 구분
+- 세부 항목은 번호 또는 불릿 사용
+- 중요 결정사항은 **굵게** 표시
+- 날짜/숫자 등 핵심 정보도 **굵게** 표시`
 
   // 세션 ID로 문서 정리하기 (목록에서 클릭 시)
   const generateDocumentForSession = async (targetSessionId: string) => {
@@ -3878,12 +3907,11 @@ function MicTranslatePageContent() {
               * 음성언어와 번역언어가 동일하게 선택되면 해당 언어로만 문서정리를 해줍니다
             </p>
 
-            {/* 컨트롤 버튼 + 상태 (한 줄 레이아웃) */}
-            <div className="flex items-center justify-between gap-3 pt-3 border-t border-teal-200 dark:border-teal-700">
-              {/* 맨 왼쪽: 목록 버튼 */}
+            {/* 컨트롤 버튼 (한 줄 정렬) */}
+            <div className="flex items-center justify-center flex-wrap gap-2 pt-3 border-t border-teal-200 dark:border-teal-700">
+              {/* 목록 버튼 - 민트색 배경 */}
               <Button
                 onClick={() => {
-                  // 세션 초기화하고 목록으로 이동
                   setSessionId(null)
                   setTranscripts([])
                   setCurrentSessionTitle("")
@@ -3895,50 +3923,27 @@ function MicTranslatePageContent() {
                   loadSessions()
                 }}
                 size="sm"
-                variant="outline"
-                className="h-10 px-3 rounded-full border-teal-400 text-teal-600 hover:bg-teal-50"
+                className="h-10 px-4 rounded-full bg-teal-100 text-teal-700 hover:bg-teal-200 hover:text-teal-800 border border-teal-300"
                 title="통역 기록 목록으로 이동"
               >
                 <List className="h-4 w-4 mr-1" />
                 목록
               </Button>
               
-              {/* 상태 표시 */}
-              <div className="flex items-center gap-2 text-sm min-w-[100px]">
-                <div className={`h-2.5 w-2.5 rounded-full ${
-                  isListening 
-                    ? isSystemAudioMode ? "bg-purple-500 animate-pulse" : "bg-green-500 animate-pulse" 
-                    : sessionId ? "bg-yellow-500" : "bg-slate-300"
-                }`} />
-                <span className="text-teal-700 dark:text-teal-300 font-medium">
-                  {isListening 
-                    ? isSystemAudioMode ? "PC 소리 인식 중" : "마이크 녹음 중"
-                    : sessionId ? "일시정지" : "대기 중"
-                  }
-                </span>
-                {sessionId && (
-                  <span className="text-teal-500 text-xs">
-                    ({transcripts.length}개)
-                  </span>
-                )}
-              </div>
+              {/* TTS 중지 버튼 */}
+              {isSpeaking && (
+                <Button
+                  onClick={stopSpeaking}
+                  size="sm"
+                  variant="outline"
+                  className="h-10 px-3 rounded-full border-teal-400"
+                >
+                  <VolumeX className="h-4 w-4 mr-1" />
+                  중지
+                </Button>
+              )}
               
-              {/* 중앙: 버튼들 */}
-              <div className="flex items-center gap-2">
-                {/* TTS 중지 버튼 */}
-                {isSpeaking && (
-                  <Button
-                    onClick={stopSpeaking}
-                    size="sm"
-                    variant="outline"
-                    className="h-10 px-3 rounded-full border-teal-400"
-                  >
-                    <VolumeX className="h-4 w-4 mr-1" />
-                    중지
-                  </Button>
-                )}
-                
-                {/* 마이크 버튼 */}
+              {/* 마이크 버튼 */}
                 <Button
                   onClick={toggleListening}
                   disabled={isCapturingSystemAudio}
@@ -4089,16 +4094,26 @@ function MicTranslatePageContent() {
                         회의기록
                       </Button>
                     )}
+                    
+                    {/* 요약본 버튼 (문서가 생성된 경우에만) */}
+                    {documentTextOriginal && (
+                      <Button
+                        onClick={() => summarizeCurrentSession()}
+                        disabled={isSummarizing}
+                        size="sm"
+                        variant="outline"
+                        className="h-10 px-3 rounded-full border-2 border-amber-400 text-amber-600 hover:bg-amber-100 hover:border-amber-500 hover:text-amber-700 dark:hover:bg-amber-900/30"
+                        title="회의 내용 요약"
+                      >
+                        {isSummarizing ? (
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-4 w-4 mr-1" />
+                        )}
+                        요약본
+                      </Button>
+                    )}
                   </>
-                )}
-              </div>
-              
-              {/* 오른쪽: TTS 표시 */}
-              <div className="flex items-center gap-2 text-sm justify-end">
-                {audioSettings.autoPlayTTS && (
-                  <span className="text-teal-600 dark:text-teal-400 flex items-center gap-1">
-                    <Volume2 className="h-3 w-3" /> TTS
-                  </span>
                 )}
               </div>
             </div>
