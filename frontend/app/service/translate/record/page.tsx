@@ -121,7 +121,7 @@ function RecordTranslatePageContent() {
   // 기본 상태
   const [userId, setUserId] = useState<string | null>(null)
   const [sourceLanguage, setSourceLanguage] = useState("auto")
-  const [targetLanguage, setTargetLanguage] = useState("ko")
+  const [targetLanguage, setTargetLanguage] = useState("none") // 기본값: 번역 안함 (원문만 기록)
   const [error, setError] = useState<string | null>(null)
   
   // 세션 관련
@@ -449,7 +449,7 @@ function RecordTranslatePageContent() {
       await reorganizeSentences()
       
       // 2. 문서 정리
-      setError("📝 회의록 작성 중...")
+      setError("📝 녹음기록 작성 중...")
       await generateDocument()
       
       // 3. 요약 생성
@@ -644,19 +644,19 @@ IMPORTANT: Your ENTIRE response MUST be in English. Do not use any other languag
 Please write the meeting minutes following this format.`
     }
     
-    return `당신은 전문 회의록 작성 비서입니다. 음성 인식 텍스트를 ${langName} 회의록으로 변환합니다.
-중요: 반드시 한국어로 작성해주세요.
+    return `당신은 전문 녹음기록 작성 비서입니다. 음성 인식 텍스트를 ${langName} 녹음기록으로 변환합니다.
+중요: 반드시 ${langName}로 작성해주세요.
 
-## 회의록 작성 규칙
+## 녹음기록 작성 규칙
 - 글머리표(-, *)를 사용하여 내용 정리
 - 주요 카테고리는 **## 볼드 제목**으로 구분
 - 중요 단어와 핵심 키워드는 **굵게** 표시
 - 명확하고 논리적인 문어체 사용
 
-위 형식에 맞춰 회의록을 작성하세요.`
+위 형식에 맞춰 녹음기록을 작성하세요.`
   }
   
-  // DB에 회의록 저장
+  // DB에 녹음기록 저장
   const saveDocumentToDb = async (originalMd: string, translatedMd: string) => {
     if (!sessionId) return false
     
@@ -674,19 +674,24 @@ Please write the meeting minutes following this format.`
       if (error) throw error
       return true
     } catch (err) {
-      console.error("회의록 저장 오류:", err)
+      console.error("녹음기록 저장 오류:", err)
       return false
     }
   }
   
   // 요약 생성
   const generateSummaryForSession = async (sessId: string) => {
-    if (transcripts.length === 0) return
+    if (transcripts.length === 0) {
+      console.log("[요약] transcripts가 비어있음")
+      return
+    }
     
     setIsSummarizing(true)
     try {
       const texts = transcripts.map(t => t.original)
       const combinedText = texts.join("\n")
+      
+      console.log("[요약] 요약 생성 시작:", { sessId, textLength: combinedText.length })
       
       const response = await fetch("/api/gemini/summarize", {
         method: "POST",
@@ -698,22 +703,41 @@ Please write the meeting minutes following this format.`
       })
       
       const result = await response.json()
-      if (result.success) {
+      console.log("[요약] API 응답:", { success: result.success, hasError: !!result.error })
+      
+      if (result.success && result.summary) {
         setSummaryText(result.summary)
         setSavedSummaries({ [summaryLanguage]: result.summary })
         
-        // DB 저장
-        await supabase
+        // DB 저장 - 기존 요약 확인 후 업데이트 또는 생성
+        const { data: existing } = await supabase
           .from("session_summaries")
-          .insert({
-            session_id: sessId,
-            language: summaryLanguage,
-            summary_text: result.summary,
-            user_id: userId,
-          })
+          .select("id")
+          .eq("session_id", sessId)
+          .eq("language", summaryLanguage)
+          .single()
+        
+        if (existing) {
+          await supabase
+            .from("session_summaries")
+            .update({ summary_text: result.summary, updated_at: new Date().toISOString() })
+            .eq("id", existing.id)
+        } else {
+          await supabase
+            .from("session_summaries")
+            .insert({
+              session_id: sessId,
+              language: summaryLanguage,
+              summary_text: result.summary,
+              user_id: userId,
+            })
+        }
+        console.log("[요약] DB 저장 완료")
+      } else {
+        console.error("[요약] API 응답 실패:", result.error)
       }
     } catch (err) {
-      console.error("요약 생성 오류:", err)
+      console.error("[요약] 요약 생성 오류:", err)
     } finally {
       setIsSummarizing(false)
     }
@@ -838,7 +862,7 @@ Please write the meeting minutes following this format.`
       
       setTranscripts(items)
       
-      // 회의록 데이터 로드
+      // 녹음기록 데이터 로드
       const { data: sessionDoc } = await supabase
         .from("translation_sessions")
         .select("document_original_md, document_translated_md")
@@ -1336,7 +1360,7 @@ Please write the meeting minutes following this format.`
                               await loadSessionData(session)
                               setShowDocumentInPanel(true)
                             }}
-                            title="회의록 보기"
+                            title="녹음기록 보기"
                           >
                             <FileText className="h-4 w-4 text-emerald-600" />
                           </Button>
@@ -1765,7 +1789,7 @@ Please write the meeting minutes following this format.`
                     문서 정리
                   </Button>
 
-                  {/* 회의기록 버튼 */}
+                  {/* 녹음기록 버튼 */}
                   {documentTextOriginal && (
                     <Button
                       onClick={() => setShowDocumentInPanel(true)}
@@ -1774,7 +1798,7 @@ Please write the meeting minutes following this format.`
                       className="h-10 px-3 rounded-full border-2 border-emerald-400 text-emerald-600 hover:bg-emerald-100"
                     >
                       <Eye className="h-4 w-4 mr-1" />
-                      회의기록
+                      녹음기록
                     </Button>
                   )}
 
@@ -1802,11 +1826,11 @@ Please write the meeting minutes following this format.`
             </div>
           )}
 
-          {/* 3. 통역 결과 / 회의기록 패널 */}
+          {/* 3. 통역 결과 / 녹음기록 패널 */}
           {(transcripts.length > 0 || showDocumentInPanel) && (
             <Card className="border-2 border-teal-200 bg-white shadow-lg">
               <CardContent className="p-0">
-                {/* 회의기록 보기 모드 */}
+                {/* 녹음기록 보기 모드 */}
                 {showDocumentInPanel && documentTextOriginal ? (
                   <div>
                     {/* 헤더 */}
@@ -1814,7 +1838,7 @@ Please write the meeting minutes following this format.`
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <FileText className="h-5 w-5 text-teal-700" />
-                          <h3 className="font-bold text-teal-800">회의기록</h3>
+                          <h3 className="font-bold text-teal-800">녹음기록</h3>
                           <div className="flex gap-1">
                             <button
                               onClick={() => setDocumentViewTab("original")}
