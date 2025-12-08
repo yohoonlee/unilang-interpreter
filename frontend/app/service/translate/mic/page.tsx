@@ -480,6 +480,7 @@ function MicTranslatePageContent() {
   
   // 문장 버퍼링 관련 ref (맥락 통역 개선)
   const sentenceBufferRef = useRef<string>("") // 문장 버퍼
+  const sentenceTimestampRef = useRef<Date | null>(null) // 문장 시작 시간 (STT 결과가 처음 들어온 시점)
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null) // 침묵 타이머
   const SILENCE_THRESHOLD = 1500 // 1.5초 침묵 후 번역 실행
 
@@ -609,8 +610,9 @@ function MicTranslatePageContent() {
         silenceTimerRef.current = null
       }
       
-      // 버퍼 정리
+      // 버퍼 및 시간 정리
       sentenceBufferRef.current = ""
+      sentenceTimestampRef.current = null
       
       if (recognitionRef.current) {
         try {
@@ -2100,10 +2102,14 @@ function MicTranslatePageContent() {
     const bufferedText = sentenceBufferRef.current.trim()
     if (!bufferedText) return
     
-    console.log("🔄 버퍼 플러시 (문장 완성):", bufferedText)
+    // 캡처된 시작 시간 사용 (STT 결과가 처음 들어온 시점)
+    const capturedTimestamp = sentenceTimestampRef.current || new Date()
     
-    // 버퍼 초기화
+    console.log("🔄 버퍼 플러시 (문장 완성):", bufferedText, "시작시간:", capturedTimestamp.toLocaleTimeString())
+    
+    // 버퍼 및 시간 초기화
     sentenceBufferRef.current = ""
+    sentenceTimestampRef.current = null
     
     // 타이머 클리어
     if (silenceTimerRef.current) {
@@ -2111,8 +2117,8 @@ function MicTranslatePageContent() {
       silenceTimerRef.current = null
     }
     
-    // 번역 실행
-    await translateAndAdd(bufferedText)
+    // 번역 실행 (캡처한 시작 시간 전달)
+    await translateAndAdd(bufferedText, capturedTimestamp)
   }
 
   // 침묵 타이머 리셋 (발화 감지 시 호출)
@@ -2131,10 +2137,13 @@ function MicTranslatePageContent() {
     }, SILENCE_THRESHOLD)
   }
 
-  // 번역 후 목록에 추가
-  const translateAndAdd = async (text: string) => {
+  // 번역 후 목록에 추가 (capturedTime: STT 결과가 처음 들어온 시점)
+  const translateAndAdd = async (text: string, capturedTime?: Date) => {
     if (!text.trim()) return
 
+    // STT 시작 시점의 timestamp 사용 (없으면 현재 시간)
+    const utteranceTimestamp = capturedTime || new Date()
+    
     setIsTranslating(true)
     try {
       let translated = text
@@ -2165,13 +2174,17 @@ function MicTranslatePageContent() {
         translated: translated,
         sourceLanguage: actualSourceLang,
         targetLanguage: targetLanguage,
-        timestamp: new Date(),
+        timestamp: utteranceTimestamp, // STT 시작 시점 사용
         utteranceId,
         translationId,
       }
 
-      // 새 항목을 맨 앞에 추가 (최신이 위에)
-      setTranscripts((prev) => [newItem, ...prev])
+      // 새 항목을 맨 앞에 추가 (최신이 위에) + 시간순 정렬
+      setTranscripts((prev) => {
+        const updated = [newItem, ...prev]
+        // 시간순 정렬 (최신이 위에 = 내림차순)
+        return updated.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      })
       
       // 자동 TTS 재생 (ref 사용으로 최신 설정값 참조)
       // 번역이 있고 (none이 아니고), 같은 언어가 아닐 때만 TTS 재생
@@ -2238,7 +2251,10 @@ function MicTranslatePageContent() {
         if (sentenceBufferRef.current) {
           sentenceBufferRef.current += " " + trimmedText
         } else {
+          // 첫 번째 텍스트 추가 시 시작 시간 캡처 (STT 결과가 처음 들어온 시점)
           sentenceBufferRef.current = trimmedText
+          sentenceTimestampRef.current = new Date()
+          console.log("⏰ 문장 시작 시간 캡처:", sentenceTimestampRef.current.toLocaleTimeString())
         }
         
         console.log("📝 버퍼 누적:", sentenceBufferRef.current)
