@@ -4115,7 +4115,6 @@ function MicTranslatePageContent() {
                     )}
                   </>
                 )}
-              </div>
             </div>
           </CardContent>
         </Card>
