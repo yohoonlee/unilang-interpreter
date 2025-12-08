@@ -629,59 +629,51 @@ function RecordTranslatePageContent() {
     }
   }
   
-  // 문서 프롬프트
+  // 문서 프롬프트 - 화자별 글머리표 형식
   const getDocumentPrompt = (langCode: string, langName: string) => {
     if (langCode === "en") {
       return `You are a professional recording transcript writer. Convert the speech recognition text into ${langName} organized transcript.
 IMPORTANT: Your ENTIRE response MUST be in English. Do not use any other language.
 
-## Recording Transcript Rules
-1. Structure: Use markdown format with hierarchical organization
-   - **[Topic 1: Main Topic]** - Use bold bracketed headers for main topics
-   - Brief 1-2 sentence summary of the topic
-   - Detailed discussion content in bullet points
-     - Sub-points using indented bullets
-     - **Bold** for important keywords
+## Recording Transcript Format Rules
+Write in markdown format with bullet points for each speaker's statement:
 
-2. Format:
-   - Use bullet points (•, -, *) consistently
-   - Indent sub-points with proper hierarchy
-   - Add blank lines between major sections
-   - Include a summary section at the end
+- **[Speaker A]** What Speaker A said (converted to written form)
+- **[Speaker B]** What Speaker B said (converted to written form)
+- **[Speaker A]** Next statement from Speaker A
+...
 
-3. Style:
-   - Convert spoken language to clear written form
-   - Remove filler words (um, uh, like, etc.)
-   - Use formal, logical expressions
-   - Preserve all meaningful content from speakers
+## Additional Rules:
+1. Each statement starts with a bullet point (-)
+2. Speaker name in bold brackets: **[Speaker A]**, **[Speaker B]**, etc.
+3. Convert spoken language to clear written form
+4. Remove filler words (um, uh, like, etc.)
+5. Keep the chronological order of statements
+6. **Bold** important keywords within statements
 
-Please organize the content into logical topics and write following this format.`
+Please write the transcript following this exact format.`
     }
     
     return `당신은 전문 녹음기록 작성 비서입니다. 음성 인식 텍스트를 ${langName} 녹음기록으로 변환합니다.
 중요: 반드시 ${langName}로 작성해주세요.
 
-## 녹음기록 작성 규칙
-1. 구조: 마크다운 형식으로 계층적으로 정리
-   - **[주제 1: 주요 주제명]** - 굵은 대괄호 제목으로 주요 주제 구분
-   - 해당 주제에 대한 1-2문장 요약
-   - 상세 논의 내용을 글머리표로 정리
-     - 하위 항목은 들여쓰기로 구분
-     - **중요 키워드**는 굵게 표시
+## 녹음기록 작성 형식
+화자별로 글머리표를 사용하여 마크다운 형식으로 작성합니다:
 
-2. 형식:
-   - 글머리표(•, -, *)를 일관되게 사용
-   - 하위 항목은 적절한 들여쓰기로 계층 구분
-   - 주요 섹션 사이에 빈 줄 추가
-   - 마지막에 요약 섹션 포함
+- **[화자 A]** 화자 A가 말한 내용 (문어체로 변환)
+- **[화자 B]** 화자 B가 말한 내용 (문어체로 변환)
+- **[화자 A]** 화자 A의 다음 발언
+...
 
-3. 문체:
-   - 구어체를 명확한 문어체로 변환
-   - 음, 어, 그.. 등 불필요한 말 제거
-   - 명확하고 논리적인 표현 사용 (~함, ~임 등)
-   - 화자가 말하고자 한 의미 있는 내용은 모두 포함
+## 추가 규칙:
+1. 각 발언은 글머리표(-)로 시작
+2. 화자명은 굵은 대괄호로 표시: **[화자 A]**, **[화자 B]** 등
+3. 구어체를 명확한 문어체로 변환
+4. 음, 어, 그.. 등 불필요한 말 제거
+5. 발언 순서(시간순) 유지
+6. 발언 내 **중요 키워드**는 굵게 표시
 
-위 형식에 맞춰 내용을 논리적인 주제별로 정리하여 녹음기록을 작성하세요.`
+위 형식에 맞춰 녹음기록을 작성하세요.`
   }
   
   // DB에 녹음기록 저장
@@ -1851,7 +1843,7 @@ Please organize the content into logical topics and write following this format.
 
           {/* 3. 통역 결과 / 녹음기록 패널 */}
           {(transcripts.length > 0 || showDocumentInPanel) && (
-            <Card className="border-2 border-teal-200 bg-white shadow-lg overflow-hidden">
+            <Card className="border-2 shadow-lg overflow-hidden" style={{ borderColor: '#96F7E4', backgroundColor: '#CCFBF1' }}>
               <CardContent className="p-0">
                 {/* 녹음기록 보기 모드 */}
                 {showDocumentInPanel && documentTextOriginal ? (
@@ -1957,11 +1949,86 @@ Please organize the content into logical topics and write following this format.
                     
                     {/* 본문 */}
                     <div className="p-6">
-                      <div className="prose prose-slate max-w-none prose-headings:text-teal-800 prose-strong:text-teal-700 prose-li:marker:text-teal-500">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
-                        </ReactMarkdown>
-                      </div>
+                      {isEditingDocument ? (
+                        <div className="space-y-4">
+                          {/* 화자명 일괄 변경 */}
+                          <div className="flex items-center gap-2 p-3 bg-teal-50 rounded-lg border border-teal-200">
+                            <span className="text-sm text-teal-700 font-medium">화자명 변경:</span>
+                            <input
+                              type="text"
+                              placeholder="찾을 화자명 (예: 화자 A)"
+                              className="px-2 py-1 text-sm border border-teal-300 rounded"
+                              id="findSpeaker"
+                            />
+                            <span className="text-teal-500">→</span>
+                            <input
+                              type="text"
+                              placeholder="바꿀 이름 (예: 김철수)"
+                              className="px-2 py-1 text-sm border border-teal-300 rounded"
+                              id="replaceSpeaker"
+                            />
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                const findInput = document.getElementById("findSpeaker") as HTMLInputElement
+                                const replaceInput = document.getElementById("replaceSpeaker") as HTMLInputElement
+                                if (findInput?.value && replaceInput?.value) {
+                                  const regex = new RegExp(`\\[${findInput.value}\\]`, "g")
+                                  setEditDocumentText(prev => prev.replace(regex, `[${replaceInput.value}]`))
+                                  findInput.value = ""
+                                  replaceInput.value = ""
+                                }
+                              }}
+                              className="bg-teal-500 text-white hover:bg-teal-600"
+                            >
+                              변경
+                            </Button>
+                          </div>
+                          
+                          <textarea
+                            value={editDocumentText}
+                            onChange={(e) => setEditDocumentText(e.target.value)}
+                            className="w-full h-[400px] p-4 border border-teal-300 rounded-lg font-mono text-sm resize-none focus:ring-2 focus:ring-teal-500"
+                          />
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                setIsEditingDocument(false)
+                                setEditDocumentText("")
+                              }}
+                            >
+                              취소
+                            </Button>
+                            <Button
+                              onClick={async () => {
+                                setIsSavingDocument(true)
+                                // 현재 탭에 따라 원문 또는 번역문 업데이트
+                                if (documentViewTab === "original") {
+                                  setDocumentTextOriginal(editDocumentText)
+                                  await saveDocumentToDb(editDocumentText, documentTextTranslated)
+                                } else {
+                                  setDocumentTextTranslated(editDocumentText)
+                                  await saveDocumentToDb(documentTextOriginal, editDocumentText)
+                                }
+                                setIsSavingDocument(false)
+                                setIsEditingDocument(false)
+                              }}
+                              disabled={isSavingDocument}
+                              className="bg-teal-500 text-white hover:bg-teal-600"
+                            >
+                              {isSavingDocument ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+                              저장
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="prose prose-slate max-w-none prose-headings:text-teal-800 prose-strong:text-teal-700 prose-li:marker:text-teal-500">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
+                          </ReactMarkdown>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -2195,7 +2262,7 @@ Please organize the content into logical topics and write following this format.
 
           {/* 4. 녹음 기록 목록 */}
           {sessions.length > 0 && !sessionId && transcripts.length === 0 && (
-            <Card className="border-2 border-teal-200 bg-white shadow-lg">
+            <Card className="border-2 shadow-lg overflow-hidden" style={{ borderColor: '#96F7E4', backgroundColor: '#CCFBF1' }}>
               <CardContent className="p-0">
                 <div className="p-4 border-b border-teal-200" style={{ backgroundColor: '#CCFBF1' }}>
                   <h3 className="font-bold text-teal-800 flex items-center gap-2">
