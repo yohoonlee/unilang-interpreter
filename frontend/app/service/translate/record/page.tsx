@@ -627,6 +627,13 @@ function RecordTranslatePageContent() {
       setDocumentViewTab("original")
       setShowDocumentInPanel(true)
       
+      // 문서 정리 완료 후 요약본 자동 생성
+      if (sessionId) {
+        setError("✨ 요약본 생성 중...")
+        await generateSummaryForSession(sessionId)
+        setError(null)
+      }
+      
     } catch (err) {
       console.error("문서 정리 오류:", err)
       setError(err instanceof Error ? err.message : "문서 정리 중 오류가 발생했습니다.")
