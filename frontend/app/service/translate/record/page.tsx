@@ -632,28 +632,56 @@ function RecordTranslatePageContent() {
   // 문서 프롬프트
   const getDocumentPrompt = (langCode: string, langName: string) => {
     if (langCode === "en") {
-      return `You are a professional meeting minutes writer. Convert the speech recognition text into ${langName} meeting minutes.
+      return `You are a professional recording transcript writer. Convert the speech recognition text into ${langName} organized transcript.
 IMPORTANT: Your ENTIRE response MUST be in English. Do not use any other language.
 
-## Meeting Minutes Rules
-- Use bullet points (-, *) to organize content
-- Use **## Bold headings** for main categories
-- Use **bold** for important words and keywords
-- Use clear, logical, formal writing
+## Recording Transcript Rules
+1. Structure: Use markdown format with hierarchical organization
+   - **[Topic 1: Main Topic]** - Use bold bracketed headers for main topics
+   - Brief 1-2 sentence summary of the topic
+   - Detailed discussion content in bullet points
+     - Sub-points using indented bullets
+     - **Bold** for important keywords
 
-Please write the meeting minutes following this format.`
+2. Format:
+   - Use bullet points (•, -, *) consistently
+   - Indent sub-points with proper hierarchy
+   - Add blank lines between major sections
+   - Include a summary section at the end
+
+3. Style:
+   - Convert spoken language to clear written form
+   - Remove filler words (um, uh, like, etc.)
+   - Use formal, logical expressions
+   - Preserve all meaningful content from speakers
+
+Please organize the content into logical topics and write following this format.`
     }
     
     return `당신은 전문 녹음기록 작성 비서입니다. 음성 인식 텍스트를 ${langName} 녹음기록으로 변환합니다.
 중요: 반드시 ${langName}로 작성해주세요.
 
 ## 녹음기록 작성 규칙
-- 글머리표(-, *)를 사용하여 내용 정리
-- 주요 카테고리는 **## 볼드 제목**으로 구분
-- 중요 단어와 핵심 키워드는 **굵게** 표시
-- 명확하고 논리적인 문어체 사용
+1. 구조: 마크다운 형식으로 계층적으로 정리
+   - **[주제 1: 주요 주제명]** - 굵은 대괄호 제목으로 주요 주제 구분
+   - 해당 주제에 대한 1-2문장 요약
+   - 상세 논의 내용을 글머리표로 정리
+     - 하위 항목은 들여쓰기로 구분
+     - **중요 키워드**는 굵게 표시
 
-위 형식에 맞춰 녹음기록을 작성하세요.`
+2. 형식:
+   - 글머리표(•, -, *)를 일관되게 사용
+   - 하위 항목은 적절한 들여쓰기로 계층 구분
+   - 주요 섹션 사이에 빈 줄 추가
+   - 마지막에 요약 섹션 포함
+
+3. 문체:
+   - 구어체를 명확한 문어체로 변환
+   - 음, 어, 그.. 등 불필요한 말 제거
+   - 명확하고 논리적인 표현 사용 (~함, ~임 등)
+   - 화자가 말하고자 한 의미 있는 내용은 모두 포함
+
+위 형식에 맞춰 내용을 논리적인 주제별로 정리하여 녹음기록을 작성하세요.`
   }
   
   // DB에 녹음기록 저장
@@ -1897,18 +1925,32 @@ Please write the meeting minutes following this format.`
                             </span>
                           )}
                         </h3>
-                        {assemblyResult && (
-                          <div className="flex items-center gap-4 text-sm text-slate-500">
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-4 w-4" />
-                              {Math.round(assemblyResult.duration)}초
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Users className="h-4 w-4" />
-                              {Object.keys(assemblyResult.speakerStats).length}명
-                            </span>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-3">
+                          {assemblyResult && (
+                            <div className="flex items-center gap-4 text-sm text-slate-500">
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-4 w-4" />
+                                {Math.round(assemblyResult.duration)}초
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Users className="h-4 w-4" />
+                                {Object.keys(assemblyResult.speakerStats).length}명
+                              </span>
+                            </div>
+                          )}
+                          {/* 녹음기록 버튼 */}
+                          {documentTextOriginal && (
+                            <Button
+                              onClick={() => setShowDocumentInPanel(true)}
+                              size="sm"
+                              className="h-8 px-3 rounded-lg text-white"
+                              style={{ backgroundColor: '#00BAB7' }}
+                            >
+                              <FileText className="h-4 w-4 mr-1" />
+                              녹음기록
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                     
