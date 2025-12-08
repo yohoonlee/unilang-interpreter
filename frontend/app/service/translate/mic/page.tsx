@@ -4690,9 +4690,9 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
           </Card>
         )}
 
-        {/* 4. 통역 결과 또는 회의기록 보기 */}
+        {/* 4. 회의내용 또는 회의기록 보기 */}
         {(sessionId || transcripts.length > 0 || showDocumentInPanel) && (
-        <Card className="mb-4" style={{ backgroundColor: '#CCFBF1' }}>
+        <Card className="mb-4 border-2" style={{ backgroundColor: '#CCFBF1', borderColor: '#96F7E4' }}>
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
               {showDocumentInPanel ? (
@@ -4777,7 +4777,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                           size="sm"
                           variant="ghost"
                           className="h-7 px-2 text-xs text-slate-500"
-                          title="통역 결과로 돌아가기"
+                          title="회의내용으로 돌아가기"
                         >
                           <X className="h-3 w-3" />
                         </Button>
@@ -4788,7 +4788,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
               ) : (
                 <>
                   <Globe className="h-5 w-5 text-teal-500" />
-                  통역 결과
+                  회의내용
                   {isSpeaking && (
                     <span className="text-xs text-teal-500 animate-pulse ml-2">🔊 재생 중...</span>
                   )}
@@ -4809,7 +4809,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
               )}
             </CardTitle>
           </CardHeader>
-          <CardContent className="bg-white dark:bg-slate-900">
+          <CardContent style={{ backgroundColor: '#F8FAFC' }}>
             {/* 회의기록 보기 모드 */}
             {showDocumentInPanel ? (
               <div className="min-h-[300px]">
