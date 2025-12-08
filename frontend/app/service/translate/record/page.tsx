@@ -1024,7 +1024,7 @@ Please write the meeting minutes following this format.`
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-4 py-2 space-y-2">
           {/* 1. 상단 타이틀바 */}
-          <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg">
+          <div className="text-white rounded-lg" style={{ background: 'linear-gradient(to right, #00BBAE, #14B8A6)' }}>
             <div className="px-4 py-4 flex items-center gap-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
                 <FileAudio className="h-6 w-6 text-white" />
@@ -1050,13 +1050,13 @@ Please write the meeting minutes following this format.`
           </div>
 
           {/* 2. 녹음 패널 */}
-          <Card className="border-2 border-purple-200 bg-white shadow-lg">
+          <Card className="border-2 border-teal-200 bg-white shadow-lg">
             <CardContent className="p-5">
               {/* 세션 타이틀 */}
               {currentSessionTitle && (
-                <div className="flex items-center gap-3 mb-4 pb-4 border-b border-purple-100">
+                <div className="flex items-center gap-3 mb-4 pb-4 border-b border-teal-100">
                   <div className="flex-1 flex items-center gap-2">
-                    <span className="text-lg font-semibold text-purple-700">
+                    <span className="text-lg font-semibold text-teal-700">
                       📁 {currentSessionTitle}
                     </span>
                   </div>
@@ -1104,10 +1104,10 @@ Please write the meeting minutes following this format.`
                   <Button
                     onClick={() => fileInputRef.current?.click()}
                     variant="outline"
-                    className="h-20 flex-col gap-2 border-2 border-purple-200 hover:bg-purple-50"
+                    className="h-20 flex-col gap-2 border-2 border-teal-200 hover:bg-teal-50"
                   >
-                    <Upload className="h-6 w-6 text-purple-500" />
-                    <span className="text-purple-700">파일 업로드</span>
+                    <Upload className="h-6 w-6 text-teal-500" />
+                    <span className="text-teal-700">파일 업로드</span>
                   </Button>
                   <input
                     ref={fileInputRef}
@@ -1118,7 +1118,8 @@ Please write the meeting minutes following this format.`
                   />
                   <Button
                     onClick={handleStartRecording}
-                    className="h-20 flex-col gap-2 bg-gradient-to-r from-purple-500 to-pink-500"
+                    className="h-20 flex-col gap-2"
+                    style={{ background: 'linear-gradient(to right, #00BBAE, #14B8A6)' }}
                   >
                     <Mic className="h-6 w-6" />
                     <span>마이크 녹음</span>
@@ -1126,10 +1127,10 @@ Please write the meeting minutes following this format.`
                   <Button
                     onClick={() => setRecordMode("url")}
                     variant="outline"
-                    className="h-20 flex-col gap-2 border-2 border-purple-200 hover:bg-purple-50"
+                    className="h-20 flex-col gap-2 border-2 border-teal-200 hover:bg-teal-50"
                   >
-                    <LinkIcon className="h-6 w-6 text-purple-500" />
-                    <span className="text-purple-700">URL 입력</span>
+                    <LinkIcon className="h-6 w-6 text-teal-500" />
+                    <span className="text-teal-700">URL 입력</span>
                   </Button>
                 </div>
               )}
@@ -1145,7 +1146,7 @@ Please write the meeting minutes following this format.`
                       placeholder="오디오/비디오 URL 또는 YouTube URL 입력..."
                       className="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-white"
                     />
-                    <Button onClick={handleUrlTranscribe} className="bg-purple-500 hover:bg-purple-600">
+                    <Button onClick={handleUrlTranscribe} style={{ backgroundColor: '#00BBAE' }} className="hover:opacity-90">
                       <Globe className="h-4 w-4 mr-2" />
                       전사
                     </Button>
@@ -1191,23 +1192,34 @@ Please write the meeting minutes following this format.`
                 </div>
               )}
 
-              {/* 처리 중 */}
+              {/* 처리 중 (녹음, 파일, URL 모두) */}
               {isProcessing && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-4">
-                    <Loader2 className="h-12 w-12 text-purple-500 animate-spin" />
+                    <Loader2 className="h-12 w-12 text-teal-500 animate-spin" />
                     <div>
-                      <div className="font-medium text-lg">
-                        {uploadProgress < 50 ? "업로드 중..." : "음성 분석 중..."}
+                      <div className="font-medium text-lg text-teal-700">
+                        {uploadProgress < 30 ? "파일 업로드 중..." : uploadProgress < 70 ? "음성 분석 중..." : "전사 결과 처리 중..."}
                       </div>
-                      <div className="text-sm text-slate-500">화자 구분 및 전사 처리 중</div>
+                      <div className="text-sm text-slate-500">
+                        {recordMode === "file" && "파일을 처리하고 있습니다. 파일 크기에 따라 시간이 걸릴 수 있습니다."}
+                        {recordMode === "recording" && "녹음된 음성을 분석하고 있습니다."}
+                        {recordMode === "url" && "URL에서 음성을 추출하고 분석하고 있습니다."}
+                        {recordMode === "idle" && "음성을 처리하고 있습니다."}
+                      </div>
                     </div>
                   </div>
-                  <div className="w-full bg-slate-200 rounded-full h-2">
+                  <div className="w-full bg-slate-200 rounded-full h-3">
                     <div
-                      className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all"
-                      style={{ width: `${uploadProgress}%` }}
+                      className="h-3 rounded-full transition-all duration-500"
+                      style={{ 
+                        width: `${uploadProgress}%`,
+                        background: 'linear-gradient(to right, #00BBAE, #14B8A6)'
+                      }}
                     />
+                  </div>
+                  <div className="text-center text-sm text-slate-500">
+                    {uploadProgress}% 완료
                   </div>
                 </div>
               )}
@@ -1254,7 +1266,7 @@ Please write the meeting minutes following this format.`
                       className={`h-10 px-3 rounded-full border-2 ${
                         documentTextOriginal
                           ? "border-slate-300 text-slate-400 bg-slate-50"
-                          : "border-purple-400 text-purple-600 hover:bg-purple-100"
+                          : "border-teal-400 text-teal-600 hover:bg-teal-100"
                       }`}
                     >
                       {isReorganizing ? (
@@ -1342,7 +1354,7 @@ Please write the meeting minutes following this format.`
 
           {/* 3. 통역 결과 / 회의기록 패널 */}
           {(transcripts.length > 0 || showDocumentInPanel) && (
-            <Card className="border-2 border-purple-200 bg-white shadow-lg">
+            <Card className="border-2 border-teal-200 bg-white shadow-lg">
               <CardContent className="p-0">
                 {/* 회의기록 보기 모드 */}
                 {showDocumentInPanel && documentTextOriginal ? (
@@ -1463,6 +1475,99 @@ Please write the meeting minutes following this format.`
                     </div>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 4. 하단 녹음 기록 패널 */}
+          {sessions.length > 0 && (
+            <Card className="border-2 border-teal-200 bg-white shadow-lg">
+              <CardContent className="p-0">
+                <div className="p-4 border-b border-slate-200" style={{ backgroundColor: '#CCFBF1' }}>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-teal-800 flex items-center gap-2">
+                      <List className="h-5 w-5" />
+                      녹음 기록 ({sessions.length}개)
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setShowSessionList(true)
+                        loadSessions()
+                      }}
+                      className="text-teal-700 hover:bg-teal-100"
+                    >
+                      전체 보기
+                    </Button>
+                  </div>
+                </div>
+                
+                <div className="p-4 space-y-2">
+                  {sessions.slice(0, 5).map((session) => (
+                    <div
+                      key={session.id}
+                      className={`p-3 rounded-lg border transition-colors cursor-pointer flex items-center justify-between ${
+                        sessionId === session.id 
+                          ? "border-teal-400 bg-teal-50" 
+                          : "border-teal-200 hover:bg-teal-50"
+                      }`}
+                      onClick={() => loadSessionData(session)}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-slate-900 truncate">
+                          {session.title}
+                        </h4>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                          <Calendar className="h-3 w-3" />
+                          {new Date(session.created_at).toLocaleDateString("ko-KR", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit"
+                          })}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            await loadSessionData(session)
+                            setShowDocumentInPanel(true)
+                          }}
+                          title="회의록 보기"
+                        >
+                          <FileText className="h-4 w-4 text-emerald-600" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setShowSummaryModal(true)
+                          }}
+                          title="요약 보기"
+                        >
+                          <Sparkles className="h-4 w-4 text-amber-500" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteSession(session.id)
+                          }}
+                          title="삭제"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           )}
