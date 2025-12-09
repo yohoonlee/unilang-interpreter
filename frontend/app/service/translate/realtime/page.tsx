@@ -5378,7 +5378,10 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                     </span>
                   )}
                   
-                  {/* 디버그: audioUrl 상태 */}
+                  {/* 디버그: audioUrl 상태 - 항상 표시 */}
+                  <span className="text-xs text-blue-500 ml-2">
+                    [DEBUG: audioUrl={audioUrl ? "있음" : "없음"}]
+                  </span>
                   {!audioUrl && !isUploadingAudio && !isRecordingAudio && sessionId && (
                     <span className="text-xs text-red-400 ml-2">(음성 없음)</span>
                   )}
