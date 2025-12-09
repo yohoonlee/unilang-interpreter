@@ -457,9 +457,9 @@ function RecordTranslatePageContent() {
         await reorganizeSentences()
       }
       
-      // 2. 문서 정리
+      // 2. 문서 정리 (items 전달)
       setError("📝 녹음기록 작성 중...")
-      await generateDocument()
+      await generateDocument(items)
       
       // 3. 요약 생성
       setError("✨ 요약본 생성 중...")
@@ -556,8 +556,9 @@ function RecordTranslatePageContent() {
   }
   
   // 문서 정리
-  const generateDocument = async () => {
-    if (transcripts.length === 0) return
+  const generateDocument = async (transcriptItems?: TranscriptItem[]) => {
+    const items = transcriptItems || transcripts
+    if (items.length === 0) return
     
     setIsDocumenting(true)
     setDocumentTextOriginal("")
@@ -567,8 +568,8 @@ function RecordTranslatePageContent() {
       const srcLangName = getLanguageInfo(sourceLanguage === "auto" ? "ko" : sourceLanguage).name
       const tgtLangName = getLanguageInfo(targetLanguage).name
       
-      const originalTexts = transcripts.map(t => `[${t.speakerName}] ${t.original}`).join("\n")
-      const translatedTexts = transcripts
+      const originalTexts = items.map(t => `[${t.speakerName}] ${t.original}`).join("\n")
+      const translatedTexts = items
         .filter(t => t.translated)
         .map(t => `[${t.speakerName}] ${t.translated}`)
         .join("\n")
