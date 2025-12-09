@@ -306,6 +306,9 @@ function RecordTranslatePageContent() {
       await autoProcessAfterRecording(newSessionId, processedItems)
     }
     
+    // 세션 목록 새로고침
+    await loadSessions()
+    
     setProcessingStatus("")
     setUploadedFile(null)
   }
@@ -1245,6 +1248,9 @@ Please write the transcript following this exact format.`
           await autoProcessAfterRecording(newSessionId, items)
         }
 
+        // 세션 목록 새로고침
+        await loadSessions()
+
         setProcessingStatus("")
         setRecordMode("idle")
         setUploadProgress(0)
@@ -1264,6 +1270,7 @@ Please write the transcript following this exact format.`
       setRecordMode("idle")
       setUploadProgress(0)
       setAudioUrl("")
+      // 세션 목록 새로고침 (AssemblyAI 콜백에서 처리됨)
     }
   }
   
