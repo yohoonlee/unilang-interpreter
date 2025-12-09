@@ -256,6 +256,10 @@ function RecordTranslatePageContent() {
         return
       }
       
+      console.log("🔊 [record] 세션 목록 로드:", data?.length, "개")
+      if (data && data.length > 0) {
+        console.log("🔊 [record] 첫 번째 세션 audio_url:", data[0].audio_url)
+      }
       setSessions(data || [])
     } catch (err) {
       console.error("세션 목록 로드 오류:", err)
@@ -1032,6 +1036,7 @@ Please write the transcript following this exact format.`
   
   // 세션 로드
   const loadSessionData = async (session: SessionItem) => {
+    console.log("🔊 [record] loadSessionData 호출:", session.id, "audio_url:", session.audio_url)
     setIsLoadingSessions(true)
     try {
       setSessionId(session.id)
@@ -1042,6 +1047,7 @@ Please write the transcript following this exact format.`
       setShowDocumentInPanel(false)
       
       // 🎙️ 오디오 URL 설정
+      console.log("🔊 [record] setSessionAudioUrl:", session.audio_url)
       setSessionAudioUrl(session.audio_url || null)
       
       // 발화 데이터 로드
