@@ -2470,58 +2470,131 @@ Please write the transcript following this exact format.`
                     <div className="p-6">
                       {isEditingDocument ? (
                         <div className="space-y-4">
-                          {/* 화자명 일괄 변경 */}
-                          <div className="flex items-center gap-2 p-3 bg-teal-50 rounded-lg border border-teal-200">
-                            <span className="text-sm text-teal-700 font-medium">화자명 변경:</span>
-                            <input
-                              type="text"
-                              placeholder="찾을 화자명 (예: 화자 A)"
-                              className="px-2 py-1 text-sm border border-teal-300 rounded"
-                              id="findSpeaker"
-                            />
-                            <span className="text-teal-500">→</span>
-                            <input
-                              type="text"
-                              placeholder="바꿀 이름 (예: 김철수)"
-                              className="px-2 py-1 text-sm border border-teal-300 rounded"
-                              id="replaceSpeaker"
-                            />
-                            <Button
-                              size="sm"
-                              onClick={() => {
-                                const findInput = document.getElementById("findSpeaker") as HTMLInputElement
-                                const replaceInput = document.getElementById("replaceSpeaker") as HTMLInputElement
-                                if (findInput?.value && replaceInput?.value) {
-                                  // **[화자 A]** 형태와 [화자 A] 형태 모두 지원
-                                  const findText = findInput.value.trim()
-                                  const replaceText = replaceInput.value.trim()
+                          {/* 화자명 일괄 변경 + 저장/취소 버튼 */}
+                          <div className="flex items-center justify-between p-3 bg-teal-50 rounded-lg border border-teal-200">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-teal-700 font-medium">화자명 변경:</span>
+                              <input
+                                type="text"
+                                placeholder="찾을 화자명 (예: 화자 A)"
+                                className="px-2 py-1 text-sm border border-teal-300 rounded"
+                                id="findSpeaker"
+                              />
+                              <span className="text-teal-500">→</span>
+                              <input
+                                type="text"
+                                placeholder="바꿀 이름 (예: 김철수)"
+                                className="px-2 py-1 text-sm border border-teal-300 rounded"
+                                id="replaceSpeaker"
+                              />
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  const findInput = document.getElementById("findSpeaker") as HTMLInputElement
+                                  const replaceInput = document.getElementById("replaceSpeaker") as HTMLInputElement
+                                  if (findInput?.value && replaceInput?.value) {
+                                    // **[화자 A]** 형태와 [화자 A] 형태 모두 지원
+                                    const findText = findInput.value.trim()
+                                    const replaceText = replaceInput.value.trim()
+                                    
+                                    // 볼드 + 대괄호 형태: **[화자 A]** → **[이요훈]**
+                                    const boldRegex = new RegExp(`\\*\\*\\[${findText}\\]\\*\\*`, "g")
+                                    // 대괄호만 형태: [화자 A] → [이요훈]
+                                    const bracketRegex = new RegExp(`\\[${findText}\\]`, "g")
+                                    
+                                    // 1. 녹음기록 문서에서 변경
+                                    setEditDocumentText(prev => {
+                                      let result = prev.replace(boldRegex, `**[${replaceText}]**`)
+                                      result = result.replace(bracketRegex, `[${replaceText}]`)
+                                      return result
+                                    })
+                                    
+                                    // 2. 통역기록(transcripts)에서도 화자명 변경
+                                    setTranscripts(prev => prev.map(t => ({
+                                      ...t,
+                                      speakerName: t.speakerName === findText ? replaceText : t.speakerName
+                                    })))
+                                    
+                                    findInput.value = ""
+                                    replaceInput.value = ""
+                                  }
+                                }}
+                                className="bg-teal-500 text-white hover:bg-teal-600"
+                              >
+                                변경
+                              </Button>
+                            </div>
+                            {/* 저장/취소 버튼 */}
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setIsEditingDocument(false)
+                                  setEditDocumentText("")
+                                }}
+                              >
+                                취소
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={async () => {
+                                  setIsSavingDocument(true)
                                   
-                                  // 볼드 + 대괄호 형태: **[화자 A]** → **[이요훈]**
-                                  const boldRegex = new RegExp(`\\*\\*\\[${findText}\\]\\*\\*`, "g")
-                                  // 대괄호만 형태: [화자 A] → [이요훈]
-                                  const bracketRegex = new RegExp(`\\[${findText}\\]`, "g")
+                                  // 텍스트에서 직접 변경된 화자명을 추출하여 transcripts에 반영
+                                  const speakerMatches = editDocumentText.match(/\*\*\[([^\]]+)\]\*\*|\[([^\]]+)\]/g)
+                                  if (speakerMatches) {
+                                    const extractedSpeakers: string[] = []
+                                    speakerMatches.forEach(match => {
+                                      const name = match.replace(/\*\*/g, "").replace(/\[|\]/g, "").trim()
+                                      extractedSpeakers.push(name)
+                                    })
+                                    setTranscripts(prev => prev.map((t, idx) => ({
+                                      ...t,
+                                      speakerName: extractedSpeakers[idx] || t.speakerName
+                                    })))
+                                  }
                                   
-                                  // 1. 녹음기록 문서에서 변경
-                                  setEditDocumentText(prev => {
-                                    let result = prev.replace(boldRegex, `**[${replaceText}]**`)
-                                    result = result.replace(bracketRegex, `[${replaceText}]`)
-                                    return result
+                                  // 현재 탭에 따라 업데이트
+                                  if (documentViewTab === "conversation") {
+                                    setDocumentTextConversation(editDocumentText)
+                                  } else if (documentViewTab === "original") {
+                                    setDocumentTextOriginal(editDocumentText)
+                                    await saveDocumentToDb(editDocumentText, documentTextTranslated)
+                                  } else {
+                                    setDocumentTextTranslated(editDocumentText)
+                                    await saveDocumentToDb(documentTextOriginal, editDocumentText)
+                                  }
+                                  
+                                  // 화자명 변경사항도 DB에 저장
+                                  const currentTranscripts = transcripts.map((t, idx) => {
+                                    const matches = editDocumentText.match(/\*\*\[([^\]]+)\]\*\*|\[([^\]]+)\]/g)
+                                    if (matches && matches[idx]) {
+                                      const name = matches[idx].replace(/\*\*/g, "").replace(/\[|\]/g, "").trim()
+                                      return { ...t, speakerName: name }
+                                    }
+                                    return t
                                   })
                                   
-                                  // 2. 통역기록(transcripts)에서도 화자명 변경
-                                  setTranscripts(prev => prev.map(t => ({
-                                    ...t,
-                                    speakerName: t.speakerName === findText ? replaceText : t.speakerName
-                                  })))
+                                  for (const item of currentTranscripts) {
+                                    if (item.utteranceId) {
+                                      await supabase
+                                        .from("utterances")
+                                        .update({ speaker_name: item.speakerName })
+                                        .eq("id", item.utteranceId)
+                                    }
+                                  }
                                   
-                                  findInput.value = ""
-                                  replaceInput.value = ""
-                                }
-                              }}
-                              className="bg-teal-500 text-white hover:bg-teal-600"
-                            >
-                              변경
-                            </Button>
+                                  setIsSavingDocument(false)
+                                  setIsEditingDocument(false)
+                                }}
+                                disabled={isSavingDocument}
+                                className="bg-teal-500 text-white hover:bg-teal-600"
+                              >
+                                {isSavingDocument ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+                                저장
+                              </Button>
+                            </div>
                           </div>
                           
                           <textarea
@@ -2529,82 +2602,6 @@ Please write the transcript following this exact format.`
                             onChange={(e) => setEditDocumentText(e.target.value)}
                             className="w-full h-[400px] p-4 border border-teal-300 rounded-lg font-mono text-sm resize-none focus:ring-2 focus:ring-teal-500"
                           />
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              onClick={() => {
-                                setIsEditingDocument(false)
-                                setEditDocumentText("")
-                              }}
-                            >
-                              취소
-                            </Button>
-                            <Button
-                              onClick={async () => {
-                                setIsSavingDocument(true)
-                                
-                                // 텍스트에서 직접 변경된 화자명을 추출하여 transcripts에 반영
-                                // **[화자명]** 또는 [화자명] 형태로 표시된 것을 찾아 매핑
-                                const speakerMatches = editDocumentText.match(/\*\*\[([^\]]+)\]\*\*|\[([^\]]+)\]/g)
-                                if (speakerMatches) {
-                                  // 각 발화의 순서대로 화자명 매핑
-                                  const extractedSpeakers: string[] = []
-                                  speakerMatches.forEach(match => {
-                                    // **[화자명]** -> 화자명
-                                    // [화자명] -> 화자명
-                                    const name = match.replace(/\*\*/g, "").replace(/\[|\]/g, "").trim()
-                                    extractedSpeakers.push(name)
-                                  })
-                                  
-                                  // transcripts 순서와 매핑하여 화자명 업데이트
-                                  setTranscripts(prev => prev.map((t, idx) => ({
-                                    ...t,
-                                    speakerName: extractedSpeakers[idx] || t.speakerName
-                                  })))
-                                }
-                                
-                                // 현재 탭에 따라 업데이트
-                                if (documentViewTab === "conversation") {
-                                  setDocumentTextConversation(editDocumentText)
-                                  // 원본대화는 별도 DB 필드가 없으므로 로컬만 업데이트
-                                } else if (documentViewTab === "original") {
-                                  setDocumentTextOriginal(editDocumentText)
-                                  await saveDocumentToDb(editDocumentText, documentTextTranslated)
-                                } else {
-                                  setDocumentTextTranslated(editDocumentText)
-                                  await saveDocumentToDb(documentTextOriginal, editDocumentText)
-                                }
-                                
-                                // 화자명 변경사항도 DB에 저장 (utterances 테이블)
-                                // 최신 transcripts 상태를 사용해야 하므로 직접 API 호출
-                                const currentTranscripts = transcripts.map((t, idx) => {
-                                  const speakerMatches = editDocumentText.match(/\*\*\[([^\]]+)\]\*\*|\[([^\]]+)\]/g)
-                                  if (speakerMatches && speakerMatches[idx]) {
-                                    const name = speakerMatches[idx].replace(/\*\*/g, "").replace(/\[|\]/g, "").trim()
-                                    return { ...t, speakerName: name }
-                                  }
-                                  return t
-                                })
-                                
-                                for (const item of currentTranscripts) {
-                                  if (item.utteranceId) {
-                                    await supabase
-                                      .from("utterances")
-                                      .update({ speaker_name: item.speakerName })
-                                      .eq("id", item.utteranceId)
-                                  }
-                                }
-                                
-                                setIsSavingDocument(false)
-                                setIsEditingDocument(false)
-                              }}
-                              disabled={isSavingDocument}
-                              className="bg-teal-500 text-white hover:bg-teal-600"
-                            >
-                              {isSavingDocument ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
-                              저장
-                            </Button>
-                          </div>
                         </div>
                       ) : documentViewTab === "conversation" ? (
                         /* 원본대화: 스피커 버튼과 함께 렌더링 */
