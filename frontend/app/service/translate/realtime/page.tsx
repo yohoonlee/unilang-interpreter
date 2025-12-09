@@ -1330,8 +1330,9 @@ function MicTranslatePageContent() {
         setTargetLanguage(sessionToLoad.target_languages[0])
       }
       // 🎙️ 오디오 URL 설정
-      console.log("🎙️ 세션 로드 - audio_url:", sessionToLoad.audio_url)
+      console.log("🔊🔊🔊 세션 로드 - audio_url:", sessionToLoad.audio_url, "전체 세션:", JSON.stringify(sessionToLoad))
       setAudioUrl(sessionToLoad.audio_url || null)
+      console.log("🔊🔊🔊 setAudioUrl 호출 완료")
       setShowSessionList(false)
       
       // 중요: 회의록 보기 모드 리셋 (STT/번역 결과 표시)
