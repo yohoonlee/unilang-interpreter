@@ -1525,7 +1525,10 @@ function MicTranslatePageContent() {
     
     // 🎙️ 녹음 모드: 오디오 녹음 중지 및 AssemblyAI로 화자 분리 처리
     let assemblyAIProcessed = false
+    console.log("🎙️ finalizeSession - isRecordMode:", isRecordMode, "audioChunks:", audioChunksRef.current.length)
+    
     if (isRecordMode && audioChunksRef.current.length > 0) {
+      console.log("🎙️ 녹음 모드 처리 시작...")
       stopAudioRecording()
       
       // 약간의 딜레이 후 처리 (MediaRecorder 종료 대기)
@@ -1533,13 +1536,17 @@ function MicTranslatePageContent() {
       
       // 오디오 Blob 생성
       const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+      console.log("🎙️ 오디오 Blob 생성 완료, 크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
       
       // 1. Supabase Storage에 업로드 (재생용)
       setError("🎙️ 음성 파일 업로드 중...")
-      await uploadAudioToStorage(sessionId)
+      const uploadedUrl = await uploadAudioToStorage(sessionId)
+      console.log("🎙️ 업로드 결과:", uploadedUrl)
       
       // 2. AssemblyAI로 화자 분리 처리 (기존 transcripts 대체)
       assemblyAIProcessed = await processWithAssemblyAI(audioBlob, sessionId)
+    } else {
+      console.log("🎙️ 녹음 모드 처리 건너뜀 - isRecordMode:", isRecordMode, "audioChunks:", audioChunksRef.current.length)
     }
     
     // 타이머 중지
@@ -2570,7 +2577,11 @@ function MicTranslatePageContent() {
   
   // 오디오 녹음 시작
   const startAudioRecording = async (stream: MediaStream) => {
-    if (!isRecordMode) return
+    console.log("🎙️ startAudioRecording 호출됨, isRecordMode:", isRecordMode)
+    if (!isRecordMode) {
+      console.log("🎙️ isRecordMode가 false라서 녹음 시작 안함")
+      return
+    }
     
     try {
       // 기존 녹음 정리
@@ -2581,13 +2592,27 @@ function MicTranslatePageContent() {
       audioChunksRef.current = []
       recordingStreamRef.current = stream
       
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
-      })
+      // mimeType 호환성 체크
+      let mimeType = 'audio/webm;codecs=opus'
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/webm'
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'audio/mp4'
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = '' // 기본값 사용
+          }
+        }
+      }
+      console.log("🎙️ 사용할 mimeType:", mimeType || '기본값')
+      
+      const mediaRecorder = mimeType 
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
       
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data)
+          console.log("🎙️ 오디오 청크 추가, 현재 청크 수:", audioChunksRef.current.length, "크기:", event.data.size)
         }
       }
       
@@ -2604,9 +2629,10 @@ function MicTranslatePageContent() {
       mediaRecorderRef.current = mediaRecorder
       mediaRecorder.start(1000) // 1초마다 데이터 수집
       setIsRecordingAudio(true)
-      console.log("🎙️ 오디오 녹음 시작")
+      console.log("🎙️ 오디오 녹음 시작 성공!")
     } catch (err) {
       console.error("🎙️ 오디오 녹음 시작 실패:", err)
+      setError(`오디오 녹음 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
     }
   }
   
@@ -2619,9 +2645,12 @@ function MicTranslatePageContent() {
   }
   
   // 녹음된 오디오를 Supabase Storage에 업로드
-  const uploadAudioToStorage = async (sessionId: string): Promise<string | null> => {
+  const uploadAudioToStorage = async (sessId: string): Promise<string | null> => {
+    console.log("🎙️ uploadAudioToStorage 호출됨, 청크 수:", audioChunksRef.current.length)
+    
     if (audioChunksRef.current.length === 0) {
       console.log("🎙️ 업로드할 오디오 청크가 없습니다")
+      setError("녹음된 오디오가 없습니다. 마이크 녹음이 제대로 시작되지 않았을 수 있습니다.")
       return null
     }
     
@@ -2629,7 +2658,7 @@ function MicTranslatePageContent() {
     
     try {
       const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-      const fileName = `${sessionId}_${Date.now()}.webm`
+      const fileName = `${sessId}_${Date.now()}.webm`
       const filePath = `recordings/${userId}/${fileName}`
       
       console.log("🎙️ 오디오 업로드 시작:", filePath, "크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
@@ -5311,6 +5340,14 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                   통역 결과
                   {isSpeaking && (
                     <span className="text-xs text-teal-500 animate-pulse ml-2">🔊 재생 중...</span>
+                  )}
+                  
+                  {/* 오디오 녹음 상태 표시 */}
+                  {isRecordingAudio && (
+                    <span className="text-xs text-red-500 animate-pulse ml-2 flex items-center gap-1">
+                      <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                      녹음 중...
+                    </span>
                   )}
                   
                   {/* 오디오 업로드 상태 표시 */}
