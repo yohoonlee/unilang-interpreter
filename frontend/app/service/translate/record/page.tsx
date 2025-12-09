@@ -2260,18 +2260,22 @@ Please write the transcript following this exact format.`
                   <Button
                     onClick={async () => {
                       try {
+                        console.log("[문서정리 버튼] 클릭됨, transcripts.length:", transcripts.length)
                         let itemsToProcess = transcripts
                         
                         // 1. AI 재정리 (2개 이상일 때) - 반환된 결과 사용
                         if (transcripts.length >= 2) {
+                          console.log("[문서정리 버튼] AI 재정리 시작...")
                           setError("🔄 AI 재정리 중...")
                           const reorganizedItems = await reorganizeSentences()
+                          console.log("[문서정리 버튼] AI 재정리 결과:", reorganizedItems?.length, "개")
                           if (reorganizedItems) {
                             itemsToProcess = reorganizedItems
                           }
                         }
                         
                         // 2. 문서 정리 (재정리된 items 전달)
+                        console.log("[문서정리 버튼] 문서 정리 시작, items:", itemsToProcess.length)
                         setError("📝 녹음기록 작성 중...")
                         await generateDocument(itemsToProcess)
                         
