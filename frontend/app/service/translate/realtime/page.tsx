@@ -1248,6 +1248,9 @@ function MicTranslatePageContent() {
       }
       
       console.log("불러온 발화 수:", utterances?.length || 0)
+      if (utterances && utterances.length > 0) {
+        console.log("첫 번째 발화 metadata:", utterances[0].metadata)
+      }
       
       if (!utterances || utterances.length === 0) {
         setTranscripts([])
@@ -1330,6 +1333,7 @@ function MicTranslatePageContent() {
         setTargetLanguage(sessionToLoad.target_languages[0])
       }
       // 🎙️ 오디오 URL 설정
+      console.log("🔊 세션 로드 - audio_url:", sessionToLoad.audio_url)
       setAudioUrl(sessionToLoad.audio_url || null)
       setShowSessionList(false)
       
