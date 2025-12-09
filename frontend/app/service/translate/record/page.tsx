@@ -152,9 +152,10 @@ function RecordTranslatePageContent() {
   // 문서/요약 관련
   const [documentTextOriginal, setDocumentTextOriginal] = useState("")
   const [documentTextTranslated, setDocumentTextTranslated] = useState("")
+  const [documentTextConversation, setDocumentTextConversation] = useState("") // 원본대화 (화자별)
   const [isDocumenting, setIsDocumenting] = useState(false)
   const [showDocumentInPanel, setShowDocumentInPanel] = useState(false)
-  const [documentViewTab, setDocumentViewTab] = useState<"original" | "translated">("original")
+  const [documentViewTab, setDocumentViewTab] = useState<"conversation" | "original" | "translated">("conversation")
   const [isEditingDocument, setIsEditingDocument] = useState(false)
   const [editDocumentText, setEditDocumentText] = useState("")
   const [isSavingDocument, setIsSavingDocument] = useState(false)
@@ -634,6 +635,13 @@ function RecordTranslatePageContent() {
     setIsDocumenting(true)
     setDocumentTextOriginal("")
     setDocumentTextTranslated("")
+    setDocumentTextConversation("")
+    
+    // 원본대화 생성 (화자별 대화 형식)
+    const conversationLines = items.map((item) => {
+      return `**[${item.speakerName}]** ${item.original}`
+    })
+    setDocumentTextConversation(conversationLines.join("\n\n"))
     
     try {
       const srcLangName = getLanguageInfo(sourceLanguage === "auto" ? "ko" : sourceLanguage).name
@@ -1082,6 +1090,14 @@ Please write the transcript following this exact format.`
       if (sessionDoc) {
         setDocumentTextOriginal(sessionDoc.document_original_md || "")
         setDocumentTextTranslated(sessionDoc.document_translated_md || "")
+      }
+      
+      // 원본대화 생성 (화자별 대화 형식)
+      if (items.length > 0) {
+        const conversationLines = items.map((item) => {
+          return `**[${item.speakerName}]** ${item.original}`
+        })
+        setDocumentTextConversation(conversationLines.join("\n\n"))
       }
       
       // 요약본 로드 (모든 언어)
@@ -2298,6 +2314,16 @@ Please write the transcript following this exact format.`
                           <h3 className="font-bold text-teal-800">녹음기록</h3>
                           <div className="flex gap-1">
                             <button
+                              onClick={() => setDocumentViewTab("conversation")}
+                              className={`px-3 py-1 text-sm rounded-full ${
+                                documentViewTab === "conversation"
+                                  ? "bg-teal-500 text-white"
+                                  : "bg-teal-100 text-teal-700"
+                              }`}
+                            >
+                              💬 원본대화
+                            </button>
+                            <button
                               onClick={() => setDocumentViewTab("original")}
                               className={`px-3 py-1 text-sm rounded-full ${
                                 documentViewTab === "original"
@@ -2329,7 +2355,12 @@ Please write the transcript following this exact format.`
                             onClick={() => {
                               setIsEditingDocument(!isEditingDocument)
                               if (!isEditingDocument) {
-                                setEditDocumentText(documentViewTab === "original" ? documentTextOriginal : documentTextTranslated)
+                                const content = documentViewTab === "conversation" 
+                                  ? documentTextConversation 
+                                  : documentViewTab === "original" 
+                                    ? documentTextOriginal 
+                                    : documentTextTranslated
+                                setEditDocumentText(content)
                               }
                             }}
                             className="text-slate-600 hover:text-teal-700"
@@ -2341,7 +2372,11 @@ Please write the transcript following this exact format.`
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                              const content = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
+                              const content = documentViewTab === "conversation" 
+                                ? documentTextConversation 
+                                : documentViewTab === "original" 
+                                  ? documentTextOriginal 
+                                  : documentTextTranslated
                               const printWindow = window.open("", "_blank")
                               if (printWindow) {
                                 printWindow.document.write(`
@@ -2362,8 +2397,16 @@ Please write the transcript following this exact format.`
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                              const content = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
-                              const langLabel = documentViewTab === "original" ? "원문" : "번역"
+                              const content = documentViewTab === "conversation" 
+                                ? documentTextConversation 
+                                : documentViewTab === "original" 
+                                  ? documentTextOriginal 
+                                  : documentTextTranslated
+                              const langLabel = documentViewTab === "conversation" 
+                                ? "원본대화" 
+                                : documentViewTab === "original" 
+                                  ? "원문" 
+                                  : "번역"
                               const blob = new Blob([content], { type: "text/markdown" })
                               const url = URL.createObjectURL(blob)
                               const a = document.createElement("a")
@@ -2377,6 +2420,28 @@ Please write the transcript following this exact format.`
                           >
                             <Download className="h-4 w-4" />
                           </Button>
+                          {/* 전체 재생 버튼 */}
+                          {sessionAudioUrl && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                if (isPlayingAudio) {
+                                  stopAudioPlayback()
+                                } else {
+                                  playAudioFromTime("full", 0)
+                                }
+                              }}
+                              className={`text-slate-600 hover:text-teal-700 ${isPlayingAudio ? 'bg-teal-100' : ''}`}
+                              title={isPlayingAudio ? "정지" : "전체 재생"}
+                            >
+                              {isPlayingAudio ? (
+                                <VolumeX className="h-4 w-4 text-red-500" />
+                              ) : (
+                                <Volume2 className="h-4 w-4 text-teal-600" />
+                              )}
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -2465,8 +2530,11 @@ Please write the transcript following this exact format.`
                             <Button
                               onClick={async () => {
                                 setIsSavingDocument(true)
-                                // 현재 탭에 따라 원문 또는 번역문 업데이트
-                                if (documentViewTab === "original") {
+                                // 현재 탭에 따라 업데이트
+                                if (documentViewTab === "conversation") {
+                                  setDocumentTextConversation(editDocumentText)
+                                  // 원본대화는 별도 DB 필드가 없으므로 로컬만 업데이트
+                                } else if (documentViewTab === "original") {
                                   setDocumentTextOriginal(editDocumentText)
                                   await saveDocumentToDb(editDocumentText, documentTextTranslated)
                                 } else {
@@ -2498,7 +2566,11 @@ Please write the transcript following this exact format.`
                       ) : (
                         <div className="prose prose-slate max-w-none prose-headings:text-teal-800 prose-strong:text-teal-700 prose-li:marker:text-teal-500">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
+                            {documentViewTab === "conversation" 
+                              ? documentTextConversation 
+                              : documentViewTab === "original" 
+                                ? documentTextOriginal 
+                                : documentTextTranslated}
                           </ReactMarkdown>
                         </div>
                       )}
