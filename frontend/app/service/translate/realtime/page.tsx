@@ -5428,24 +5428,22 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                   // 편집 모드
                   <div className="space-y-4">
                     {/* 화자명 일괄 변경 */}
-                    <div className="flex items-center gap-2 p-3 bg-teal-50 rounded-lg border border-teal-200 flex-wrap">
-                      <span className="text-sm text-teal-700 font-medium whitespace-nowrap">화자명 변경:</span>
-                      <select
+                    <div className="flex items-center gap-2 p-3 bg-teal-50 rounded-lg border border-teal-200">
+                      <span className="text-sm text-teal-700 font-medium">화자명 변경:</span>
+                      <input
+                        type="text"
+                        placeholder="찾을 화자명 (예: 화자 A)"
                         value={speakerFromText}
                         onChange={(e) => setSpeakerFromText(e.target.value)}
-                        className="px-2 py-1 text-sm border border-teal-300 rounded bg-white"
-                      >
-                        {speakerList.map(s => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
-                      </select>
+                        className="px-2 py-1 text-sm border border-teal-300 rounded"
+                      />
                       <span className="text-teal-500">→</span>
                       <input
                         type="text"
-                        placeholder="변경할 이름"
+                        placeholder="바꿀 이름 (예: 김철수)"
                         value={speakerToText}
                         onChange={(e) => setSpeakerToText(e.target.value)}
-                        className="px-2 py-1 text-sm border border-teal-300 rounded w-32"
+                        className="px-2 py-1 text-sm border border-teal-300 rounded"
                       />
                       <Button
                         size="sm"
@@ -5474,6 +5472,8 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                           const currentIndex = speakerList.indexOf(speakerFromText)
                           if (currentIndex < speakerList.length - 1) {
                             setSpeakerFromText(speakerList[currentIndex + 1])
+                          } else {
+                            setSpeakerFromText("")
                           }
                           setSpeakerToText("")
                           
@@ -5484,33 +5484,6 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                       >
                         일괄 변경
                       </Button>
-                      
-                      {/* 🔊 화자별 음성 재생 버튼 */}
-                      {audioUrl && (
-                        <div className="flex items-center gap-1 ml-2 border-l border-teal-300 pl-2">
-                          <span className="text-xs text-teal-600">음성:</span>
-                          {speakerList.slice(0, Math.min(speakerList.length, transcripts.filter(t => t.speakerName).map(t => t.speakerName).filter((v, i, a) => a.indexOf(v) === i).length || 2)).map(speaker => {
-                            const speakerTranscript = transcripts.find(t => t.speakerName === speaker)
-                            if (!speakerTranscript) return null
-                            return (
-                              <Button
-                                key={speaker}
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-xs"
-                                onClick={() => {
-                                  if (speakerTranscript.start !== undefined) {
-                                    playAudioFromTime(speakerTranscript.id, speakerTranscript.start)
-                                  }
-                                }}
-                                title={`${speaker} 음성 재생`}
-                              >
-                                🔊 {speaker}
-                              </Button>
-                            )
-                          })}
-                        </div>
-                      )}
                     </div>
                     
                     {/* 마크다운 편집 영역 */}
