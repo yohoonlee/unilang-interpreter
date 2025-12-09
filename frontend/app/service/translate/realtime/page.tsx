@@ -215,6 +215,11 @@ function MicTranslatePageContent() {
   const [showDocumentInPanel, setShowDocumentInPanel] = useState(false) // 패널에서 회의기록 보기
   const [isSavingDocument, setIsSavingDocument] = useState(false) // 저장 중
   
+  // 화자명 변경 관련
+  const [speakerFromText, setSpeakerFromText] = useState("화자 A") // 변경할 화자명 (기본값)
+  const [speakerToText, setSpeakerToText] = useState("") // 변경될 화자명
+  const speakerList = ["화자 A", "화자 B", "화자 C", "화자 D", "화자 E"] // 화자 목록
+  
   // 시스템 오디오 캡처 관련 (PC 소리 인식)
   const [isSystemAudioMode, setIsSystemAudioMode] = useState(false)
   const [isCapturingSystemAudio, setIsCapturingSystemAudio] = useState(false)
@@ -3575,6 +3580,16 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
       const translatedToSave = isEditingOriginal ? translatedText : editDocumentText
       await saveDocumentToDb(originalToSave, translatedToSave)
       
+      // 화자명 변경사항도 DB에 저장 (utterances 테이블)
+      for (const item of transcripts) {
+        if (item.utteranceId && item.speakerName) {
+          await supabase
+            .from("utterances")
+            .update({ speaker_name: item.speakerName })
+            .eq("id", item.utteranceId)
+        }
+      }
+      
       setIsEditingDocument(false)
       setEditDocumentText("")
       
@@ -5408,12 +5423,101 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
               <div className="min-h-[300px]">
                 {isEditingDocument ? (
                   // 편집 모드
-                  <textarea
-                    value={editDocumentText}
-                    onChange={(e) => setEditDocumentText(e.target.value)}
-                    className="w-full min-h-[400px] p-4 font-mono text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    placeholder="마크다운 형식으로 편집하세요..."
-                  />
+                  <div className="space-y-4">
+                    {/* 화자명 일괄 변경 */}
+                    <div className="flex items-center gap-2 p-3 bg-teal-50 rounded-lg border border-teal-200 flex-wrap">
+                      <span className="text-sm text-teal-700 font-medium whitespace-nowrap">화자명 변경:</span>
+                      <select
+                        value={speakerFromText}
+                        onChange={(e) => setSpeakerFromText(e.target.value)}
+                        className="px-2 py-1 text-sm border border-teal-300 rounded bg-white"
+                      >
+                        {speakerList.map(s => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                      <span className="text-teal-500">→</span>
+                      <input
+                        type="text"
+                        placeholder="변경할 이름"
+                        value={speakerToText}
+                        onChange={(e) => setSpeakerToText(e.target.value)}
+                        className="px-2 py-1 text-sm border border-teal-300 rounded w-32"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          if (!speakerFromText || !speakerToText) {
+                            setError("찾을 화자명과 변경할 이름을 모두 입력하세요")
+                            return
+                          }
+                          
+                          // 1. 문서 텍스트에서 화자명 변경
+                          setEditDocumentText(prev => {
+                            const boldRegex = new RegExp(`\\*\\*\\[${speakerFromText}\\]\\*\\*`, 'g')
+                            const bracketRegex = new RegExp(`\\[${speakerFromText}\\]`, 'g')
+                            let result = prev.replace(boldRegex, `**[${speakerToText}]**`)
+                            result = result.replace(bracketRegex, `[${speakerToText}]`)
+                            return result
+                          })
+                          
+                          // 2. transcripts에서도 화자명 변경
+                          setTranscripts(prev => prev.map(t => ({
+                            ...t,
+                            speakerName: t.speakerName === speakerFromText ? speakerToText : t.speakerName
+                          })))
+                          
+                          // 3. 다음 화자로 자동 이동
+                          const currentIndex = speakerList.indexOf(speakerFromText)
+                          if (currentIndex < speakerList.length - 1) {
+                            setSpeakerFromText(speakerList[currentIndex + 1])
+                          }
+                          setSpeakerToText("")
+                          
+                          setError(`"${speakerFromText}"를 "${speakerToText}"로 변경했습니다`)
+                          setTimeout(() => setError(null), 2000)
+                        }}
+                        className="bg-teal-500 hover:bg-teal-600 text-white text-xs"
+                      >
+                        일괄 변경
+                      </Button>
+                      
+                      {/* 🔊 화자별 음성 재생 버튼 */}
+                      {audioUrl && (
+                        <div className="flex items-center gap-1 ml-2 border-l border-teal-300 pl-2">
+                          <span className="text-xs text-teal-600">음성:</span>
+                          {speakerList.slice(0, Math.min(speakerList.length, transcripts.filter(t => t.speakerName).map(t => t.speakerName).filter((v, i, a) => a.indexOf(v) === i).length || 2)).map(speaker => {
+                            const speakerTranscript = transcripts.find(t => t.speakerName === speaker)
+                            if (!speakerTranscript) return null
+                            return (
+                              <Button
+                                key={speaker}
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-2 text-xs"
+                                onClick={() => {
+                                  if (speakerTranscript.start !== undefined) {
+                                    playAudioFromTime(speakerTranscript.id, speakerTranscript.start)
+                                  }
+                                }}
+                                title={`${speaker} 음성 재생`}
+                              >
+                                🔊 {speaker}
+                              </Button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* 마크다운 편집 영역 */}
+                    <textarea
+                      value={editDocumentText}
+                      onChange={(e) => setEditDocumentText(e.target.value)}
+                      className="w-full min-h-[350px] p-4 font-mono text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      placeholder="마크다운 형식으로 편집하세요..."
+                    />
+                  </div>
                 ) : (
                   // 마크다운 렌더링 (깔끔한 문서 스타일)
                   <div className="bg-white dark:bg-slate-800 rounded-lg p-6 min-h-[400px] overflow-auto">
