@@ -1135,6 +1135,9 @@ function MicTranslatePageContent() {
       const { data, error } = await query.order("created_at", { ascending: false })
       
       console.log("📋 세션 목록 결과:", { data, error })
+      if (data && data.length > 0) {
+        console.log("📋 첫 번째 세션 audio_url:", data[0].audio_url)
+      }
       
       if (error) {
         console.error("세션 목록 로드 실패:", error)
@@ -1249,7 +1252,8 @@ function MicTranslatePageContent() {
       
       console.log("불러온 발화 수:", utterances?.length || 0)
       if (utterances && utterances.length > 0) {
-        console.log("첫 번째 발화 metadata:", utterances[0].metadata)
+        console.log("첫 번째 발화 전체:", utterances[0])
+        console.log("첫 번째 발화 metadata:", utterances[0].metadata, "타입:", typeof utterances[0].metadata)
       }
       
       if (!utterances || utterances.length === 0) {
