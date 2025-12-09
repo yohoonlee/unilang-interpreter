@@ -2254,10 +2254,33 @@ Please write the transcript following this exact format.`
                     </Button>
                   )}
 
-                  {/* 문서 정리 */}
+                  {/* 문서 정리 (AI 재정리 → 문서 정리 → 요약 생성) */}
                   <Button
-                    onClick={() => generateDocument()}
-                    disabled={isDocumenting}
+                    onClick={async () => {
+                      try {
+                        // 1. AI 재정리 (2개 이상일 때)
+                        if (transcripts.length >= 2) {
+                          setError("🔄 AI 재정리 중...")
+                          await reorganizeSentences()
+                        }
+                        
+                        // 2. 문서 정리
+                        setError("📝 녹음기록 작성 중...")
+                        await generateDocument()
+                        
+                        // 3. 요약 생성
+                        if (sessionId) {
+                          setError("✨ 요약본 생성 중...")
+                          await generateSummaryForSession(sessionId)
+                        }
+                        
+                        setError(null)
+                      } catch (err) {
+                        console.error("문서 정리 전체 프로세스 오류:", err)
+                        setError(err instanceof Error ? err.message : "처리 중 오류가 발생했습니다.")
+                      }
+                    }}
+                    disabled={isDocumenting || isReorganizing}
                     size="sm"
                     variant="outline"
                     className={`h-10 px-3 rounded-full border-2 ${
@@ -2266,7 +2289,7 @@ Please write the transcript following this exact format.`
                         : "border-green-400 text-green-600 hover:bg-green-100"
                     }`}
                   >
-                    {isDocumenting ? (
+                    {(isDocumenting || isReorganizing) ? (
                       <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                     ) : (
                       <FileText className="h-4 w-4 mr-1" />
