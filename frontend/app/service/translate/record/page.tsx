@@ -2278,33 +2278,28 @@ Please write the document following this exact format.`
                     </Button>
                   )}
 
-                  {/* 문서 정리 (AI 재정리 → 문서 정리 → 요약 생성) */}
+                  {/* 문서 정리 (autoProcessAfterRecording과 동일한 로직) */}
                   <Button
                     onClick={async () => {
                       try {
                         console.log("[문서정리 버튼] 클릭됨, transcripts.length:", transcripts.length)
-                        let itemsToProcess = transcripts
                         
-                        // 1. AI 재정리 (2개 이상일 때) - 반환된 결과 사용
+                        // 1. AI 재정리 (2개 이상일 때) - autoProcessAfterRecording과 동일하게 결과 무시
                         if (transcripts.length >= 2) {
                           console.log("[문서정리 버튼] AI 재정리 시작...")
                           setError("🔄 AI 재정리 중...")
-                          const reorganizedItems = await reorganizeSentences()
-                          console.log("[문서정리 버튼] AI 재정리 결과:", reorganizedItems?.length, "개")
-                          if (reorganizedItems) {
-                            itemsToProcess = reorganizedItems
-                          }
+                          await reorganizeSentences()
                         }
                         
-                        // 2. 문서 정리 (재정리된 items 전달)
-                        console.log("[문서정리 버튼] 문서 정리 시작, items:", itemsToProcess.length)
+                        // 2. 문서 정리 (원본 transcripts 사용 - autoProcessAfterRecording과 동일)
+                        console.log("[문서정리 버튼] 문서 정리 시작, items:", transcripts.length)
                         setError("📝 녹음기록 작성 중...")
-                        await generateDocument(itemsToProcess)
+                        await generateDocument(transcripts)
                         
                         // 3. 요약 생성
                         if (sessionId) {
                           setError("✨ 요약본 생성 중...")
-                          await generateSummaryForSession(sessionId, itemsToProcess)
+                          await generateSummaryForSession(sessionId, transcripts)
                         }
                         
                         setError(null)
