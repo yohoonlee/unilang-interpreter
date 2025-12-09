@@ -256,10 +256,6 @@ function RecordTranslatePageContent() {
         return
       }
       
-      console.log("🔊 [record] 세션 목록 로드:", data?.length, "개")
-      if (data && data.length > 0) {
-        console.log("🔊 [record] 첫 번째 세션 audio_url:", data[0].audio_url)
-      }
       setSessions(data || [])
     } catch (err) {
       console.error("세션 목록 로드 오류:", err)
@@ -487,8 +483,8 @@ function RecordTranslatePageContent() {
   
   // ========== 오디오 재생 기능 ==========
   
-  // 특정 시점부터 오디오 재생
-  const playAudioFromTime = (itemId: string, startTimeMs?: number) => {
+  // 특정 시점부터 오디오 재생 (endTimeMs가 있으면 해당 구간만 재생)
+  const playAudioFromTime = (itemId: string, startTimeMs?: number, endTimeMs?: number) => {
     if (!sessionAudioUrl) {
       console.log("🔊 오디오 URL이 없습니다")
       return
@@ -506,7 +502,19 @@ function RecordTranslatePageContent() {
     // 시작 시간이 있으면 해당 시점으로 이동
     if (startTimeMs !== undefined && startTimeMs > 0) {
       audio.currentTime = startTimeMs / 1000 // ms → seconds
-      console.log("🔊 오디오 재생:", startTimeMs / 1000, "초부터")
+      console.log("🔊 오디오 재생:", startTimeMs / 1000, "초부터", endTimeMs ? `${endTimeMs / 1000}초까지` : "끝까지")
+    }
+    
+    // endTimeMs가 있으면 해당 시점에서 멈추기
+    if (endTimeMs !== undefined && endTimeMs > 0) {
+      const endTimeSeconds = endTimeMs / 1000
+      audio.ontimeupdate = () => {
+        if (audio.currentTime >= endTimeSeconds) {
+          audio.pause()
+          setIsPlayingAudio(false)
+          setCurrentPlayingItemId(null)
+        }
+      }
     }
     
     audio.onplay = () => {
@@ -1036,7 +1044,6 @@ Please write the transcript following this exact format.`
   
   // 세션 로드
   const loadSessionData = async (session: SessionItem) => {
-    console.log("🔊 [record] loadSessionData 호출:", session.id, "audio_url:", session.audio_url)
     setIsLoadingSessions(true)
     try {
       setSessionId(session.id)
@@ -1047,7 +1054,6 @@ Please write the transcript following this exact format.`
       setShowDocumentInPanel(false)
       
       // 🎙️ 오디오 URL 설정
-      console.log("🔊 [record] setSessionAudioUrl:", session.audio_url)
       setSessionAudioUrl(session.audio_url || null)
       
       // 발화 데이터 로드
@@ -2711,7 +2717,7 @@ Please write the transcript following this exact format.`
                                         if (currentPlayingItemId === item.id && isPlayingAudio) {
                                           stopAudioPlayback()
                                         } else {
-                                          playAudioFromTime(item.id, item.start)
+                                          playAudioFromTime(item.id, item.start, item.end)
                                         }
                                       }}
                                       className={`p-1.5 rounded-full hover:bg-white/50 transition-colors ${
