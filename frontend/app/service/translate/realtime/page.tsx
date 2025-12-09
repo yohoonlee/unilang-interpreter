@@ -1330,6 +1330,7 @@ function MicTranslatePageContent() {
         setTargetLanguage(sessionToLoad.target_languages[0])
       }
       // 🎙️ 오디오 URL 설정
+      console.log("🎙️ 세션 로드 - audio_url:", sessionToLoad.audio_url)
       setAudioUrl(sessionToLoad.audio_url || null)
       setShowSessionList(false)
       
