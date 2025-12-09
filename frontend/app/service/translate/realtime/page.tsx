@@ -69,6 +69,10 @@ interface TranscriptItem {
   timestamp: Date
   utteranceId?: string // DB 저장 시 발화 ID
   translationId?: string // DB 저장 시 번역 ID
+  speaker?: string // 화자 ID (A, B, C...)
+  speakerName?: string // 화자명 (화자 A, 화자 B...)
+  start?: number // 시작 시간 (ms)
+  end?: number // 종료 시간 (ms)
 }
 
 interface AudioSettings {
@@ -1226,7 +1230,7 @@ function MicTranslatePageContent() {
       // 발화 데이터 로드 (최신 20개, 시간 역순)
       const { data: utterances, error: utteranceError } = await supabase
         .from("utterances")
-        .select("id, original_text, original_language, created_at")
+        .select("id, original_text, original_language, created_at, speaker_name, metadata")
         .eq("session_id", sessionToLoad.id)
         .order("created_at", { ascending: false })
         .range(0, UTTERANCES_PER_PAGE - 1)
@@ -1287,6 +1291,8 @@ function MicTranslatePageContent() {
         original_text: string
         original_language: string
         created_at: string
+        speaker_name?: string
+        metadata?: { speaker?: string; start?: number; end?: number }
       }) => {
         const translation = translationMap.get(u.id)
         return {
@@ -1298,6 +1304,10 @@ function MicTranslatePageContent() {
           timestamp: new Date(u.created_at),
           utteranceId: u.id,
           translationId: translation?.id,
+          speaker: u.metadata?.speaker,
+          speakerName: u.speaker_name,
+          start: u.metadata?.start,
+          end: u.metadata?.end,
         }
       })
       
@@ -1334,6 +1344,21 @@ function MicTranslatePageContent() {
       } else {
         setDocumentTextOriginal("")
         setDocumentTextTranslated("")
+      }
+      
+      // 원본대화 생성 (화자별 대화 형식)
+      if (loadedTranscripts.length > 0) {
+        const conversationLines = loadedTranscripts.map((t) => {
+          if (t.speakerName) {
+            return `**[${t.speakerName}]** ${t.original}`
+          } else {
+            const timeStr = t.timestamp.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            return `**[${timeStr}]** ${t.original}`
+          }
+        })
+        setDocumentTextConversation(conversationLines.join("\n\n"))
+      } else {
+        setDocumentTextConversation("")
       }
       
       // 디버깅: 데이터 로드 결과 표시
@@ -1593,10 +1618,14 @@ function MicTranslatePageContent() {
       const tgtLangName = getLanguageInfo(targetLanguage).name
       
       // 원본대화 생성 (STT 결과 그대로) - 통역 결과와 동일한 순서로 정렬
-      // 실시간 통역에서는 화자 구분이 어려우므로 시간순으로 표시
+      // 화자명이 있으면 화자명 사용, 없으면 시간으로 표시
       const conversationLines = transcripts.map((t, i) => {
-        const timeStr = t.timestamp.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-        return `**[${timeStr}]** ${t.original}`
+        if (t.speakerName) {
+          return `**[${t.speakerName}]** ${t.original}`
+        } else {
+          const timeStr = t.timestamp.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          return `**[${timeStr}]** ${t.original}`
+        }
       })
       const conversationText = conversationLines.join("\n\n")
       setDocumentTextConversation(conversationText)
@@ -2646,6 +2675,31 @@ function MicTranslatePageContent() {
     setError("🎤 AI가 화자를 분리하고 있습니다...")
     
     try {
+      // 0. 기존 데이터 초기화 (Web Speech API 결과 제거)
+      console.log("🎤 기존 데이터 초기화...")
+      setTranscripts([])
+      
+      // 기존 DB utterances 삭제
+      if (sessId) {
+        await supabase
+          .from("translations")
+          .delete()
+          .in("utterance_id", 
+            (await supabase
+              .from("utterances")
+              .select("id")
+              .eq("session_id", sessId)
+            ).data?.map(u => u.id) || []
+          )
+        
+        await supabase
+          .from("utterances")
+          .delete()
+          .eq("session_id", sessId)
+        
+        console.log("🎤 기존 DB 데이터 삭제 완료")
+      }
+      
       // 1. 오디오 파일을 AssemblyAI에 업로드
       console.log("🎤 AssemblyAI 업로드 시작, 크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
       
@@ -2688,7 +2742,7 @@ function MicTranslatePageContent() {
       const result: AssemblyAIResult = await transcribeResponse.json()
       console.log("🎤 AssemblyAI 전사 완료:", result.utterances.length, "개 발화,", Object.keys(result.speakerStats).length, "명 화자")
       
-      // 3. 기존 transcripts를 화자 분리된 결과로 대체
+      // 3. AssemblyAI 결과로 transcripts 생성
       if (result.utterances.length > 0) {
         setError("🎤 번역 및 데이터 처리 중...")
         
@@ -2716,6 +2770,8 @@ function MicTranslatePageContent() {
             }
           }
           
+          const speakerName = `화자 ${utterance.speaker}`
+          
           const item: TranscriptItem = {
             id: `aai-${utterance.start}-${utterance.end}`,
             original: utterance.text,
@@ -2723,6 +2779,10 @@ function MicTranslatePageContent() {
             sourceLanguage: result.language || sourceLanguage,
             targetLanguage: targetLanguage,
             timestamp: new Date(),
+            speaker: utterance.speaker,
+            speakerName: speakerName,
+            start: utterance.start,
+            end: utterance.end,
           }
           
           newTranscripts.push(item)
@@ -2736,7 +2796,7 @@ function MicTranslatePageContent() {
                   session_id: sessId,
                   original_text: utterance.text,
                   original_language: result.language || sourceLanguage,
-                  speaker_name: `화자 ${utterance.speaker}`,
+                  speaker_name: speakerName,
                   metadata: {
                     speaker: utterance.speaker,
                     start: utterance.start,
@@ -5394,6 +5454,14 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                         />
                       </div>
                     )}
+                    
+                    {/* 화자명 표시 (있는 경우) */}
+                    {item.speakerName && (
+                      <span className="px-2 py-0.5 bg-teal-100 text-teal-700 rounded-md text-sm font-medium whitespace-nowrap">
+                        {item.speakerName}
+                      </span>
+                    )}
+                    
                     <span className="text-lg">{getLanguageInfo(item.sourceLanguage).flag}</span>
                     
                     {/* 🎙️ 녹음 오디오 재생 버튼 (맨 앞에 배치) */}
@@ -5406,10 +5474,15 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                           if (currentPlayingItemId === item.id && isPlayingAudio) {
                             stopAudioPlayback()
                           } else {
-                            // 세션 시작 시간과 발화 시간 차이로 재생 위치 계산
-                            const sessionStart = currentSessionCreatedAt?.getTime() || item.timestamp.getTime()
-                            const itemTime = item.timestamp.getTime()
-                            const offsetMs = Math.max(0, itemTime - sessionStart)
+                            // item.start가 있으면 AssemblyAI 결과이므로 그 값 사용, 아니면 timestamp로 계산
+                            let offsetMs = 0
+                            if (item.start !== undefined) {
+                              offsetMs = item.start
+                            } else {
+                              const sessionStart = currentSessionCreatedAt?.getTime() || item.timestamp.getTime()
+                              const itemTime = item.timestamp.getTime()
+                              offsetMs = Math.max(0, itemTime - sessionStart)
+                            }
                             playAudioFromTime(item.id, offsetMs)
                           }
                         }}
