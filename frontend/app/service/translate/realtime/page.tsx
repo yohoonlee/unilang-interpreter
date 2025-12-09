@@ -2699,11 +2699,17 @@ function MicTranslatePageContent() {
       // 파일 크기 저장
       setAudioFileSize(audioBlob.size)
       
-      // 세션에 audio_url 저장
-      await supabase
+      // 세션에 audio_url 저장 (sessId 파라미터 사용!)
+      const { error: updateError } = await supabase
         .from('translation_sessions')
         .update({ audio_url: publicUrl })
-        .eq('id', sessionId)
+        .eq('id', sessId)
+      
+      if (updateError) {
+        console.error("🎙️ audio_url DB 저장 실패:", updateError)
+      } else {
+        console.log("🎙️ audio_url DB 저장 성공:", sessId)
+      }
       
       setAudioUrl(publicUrl)
       return publicUrl
