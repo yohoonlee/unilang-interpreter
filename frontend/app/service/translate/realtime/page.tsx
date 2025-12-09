@@ -1091,15 +1091,21 @@ function MicTranslatePageContent() {
     setIsLoadingSessions(true)
     try {
       const sessionType = isRecordMode ? "record" : "mic"
-      const serviceType = isRecordMode ? "record" : "realtime"
       
-      const { data, error } = await supabase
+      // 녹음 모드: session_type이 "record"인 모든 세션 (service_type 무관)
+      // 실시간 모드: session_type이 "mic"이고 service_type이 "realtime"인 세션
+      let query = supabase
         .from("translation_sessions")
         .select("*")
         .eq("user_id", userId)
         .eq("session_type", sessionType)
-        .eq("service_type", serviceType)
-        .order("created_at", { ascending: false })
+      
+      // 실시간 통역 모드에서만 service_type 필터 적용
+      if (!isRecordMode) {
+        query = query.eq("service_type", "realtime")
+      }
+      
+      const { data, error } = await query.order("created_at", { ascending: false })
       
       console.log("📋 세션 목록 결과:", { data, error })
       
