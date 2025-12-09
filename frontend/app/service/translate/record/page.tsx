@@ -1114,6 +1114,15 @@ Please write the transcript following this exact format.`
     await stopRecording()
   }
   
+  // YouTube URL 감지
+  const isYouTubeUrl = (url: string): boolean => {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+      /^([a-zA-Z0-9_-]{11})$/,
+    ]
+    return patterns.some(pattern => pattern.test(url))
+  }
+
   // URL 전사
   const handleUrlTranscribe = async () => {
     if (!audioUrl.trim()) {
@@ -1125,7 +1134,116 @@ Please write the transcript following this exact format.`
     setTranscripts([])
     setDocumentTextOriginal("")
     setDocumentTextTranslated("")
-    await transcribeFromUrl(audioUrl)
+    setRecordMode("url")
+    setUploadProgress(10)
+    setProcessingStatus("URL 분석 중...")
+
+    // YouTube URL인 경우 자막 API 사용
+    if (isYouTubeUrl(audioUrl)) {
+      try {
+        setProcessingStatus("YouTube 자막 추출 중...")
+        setUploadProgress(30)
+
+        const response = await fetch("/api/youtube/transcript", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            youtubeUrl: audioUrl,
+            targetLanguage: targetLanguage !== "none" ? targetLanguage : undefined,
+          }),
+        })
+
+        const data = await response.json()
+
+        if (!data.success) {
+          throw new Error(data.error || "YouTube 자막을 가져올 수 없습니다")
+        }
+
+        setUploadProgress(70)
+        setProcessingStatus("데이터 변환 중...")
+
+        // 세션 생성
+        let newSessionId: string | null = null
+        if (userId) {
+          const { count } = await supabase
+            .from("translation_sessions")
+            .select("*", { count: "exact", head: true })
+            .eq("user_id", userId)
+            .eq("session_type", "record")
+          
+          const sessionNumber = (count || 0) + 1
+          const title = data.videoTitle || `YouTube 녹음 ${sessionNumber}`
+          
+          const { data: session, error } = await supabase
+            .from("translation_sessions")
+            .insert({
+              user_id: userId,
+              title,
+              session_type: "record",
+              source_language: data.language || sourceLanguage,
+              target_languages: targetLanguage === "none" ? [] : [targetLanguage],
+              status: "completed",
+              total_utterances: data.utterances?.length || 0,
+              metadata: {
+                youtubeVideoId: data.videoId,
+                youtubeTitle: data.videoTitle,
+                duration: data.duration,
+              },
+            })
+            .select()
+            .single()
+
+          if (!error && session) {
+            newSessionId = session.id
+            setSessionId(session.id)
+            setCurrentSessionTitle(session.title)
+          }
+        }
+
+        // 발화 변환
+        const items: TranscriptItem[] = (data.utterances || []).map((u: any, idx: number) => ({
+          id: `youtube-${idx}`,
+          speaker: u.speaker || "A",
+          speakerName: "화자 A",
+          original: u.text,
+          translated: u.translated || "",
+          sourceLanguage: data.language || sourceLanguage,
+          targetLanguage: targetLanguage,
+          timestamp: new Date(),
+          start: u.start || 0,
+          end: u.end || 0,
+        }))
+
+        setTranscripts(items)
+        setUploadProgress(100)
+
+        // DB 저장
+        if (newSessionId) {
+          await saveUtterancesToDb(items, newSessionId)
+        }
+
+        // 자동 AI 처리
+        if (newSessionId && items.length > 0) {
+          await autoProcessAfterRecording(newSessionId, items)
+        }
+
+        setProcessingStatus("")
+        setRecordMode("idle")
+        setAudioUrl("")
+
+      } catch (err) {
+        console.error("YouTube 처리 오류:", err)
+        setError(err instanceof Error ? err.message : "YouTube 처리 중 오류가 발생했습니다")
+        setRecordMode("idle")
+        setProcessingStatus("")
+      }
+    } else {
+      // 일반 오디오 URL인 경우 AssemblyAI 사용
+      setProcessingStatus("오디오 파일 분석 중...")
+      await transcribeFromUrl(audioUrl)
+      setRecordMode("idle")
+      setAudioUrl("")
+    }
   }
   
   // 파일 업로드
