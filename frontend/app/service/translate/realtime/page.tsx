@@ -1524,7 +1524,7 @@ function MicTranslatePageContent() {
     }
     
     // 🎙️ 녹음 모드: 오디오 녹음 중지 및 AssemblyAI로 화자 분리 처리
-    let assemblyAIProcessed = false
+    let processedTranscripts: TranscriptItem[] | null = null
     console.log("🎙️ finalizeSession - isRecordMode:", isRecordMode, "audioChunks:", audioChunksRef.current.length)
     
     if (isRecordMode && audioChunksRef.current.length > 0) {
@@ -1538,13 +1538,13 @@ function MicTranslatePageContent() {
       const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
       console.log("🎙️ 오디오 Blob 생성 완료, 크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
       
-      // 1. Supabase Storage에 업로드 (재생용)
+      // 1. Supabase Storage에 업로드 (재생용) - 실패해도 계속 진행
       setError("🎙️ 음성 파일 업로드 중...")
       const uploadedUrl = await uploadAudioToStorage(sessionId)
-      console.log("🎙️ 업로드 결과:", uploadedUrl)
+      console.log("🎙️ 업로드 결과:", uploadedUrl || "(업로드 실패 - 계속 진행)")
       
       // 2. AssemblyAI로 화자 분리 처리 (기존 transcripts 대체)
-      assemblyAIProcessed = await processWithAssemblyAI(audioBlob, sessionId)
+      processedTranscripts = await processWithAssemblyAI(audioBlob, sessionId)
     } else {
       console.log("🎙️ 녹음 모드 처리 건너뜀 - isRecordMode:", isRecordMode, "audioChunks:", audioChunksRef.current.length)
     }
@@ -1566,10 +1566,10 @@ function MicTranslatePageContent() {
         .eq("id", sessionId)
       
       // 녹음 모드에서 AssemblyAI 처리가 완료되었으면 문서 정리 및 요약 수행
-      if (isRecordMode && assemblyAIProcessed) {
+      if (isRecordMode && processedTranscripts && processedTranscripts.length > 0) {
         // 🔄 Step 1: 문서 정리 (화자 분리된 결과로)
         setError("📝 녹음기록 작성중...")
-        await generateAndSaveDocument()
+        await generateAndSaveDocument(processedTranscripts)
         
         // 🔄 Step 2: 요약 생성
         setError("✨ 요약본 생성 중...")
@@ -1613,13 +1613,14 @@ function MicTranslatePageContent() {
   }
 
   // 회의록 자동 생성 및 저장
-  const generateAndSaveDocument = async () => {
-    if (transcripts.length === 0) return
+  const generateAndSaveDocument = async (transcriptItems?: TranscriptItem[]) => {
+    const items = transcriptItems || transcripts
+    if (items.length === 0) return
     
     setIsDocumenting(true)
     setDocumentTextOriginal("")
     setDocumentTextTranslated("")
-    setDocumentTextConversation("")
+    // 원본대화는 초기화하지 않음 (이미 설정되어 있을 수 있음)
     
     try {
       const srcLangName = getLanguageInfo(sourceLanguage).name
@@ -1627,7 +1628,7 @@ function MicTranslatePageContent() {
       
       // 원본대화 생성 (STT 결과 그대로) - 통역 결과와 동일한 순서로 정렬
       // 화자명이 있으면 화자명 사용, 없으면 시간으로 표시
-      const conversationLines = transcripts.map((t, i) => {
+      const conversationLines = items.map((t, i) => {
         if (t.speakerName) {
           return `**[${t.speakerName}]** ${t.original}`
         } else {
@@ -1639,10 +1640,10 @@ function MicTranslatePageContent() {
       setDocumentTextConversation(conversationText)
       
       // 원어 텍스트만 추출
-      const originalTexts = transcripts.map(t => t.original).join("\n")
+      const originalTexts = items.map(t => t.original).join("\n")
       
       // 번역 텍스트만 추출
-      const translatedTexts = transcripts
+      const translatedTexts = items
         .filter(t => t.translated && t.targetLanguage !== "none")
         .map(t => t.translated)
         .join("\n")
@@ -2702,8 +2703,8 @@ function MicTranslatePageContent() {
     }
   }
   
-  // AssemblyAI로 화자 분리 처리
-  const processWithAssemblyAI = async (audioBlob: Blob, sessId: string): Promise<boolean> => {
+  // AssemblyAI로 화자 분리 처리 (성공 시 transcripts 반환)
+  const processWithAssemblyAI = async (audioBlob: Blob, sessId: string): Promise<TranscriptItem[] | null> => {
     setIsProcessingAssemblyAI(true)
     setError("🎤 AI가 화자를 분리하고 있습니다...")
     
@@ -2869,14 +2870,14 @@ function MicTranslatePageContent() {
         setDocumentTextConversation(conversationLines.join("\n\n"))
         
         console.log("🎤 화자 분리 처리 완료:", newTranscripts.length, "개 발화")
-        return true
+        return newTranscripts // transcripts 반환
       }
       
-      return false
+      return null
     } catch (err) {
       console.error("🎤 AssemblyAI 처리 오류:", err)
       setError(err instanceof Error ? err.message : "화자 분리 처리에 실패했습니다.")
-      return false
+      return null
     } finally {
       setIsProcessingAssemblyAI(false)
     }
