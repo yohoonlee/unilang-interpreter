@@ -199,9 +199,10 @@ function MicTranslatePageContent() {
   // 문서 정리 관련
   const [documentTextOriginal, setDocumentTextOriginal] = useState("") // 원어 회의록
   const [documentTextTranslated, setDocumentTextTranslated] = useState("") // 번역어 회의록
+  const [documentTextConversation, setDocumentTextConversation] = useState("") // 원본대화 (화자별 대화 형식)
   const [isDocumenting, setIsDocumenting] = useState(false) // 문서 정리 중
   const [showDocumentModal, setShowDocumentModal] = useState(false) // 문서 보기 모달
-  const [documentViewTab, setDocumentViewTab] = useState<"original" | "translated">("original") // 모달 탭
+  const [documentViewTab, setDocumentViewTab] = useState<"conversation" | "original" | "translated">("conversation") // 모달 탭
   
   // 회의기록 편집 관련
   const [isEditingDocument, setIsEditingDocument] = useState(false) // 편집 모드
@@ -1563,10 +1564,19 @@ function MicTranslatePageContent() {
     setIsDocumenting(true)
     setDocumentTextOriginal("")
     setDocumentTextTranslated("")
+    setDocumentTextConversation("")
     
     try {
       const srcLangName = getLanguageInfo(sourceLanguage).name
       const tgtLangName = getLanguageInfo(targetLanguage).name
+      
+      // 원본대화 생성 (화자별 대화 형식) - transcript 데이터에서 직접 생성
+      const conversationLines = transcripts.map((t, i) => {
+        const speakerName = `화자 ${String.fromCharCode(65 + (i % 26))}` // 화자 A, B, C...
+        return `**[${speakerName}]** ${t.original}`
+      })
+      const conversationText = conversationLines.join("\n\n")
+      setDocumentTextConversation(conversationText)
       
       // 원어 텍스트만 추출
       const originalTexts = transcripts.map(t => t.original).join("\n")
@@ -1635,8 +1645,8 @@ function MicTranslatePageContent() {
         await saveDocumentToDb(originalResult.summary, translatedResult.summary)
       }
       
-      // 회의록 보기 모드로 전환
-      setDocumentViewTab("original")
+      // 회의록 보기 모드로 전환 (원본대화 탭으로)
+      setDocumentViewTab("conversation")
       setShowDocumentInPanel(true)
       
     } catch (err) {
@@ -3072,7 +3082,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
           .eq("id", targetSessionId)
       }
       
-      setDocumentViewTab("original")
+      setDocumentViewTab("conversation")
       setShowDocumentInPanel(true)
       
     } catch (err) {
@@ -3165,7 +3175,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
         await saveDocumentToDb(originalResult.summary, translatedResult.summary)
       }
       
-      setDocumentViewTab("original")
+      setDocumentViewTab("conversation")
       setShowDocumentInPanel(true)
       
     } catch (err) {
@@ -3211,7 +3221,11 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
 
   // 편집 모드 시작
   const startEditingDocument = () => {
-    const currentText = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
+    const currentText = documentViewTab === "conversation" 
+      ? documentTextConversation 
+      : documentViewTab === "original" 
+        ? documentTextOriginal 
+        : documentTextTranslated
     setEditDocumentText(currentText)
     setIsEditingDocument(true)
   }
@@ -3228,6 +3242,15 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
     
     setIsSavingDocument(true)
     try {
+      // 원본대화 편집은 별도 처리
+      if (documentViewTab === "conversation") {
+        setDocumentTextConversation(editDocumentText)
+        setIsEditingDocument(false)
+        setEditDocumentText("")
+        setIsSavingDocument(false)
+        return
+      }
+      
       const isEditingOriginal = documentViewTab === "original"
       const oldText = isEditingOriginal ? documentTextOriginal : documentTextTranslated
       
@@ -3301,10 +3324,16 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
 
   // 프린트 기능
   const printDocument = () => {
-    const printContent = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
-    const langName = documentViewTab === "original" 
-      ? getLanguageInfo(sourceLanguage).name 
-      : getLanguageInfo(targetLanguage).name
+    const printContent = documentViewTab === "conversation" 
+      ? documentTextConversation 
+      : documentViewTab === "original" 
+        ? documentTextOriginal 
+        : documentTextTranslated
+    const langName = documentViewTab === "conversation"
+      ? "원본대화"
+      : documentViewTab === "original" 
+        ? getLanguageInfo(sourceLanguage).name 
+        : getLanguageInfo(targetLanguage).name
     
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
@@ -3356,10 +3385,16 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
 
   // .md 파일 다운로드
   const downloadMarkdown = () => {
-    const text = documentViewTab === "original" ? documentTextOriginal : documentTextTranslated
-    const langName = documentViewTab === "original" 
-      ? getLanguageInfo(sourceLanguage).name 
-      : getLanguageInfo(targetLanguage).name
+    const text = documentViewTab === "conversation" 
+      ? documentTextConversation 
+      : documentViewTab === "original" 
+        ? documentTextOriginal 
+        : documentTextTranslated
+    const langName = documentViewTab === "conversation"
+      ? "원본대화"
+      : documentViewTab === "original" 
+        ? getLanguageInfo(sourceLanguage).name 
+        : getLanguageInfo(targetLanguage).name
     const blob = new Blob([text], { type: "text/markdown;charset=utf-8" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -4040,6 +4075,16 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
               {/* 언어 탭 */}
               <div className="flex gap-2 mt-4">
                 <Button
+                  onClick={() => { setDocumentViewTab("conversation"); if (isEditingDocument) setEditDocumentText(documentTextConversation); }}
+                  variant={documentViewTab === "conversation" ? "default" : "outline"}
+                  size="sm"
+                  className={documentViewTab === "conversation" 
+                    ? "bg-teal-600 text-white hover:bg-teal-700" 
+                    : "border-teal-400 text-teal-700 hover:bg-teal-100"}
+                >
+                  💬 원본대화
+                </Button>
+                <Button
                   onClick={() => { setDocumentViewTab("original"); if (isEditingDocument) setEditDocumentText(documentTextOriginal); }}
                   variant={documentViewTab === "original" ? "default" : "outline"}
                   size="sm"
@@ -4099,7 +4144,11 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                     prose-td:border prose-td:border-slate-300 prose-td:p-3
                   ">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
+                      {documentViewTab === "conversation" 
+                        ? documentTextConversation 
+                        : documentViewTab === "original" 
+                          ? documentTextOriginal 
+                          : documentTextTranslated}
                     </ReactMarkdown>
                   </div>
                 </div>
@@ -4922,6 +4971,14 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                   {/* 언어 전환 탭 */}
                   <div className="flex gap-1 ml-4">
                     <Button
+                      onClick={() => { setDocumentViewTab("conversation"); if (isEditingDocument) setEditDocumentText(documentTextConversation); }}
+                      variant={documentViewTab === "conversation" ? "default" : "ghost"}
+                      size="sm"
+                      className={`h-7 px-2 text-xs ${documentViewTab === "conversation" ? "bg-teal-500 text-white" : ""}`}
+                    >
+                      💬 원본대화
+                    </Button>
+                    <Button
                       onClick={() => { setDocumentViewTab("original"); if (isEditingDocument) setEditDocumentText(documentTextOriginal); }}
                       variant={documentViewTab === "original" ? "default" : "ghost"}
                       size="sm"
@@ -5066,7 +5123,11 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                       prose-td:border prose-td:border-slate-300 prose-td:p-3
                     ">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {documentViewTab === "original" ? documentTextOriginal : documentTextTranslated}
+                        {documentViewTab === "conversation" 
+                          ? documentTextConversation 
+                          : documentViewTab === "original" 
+                            ? documentTextOriginal 
+                            : documentTextTranslated}
                       </ReactMarkdown>
                     </div>
                   </div>
@@ -5156,6 +5217,33 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                     )}
                     <span className="text-lg">{getLanguageInfo(item.sourceLanguage).flag}</span>
                     
+                    {/* 🎙️ 녹음 오디오 재생 버튼 (맨 앞에 배치) */}
+                    {audioUrl && !mergeMode && editingId !== item.id && (
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className={`h-6 w-6 shrink-0 ${currentPlayingItemId === item.id ? 'bg-teal-100' : ''}`}
+                        onClick={() => {
+                          if (currentPlayingItemId === item.id && isPlayingAudio) {
+                            stopAudioPlayback()
+                          } else {
+                            // 세션 시작 시간과 발화 시간 차이로 재생 위치 계산
+                            const sessionStart = currentSessionCreatedAt?.getTime() || item.timestamp.getTime()
+                            const itemTime = item.timestamp.getTime()
+                            const offsetMs = Math.max(0, itemTime - sessionStart)
+                            playAudioFromTime(item.id, offsetMs)
+                          }
+                        }}
+                        title={currentPlayingItemId === item.id && isPlayingAudio ? "녹음 정지" : "녹음 재생"}
+                      >
+                        {currentPlayingItemId === item.id && isPlayingAudio ? (
+                          <VolumeX className="h-4 w-4 text-red-500" />
+                        ) : (
+                          <Volume2 className="h-4 w-4 text-teal-500" />
+                        )}
+                      </Button>
+                    )}
+                    
                     {editingId === item.id ? (
                       <div className="flex-1 space-y-2">
                         <textarea
@@ -5197,6 +5285,15 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                           variant="ghost" 
                           size="icon" 
                           className="h-6 w-6 shrink-0"
+                          onClick={() => speakText(item.original, item.sourceLanguage)}
+                          title="TTS 재생"
+                        >
+                          <Volume2 className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-6 w-6 shrink-0"
                           onClick={() => { setEditingId(item.id); setEditText(item.original); }}
                           title="원문 수정"
                         >
@@ -5210,41 +5307,6 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                           title="삭제"
                         >
                           <Trash2 className="h-4 w-4 text-slate-500 hover:text-red-500" />
-                        </Button>
-                        {/* 🎙️ 녹음 오디오 재생 버튼 (녹음 파일이 있을 때만) */}
-                        {audioUrl && (
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className={`h-6 w-6 shrink-0 ${currentPlayingItemId === item.id ? 'text-teal-500' : ''}`}
-                            onClick={() => {
-                              if (currentPlayingItemId === item.id && isPlayingAudio) {
-                                stopAudioPlayback()
-                              } else {
-                                // 세션 시작 시간과 발화 시간 차이로 재생 위치 계산
-                                const sessionStart = currentSessionCreatedAt?.getTime() || item.timestamp.getTime()
-                                const itemTime = item.timestamp.getTime()
-                                const offsetMs = Math.max(0, itemTime - sessionStart)
-                                playAudioFromTime(item.id, offsetMs)
-                              }
-                            }}
-                            title={currentPlayingItemId === item.id && isPlayingAudio ? "녹음 정지" : "녹음 재생"}
-                          >
-                            {currentPlayingItemId === item.id && isPlayingAudio ? (
-                              <VolumeX className="h-4 w-4 text-teal-500" />
-                            ) : (
-                              <Play className="h-4 w-4 text-teal-500" />
-                            )}
-                          </Button>
-                        )}
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-6 w-6 shrink-0"
-                          onClick={() => speakText(item.original, item.sourceLanguage)}
-                          title="TTS 재생"
-                        >
-                          <Volume2 className="h-4 w-4" />
                         </Button>
                       </>
                     )}
