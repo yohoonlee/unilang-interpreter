@@ -32,6 +32,7 @@ import {
   Download,
   Printer,
   Pencil,
+  FileAudio,
 } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -103,6 +104,7 @@ export default function MicTranslatePage() {
 function MicTranslatePageContent() {
   const searchParams = useSearchParams()
   const isEmbedded = searchParams.get("embedded") === "true"
+  const isRecordMode = searchParams.get("mode") === "record" // 녹음 통역 모드
   
   // body 스크롤 제어 - 이 페이지에서만 body 스크롤 비활성화
   useEffect(() => {
@@ -858,14 +860,15 @@ function MicTranslatePageContent() {
       
       if (!titleToUse) {
         // 기존 세션 개수 확인하여 제목 번호 부여
+        const serviceType = isRecordMode ? "record" : "realtime"
         const { count } = await supabase
           .from("translation_sessions")
           .select("*", { count: "exact", head: true })
           .eq("user_id", userId)
-          .eq("service_type", "realtime")
+          .eq("service_type", serviceType)
         
         const sessionNumber = (count || 0) + 1
-        titleToUse = `통역 ${sessionNumber}`
+        titleToUse = isRecordMode ? `녹음 ${sessionNumber}` : `통역 ${sessionNumber}`
       }
       
       const { data, error } = await supabase
@@ -873,8 +876,8 @@ function MicTranslatePageContent() {
         .insert({
           user_id: userId,
           title: titleToUse,
-          session_type: "mic",
-          service_type: "realtime", // 실시간 통역
+          session_type: isRecordMode ? "record" : "mic",
+          service_type: isRecordMode ? "record" : "realtime",
           source_language: sourceLanguage,
           target_languages: [targetLanguage],
           status: "active"
@@ -1079,7 +1082,7 @@ function MicTranslatePageContent() {
 
   // 세션 목록 로드
   const loadSessions = async () => {
-    console.log("📋 loadSessions 호출, userId:", userId)
+    console.log("📋 loadSessions 호출, userId:", userId, "isRecordMode:", isRecordMode)
     if (!userId) {
       console.log("⚠️ userId가 없어서 세션 로드 스킵")
       return
@@ -1087,12 +1090,15 @@ function MicTranslatePageContent() {
     
     setIsLoadingSessions(true)
     try {
+      const sessionType = isRecordMode ? "record" : "mic"
+      const serviceType = isRecordMode ? "record" : "realtime"
+      
       const { data, error } = await supabase
         .from("translation_sessions")
         .select("*")
         .eq("user_id", userId)
-        .eq("session_type", "mic")
-        .eq("service_type", "realtime") // 실시간 통역만 조회
+        .eq("session_type", sessionType)
+        .eq("service_type", serviceType)
         .order("created_at", { ascending: false })
       
       console.log("📋 세션 목록 결과:", { data, error })
@@ -4136,11 +4142,11 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
           <div className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-lg">
             <div className="px-4 py-4 flex items-center gap-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
-                <Mic className="h-6 w-6 text-white" />
+                {isRecordMode ? <FileAudio className="h-6 w-6 text-white" /> : <Mic className="h-6 w-6 text-white" />}
               </div>
               <div className="flex-1">
-                <h1 className="text-xl font-bold">실시간 음성 통역</h1>
-                <p className="text-sm text-white/80">마이크로 말하면 실시간으로 번역됩니다</p>
+                <h1 className="text-xl font-bold">{isRecordMode ? "녹음 통역" : "실시간 음성 통역"}</h1>
+                <p className="text-sm text-white/80">{isRecordMode ? "마이크로 음성을 녹음하고 통역합니다" : "마이크로 말하면 실시간으로 번역됩니다"}</p>
               </div>
               {/* 우측 버튼들 */}
               <div className="flex items-center gap-2">

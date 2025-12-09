@@ -1835,8 +1835,8 @@ Please write the transcript following this exact format.`
                   />
                   <Button
                     onClick={() => {
-                      // 실시간 통역 페이지로 이동 (마이크 기능은 실시간 통역과 동일)
-                      window.location.href = `/service/translate/realtime?source=${sourceLanguage}&target=${targetLanguage}`
+                      // 녹음 통역 모드로 실시간 통역 페이지 이동
+                      window.location.href = `/service/translate/realtime?mode=record&source=${sourceLanguage}&target=${targetLanguage}`
                     }}
                     className="h-20 flex-col gap-2"
                     style={{ background: 'linear-gradient(to right, #00BBAE, #14B8A6)' }}
