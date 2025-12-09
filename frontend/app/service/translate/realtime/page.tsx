@@ -3508,9 +3508,20 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
     
     setIsSavingDocument(true)
     try {
-      // 원본대화 편집은 별도 처리
+      // 원본대화 편집은 별도 처리 (화자명 변경 시 DB에도 저장)
       if (documentViewTab === "conversation") {
         setDocumentTextConversation(editDocumentText)
+        
+        // 화자명 변경사항 DB에 저장 (utterances 테이블)
+        for (const item of transcripts) {
+          if (item.utteranceId && item.speakerName) {
+            await supabase
+              .from("utterances")
+              .update({ speaker_name: item.speakerName })
+              .eq("id", item.utteranceId)
+          }
+        }
+        
         setIsEditingDocument(false)
         setEditDocumentText("")
         setIsSavingDocument(false)
@@ -5359,6 +5370,11 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                       <Loader2 className="h-3 w-3 animate-spin" />
                       음성 파일 저장 중...
                     </span>
+                  )}
+                  
+                  {/* 디버그: audioUrl 상태 */}
+                  {!audioUrl && !isUploadingAudio && !isRecordingAudio && sessionId && (
+                    <span className="text-xs text-red-400 ml-2">(음성 없음)</span>
                   )}
                   
                   {/* 전체 재생 스피커 버튼 (파일크기 표시) */}
