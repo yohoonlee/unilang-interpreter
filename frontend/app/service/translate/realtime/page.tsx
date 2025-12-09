@@ -38,6 +38,7 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { useAssemblyAI, AssemblyAIResult, AssemblyAIUtterance } from "@/hooks/useAssemblyAI"
 
 // 지원 언어 목록 (자동감지 제거 - Web Speech API 호환성 문제)
 const LANGUAGES = [
@@ -499,6 +500,7 @@ function MicTranslatePageContent() {
   const [isRecordingAudio, setIsRecordingAudio] = useState(false)
   const [audioUrl, setAudioUrl] = useState<string | null>(null) // 세션의 녹음 파일 URL
   const [isUploadingAudio, setIsUploadingAudio] = useState(false)
+  const [isProcessingAssemblyAI, setIsProcessingAssemblyAI] = useState(false) // AssemblyAI 처리 중
   
   // 오디오 재생 관련
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null)
@@ -1495,15 +1497,23 @@ function MicTranslatePageContent() {
       stopSystemAudioCapture()
     }
     
-    // 🎙️ 녹음 모드: 오디오 녹음 중지 및 업로드
+    // 🎙️ 녹음 모드: 오디오 녹음 중지 및 AssemblyAI로 화자 분리 처리
+    let assemblyAIProcessed = false
     if (isRecordMode && audioChunksRef.current.length > 0) {
       stopAudioRecording()
       
-      // 약간의 딜레이 후 업로드 (MediaRecorder 종료 대기)
+      // 약간의 딜레이 후 처리 (MediaRecorder 종료 대기)
       await new Promise(resolve => setTimeout(resolve, 500))
       
+      // 오디오 Blob 생성
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+      
+      // 1. Supabase Storage에 업로드 (재생용)
       setError("🎙️ 음성 파일 업로드 중...")
       await uploadAudioToStorage(sessionId)
+      
+      // 2. AssemblyAI로 화자 분리 처리 (기존 transcripts 대체)
+      assemblyAIProcessed = await processWithAssemblyAI(audioBlob, sessionId)
     }
     
     // 타이머 중지
@@ -1522,8 +1532,20 @@ function MicTranslatePageContent() {
         })
         .eq("id", sessionId)
       
-      // 내용이 있고 회의록 자동작성이 활성화되어 있으면 전체 자동화 실행
-      if (transcripts.length > 0 && audioSettings.realtimeSummary) {
+      // 녹음 모드에서 AssemblyAI 처리가 완료되었으면 문서 정리 및 요약 수행
+      if (isRecordMode && assemblyAIProcessed) {
+        // 🔄 Step 1: 문서 정리 (화자 분리된 결과로)
+        setError("📝 녹음기록 작성중...")
+        await generateAndSaveDocument()
+        
+        // 🔄 Step 2: 요약 생성
+        setError("✨ 요약본 생성 중...")
+        await summarizeCurrentSession()
+        
+        setError(null)
+      }
+      // 실시간 통역 모드에서 내용이 있고 회의록 자동작성이 활성화되어 있으면 전체 자동화 실행
+      else if (!isRecordMode && transcripts.length > 0 && audioSettings.realtimeSummary) {
         // 🔄 Step 1: AI 재정리 (끊어진 문장 합치기)
         setError("🔄 AI 재정리 중...")
         await reorganizeSentences()
@@ -2615,6 +2637,155 @@ function MicTranslatePageContent() {
     } finally {
       setIsUploadingAudio(false)
       audioChunksRef.current = [] // 청크 초기화
+    }
+  }
+  
+  // AssemblyAI로 화자 분리 처리
+  const processWithAssemblyAI = async (audioBlob: Blob, sessId: string): Promise<boolean> => {
+    setIsProcessingAssemblyAI(true)
+    setError("🎤 AI가 화자를 분리하고 있습니다...")
+    
+    try {
+      // 1. 오디오 파일을 AssemblyAI에 업로드
+      console.log("🎤 AssemblyAI 업로드 시작, 크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
+      
+      const formData = new FormData()
+      formData.append("file", audioBlob, "recording.webm")
+      formData.append("languageCode", sourceLanguage)
+      formData.append("speakerLabels", "true")
+      
+      const uploadResponse = await fetch("/api/assemblyai/upload", {
+        method: "POST",
+        body: formData,
+      })
+      
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json()
+        throw new Error(errorData.error || "파일 업로드 실패")
+      }
+      
+      const uploadResult = await uploadResponse.json()
+      console.log("🎤 AssemblyAI 업로드 완료:", uploadResult.uploadUrl)
+      
+      // 2. 전사 요청
+      setError("🎤 음성 인식 및 화자 분리 중...")
+      
+      const transcribeResponse = await fetch("/api/assemblyai/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audioUrl: uploadResult.uploadUrl,
+          languageCode: sourceLanguage,
+          speakerLabels: true,
+        }),
+      })
+      
+      if (!transcribeResponse.ok) {
+        const errorData = await transcribeResponse.json()
+        throw new Error(errorData.error || "전사 실패")
+      }
+      
+      const result: AssemblyAIResult = await transcribeResponse.json()
+      console.log("🎤 AssemblyAI 전사 완료:", result.utterances.length, "개 발화,", Object.keys(result.speakerStats).length, "명 화자")
+      
+      // 3. 기존 transcripts를 화자 분리된 결과로 대체
+      if (result.utterances.length > 0) {
+        setError("🎤 번역 및 데이터 처리 중...")
+        
+        const newTranscripts: TranscriptItem[] = []
+        
+        for (const utterance of result.utterances) {
+          // 번역 처리
+          let translatedText = ""
+          if (targetLanguage !== "none" && targetLanguage !== sourceLanguage) {
+            try {
+              const translateResponse = await fetch("/api/translate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  text: utterance.text,
+                  targetLanguage: targetLanguage,
+                }),
+              })
+              const translateResult = await translateResponse.json()
+              if (translateResult.success) {
+                translatedText = translateResult.translatedText
+              }
+            } catch (e) {
+              console.error("번역 오류:", e)
+            }
+          }
+          
+          const item: TranscriptItem = {
+            id: `aai-${utterance.start}-${utterance.end}`,
+            original: utterance.text,
+            translated: translatedText,
+            sourceLanguage: result.language || sourceLanguage,
+            targetLanguage: targetLanguage,
+            timestamp: new Date(),
+          }
+          
+          newTranscripts.push(item)
+          
+          // DB 저장
+          if (sessId) {
+            try {
+              const { data: utteranceData } = await supabase
+                .from("utterances")
+                .insert({
+                  session_id: sessId,
+                  original_text: utterance.text,
+                  original_language: result.language || sourceLanguage,
+                  speaker_name: `화자 ${utterance.speaker}`,
+                  metadata: {
+                    speaker: utterance.speaker,
+                    start: utterance.start,
+                    end: utterance.end,
+                    confidence: utterance.confidence,
+                  },
+                })
+                .select()
+                .single()
+              
+              if (utteranceData && translatedText) {
+                await supabase
+                  .from("translations")
+                  .insert({
+                    utterance_id: utteranceData.id,
+                    translated_text: translatedText,
+                    target_language: targetLanguage,
+                  })
+              }
+              
+              if (utteranceData) {
+                item.utteranceId = utteranceData.id
+              }
+            } catch (e) {
+              console.error("DB 저장 오류:", e)
+            }
+          }
+        }
+        
+        // transcripts 대체
+        setTranscripts(newTranscripts)
+        
+        // 원본대화 생성 (화자별 대화 형식)
+        const conversationLines = result.utterances.map((u) => {
+          return `**[화자 ${u.speaker}]** ${u.text}`
+        })
+        setDocumentTextConversation(conversationLines.join("\n\n"))
+        
+        console.log("🎤 화자 분리 처리 완료:", newTranscripts.length, "개 발화")
+        return true
+      }
+      
+      return false
+    } catch (err) {
+      console.error("🎤 AssemblyAI 처리 오류:", err)
+      setError(err instanceof Error ? err.message : "화자 분리 처리에 실패했습니다.")
+      return false
+    } finally {
+      setIsProcessingAssemblyAI(false)
     }
   }
 
