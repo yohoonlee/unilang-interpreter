@@ -504,6 +504,7 @@ function MicTranslatePageContent() {
   const [isRecordingAudio, setIsRecordingAudio] = useState(false)
   const [audioUrl, setAudioUrl] = useState<string | null>(null) // 세션의 녹음 파일 URL
   const [isUploadingAudio, setIsUploadingAudio] = useState(false)
+  const [audioFileSize, setAudioFileSize] = useState<number | null>(null) // 오디오 파일 크기 (bytes)
   const [isProcessingAssemblyAI, setIsProcessingAssemblyAI] = useState(false) // AssemblyAI 처리 중
   
   // 오디오 재생 관련
@@ -2651,6 +2652,9 @@ function MicTranslatePageContent() {
         .getPublicUrl(filePath)
       
       console.log("🎙️ 오디오 업로드 완료:", publicUrl)
+      
+      // 파일 크기 저장
+      setAudioFileSize(audioBlob.size)
       
       // 세션에 audio_url 저장
       await supabase
@@ -5308,6 +5312,41 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                   {isSpeaking && (
                     <span className="text-xs text-teal-500 animate-pulse ml-2">🔊 재생 중...</span>
                   )}
+                  
+                  {/* 오디오 업로드 상태 표시 */}
+                  {isUploadingAudio && (
+                    <span className="text-xs text-orange-500 animate-pulse ml-2 flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      음성 파일 저장 중...
+                    </span>
+                  )}
+                  
+                  {/* 전체 재생 스피커 버튼 (파일크기 표시) */}
+                  {audioUrl && !isUploadingAudio && (
+                    <Button
+                      onClick={() => {
+                        if (isPlayingAudio) {
+                          stopAudioPlayback()
+                        } else {
+                          playAudioFromTime("full", 0)
+                        }
+                      }}
+                      size="sm"
+                      variant="ghost"
+                      className={`h-7 px-2 text-xs ml-2 ${isPlayingAudio ? 'bg-teal-100 text-teal-700' : 'text-slate-600'}`}
+                      title={isPlayingAudio ? "재생 정지" : "전체 재생"}
+                    >
+                      {isPlayingAudio ? (
+                        <VolumeX className="h-4 w-4 text-red-500" />
+                      ) : (
+                        <Volume2 className="h-4 w-4 text-teal-500" />
+                      )}
+                      <span className="ml-1 text-xs text-slate-500">
+                        {audioFileSize ? `${(audioFileSize / 1024 / 1024).toFixed(1)}MB` : ''}
+                      </span>
+                    </Button>
+                  )}
+                  
                   {/* 통역기록 보기 버튼 */}
                   {documentTextOriginal && (
                     <Button
