@@ -908,6 +908,23 @@ Please write the transcript following this exact format.`
         setDocumentTextTranslated(sessionDoc.document_translated_md || "")
       }
       
+      // 요약본 로드
+      const { data: summaryData } = await supabase
+        .from("session_summaries")
+        .select("summary_text, language")
+        .eq("session_id", session.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single()
+      
+      if (summaryData) {
+        setSummaryText(summaryData.summary_text || "")
+        setSavedSummaries({ [summaryData.language]: summaryData.summary_text })
+      } else {
+        setSummaryText("")
+        setSavedSummaries({})
+      }
+      
     } catch (err) {
       console.error("세션 로드 오류:", err)
     } finally {
@@ -2163,6 +2180,17 @@ Please write the transcript following this exact format.`
                                   setDocumentTextTranslated(editDocumentText)
                                   await saveDocumentToDb(documentTextOriginal, editDocumentText)
                                 }
+                                
+                                // 화자명 변경사항도 DB에 저장 (utterances 테이블)
+                                for (const item of transcripts) {
+                                  if (item.utteranceId) {
+                                    await supabase
+                                      .from("utterances")
+                                      .update({ speaker_name: item.speakerName })
+                                      .eq("id", item.utteranceId)
+                                  }
+                                }
+                                
                                 setIsSavingDocument(false)
                                 setIsEditingDocument(false)
                               }}
