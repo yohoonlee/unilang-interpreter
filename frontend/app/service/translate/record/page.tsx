@@ -735,19 +735,26 @@ Please write the transcript following this exact format.`
       return
     }
     
+    // 원어로 요약 생성 (자동 감지면 첫 번째 항목의 언어 또는 한국어)
+    const originalLang = sourceLanguage === "auto" 
+      ? (items[0]?.sourceLanguage || "ko") 
+      : sourceLanguage
+    
     setIsSummarizing(true)
+    setSummaryLanguage(originalLang) // 요약 언어를 원어로 설정
+    
     try {
       const texts = items.map(t => t.original)
       const combinedText = texts.join("\n")
       
-      console.log("[요약] 요약 생성 시작:", { sessId, textLength: combinedText.length })
+      console.log("[요약] 요약 생성 시작:", { sessId, textLength: combinedText.length, lang: originalLang })
       
       const response = await fetch("/api/gemini/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: combinedText,
-          targetLanguage: summaryLanguage,
+          targetLanguage: originalLang,
         }),
       })
       
@@ -756,14 +763,14 @@ Please write the transcript following this exact format.`
       
       if (result.success && result.summary) {
         setSummaryText(result.summary)
-        setSavedSummaries({ [summaryLanguage]: result.summary })
+        setSavedSummaries({ [originalLang]: result.summary })
         
         // DB 저장 - 기존 요약 확인 후 업데이트 또는 생성
         const { data: existing } = await supabase
           .from("session_summaries")
           .select("id")
           .eq("session_id", sessId)
-          .eq("language", summaryLanguage)
+          .eq("language", originalLang)
           .single()
         
         if (existing) {
@@ -776,7 +783,7 @@ Please write the transcript following this exact format.`
             .from("session_summaries")
             .insert({
               session_id: sessId,
-              language: summaryLanguage,
+              language: originalLang,
               summary_text: result.summary,
               user_id: userId,
             })
@@ -787,6 +794,94 @@ Please write the transcript following this exact format.`
       }
     } catch (err) {
       console.error("[요약] 요약 생성 오류:", err)
+    } finally {
+      setIsSummarizing(false)
+    }
+  }
+  
+  // 요약 로드 또는 생성 (언어 선택 시)
+  const loadOrGenerateSummary = async (langCode: string) => {
+    setSummaryLanguage(langCode)
+    
+    // 이미 저장된 요약이 있으면 표시
+    if (savedSummaries[langCode]) {
+      setSummaryText(savedSummaries[langCode])
+      return
+    }
+    
+    // DB에서 해당 언어 요약 확인
+    if (sessionId) {
+      const { data: existingSummary } = await supabase
+        .from("session_summaries")
+        .select("summary_text")
+        .eq("session_id", sessionId)
+        .eq("language", langCode)
+        .single()
+      
+      if (existingSummary?.summary_text) {
+        setSummaryText(existingSummary.summary_text)
+        setSavedSummaries(prev => ({ ...prev, [langCode]: existingSummary.summary_text }))
+        return
+      }
+    }
+    
+    // 새로 생성
+    if (!Array.isArray(transcripts) || transcripts.length === 0) {
+      setSummaryText("요약할 내용이 없습니다.")
+      return
+    }
+    
+    setIsSummarizing(true)
+    try {
+      const texts = transcripts.map(t => t.original)
+      const combinedText = texts.join("\n")
+      
+      const response = await fetch("/api/gemini/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: combinedText,
+          targetLanguage: langCode,
+        }),
+      })
+      
+      const result = await response.json()
+      
+      if (result.success && result.summary) {
+        setSummaryText(result.summary)
+        setSavedSummaries(prev => ({ ...prev, [langCode]: result.summary }))
+        
+        // DB 저장
+        if (sessionId) {
+          const { data: existing } = await supabase
+            .from("session_summaries")
+            .select("id")
+            .eq("session_id", sessionId)
+            .eq("language", langCode)
+            .single()
+          
+          if (existing) {
+            await supabase
+              .from("session_summaries")
+              .update({ summary_text: result.summary, updated_at: new Date().toISOString() })
+              .eq("id", existing.id)
+          } else {
+            await supabase
+              .from("session_summaries")
+              .insert({
+                session_id: sessionId,
+                language: langCode,
+                summary_text: result.summary,
+                user_id: userId,
+              })
+          }
+        }
+      } else {
+        setSummaryText("요약 생성에 실패했습니다.")
+      }
+    } catch (err) {
+      console.error("[요약] 요약 생성 오류:", err)
+      setSummaryText("요약 생성 중 오류가 발생했습니다.")
     } finally {
       setIsSummarizing(false)
     }
@@ -923,18 +1018,33 @@ Please write the transcript following this exact format.`
         setDocumentTextTranslated(sessionDoc.document_translated_md || "")
       }
       
-      // 요약본 로드
-      const { data: summaryData } = await supabase
+      // 요약본 로드 (모든 언어)
+      const { data: summaryDataList } = await supabase
         .from("session_summaries")
         .select("summary_text, language")
         .eq("session_id", session.id)
         .order("created_at", { ascending: false })
-        .limit(1)
-        .single()
       
-      if (summaryData) {
-        setSummaryText(summaryData.summary_text || "")
-        setSavedSummaries({ [summaryData.language]: summaryData.summary_text })
+      if (summaryDataList && summaryDataList.length > 0) {
+        // 모든 언어의 요약을 캐시에 저장
+        const summaryMap: Record<string, string> = {}
+        summaryDataList.forEach(s => {
+          if (s.summary_text) {
+            summaryMap[s.language] = s.summary_text
+          }
+        })
+        setSavedSummaries(summaryMap)
+        
+        // 원어 요약이 있으면 표시, 없으면 첫 번째 요약 표시
+        const originalLang = session.source_language || "ko"
+        if (summaryMap[originalLang]) {
+          setSummaryText(summaryMap[originalLang])
+          setSummaryLanguage(originalLang)
+        } else {
+          const firstLang = Object.keys(summaryMap)[0]
+          setSummaryText(summaryMap[firstLang])
+          setSummaryLanguage(firstLang)
+        }
       } else {
         setSummaryText("")
         setSavedSummaries({})
@@ -2647,11 +2757,85 @@ Please write the transcript following this exact format.`
               </div>
             </div>
 
+            {/* 요약 언어 선택 */}
+            <div className="px-6 py-3 border-b border-slate-200">
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="text-sm text-slate-600">요약 언어:</label>
+                <select
+                  value={summaryLanguage}
+                  onChange={(e) => loadOrGenerateSummary(e.target.value)}
+                  disabled={isSummarizing}
+                  className={`px-3 py-1 rounded-lg border text-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent ${
+                    savedSummaries[summaryLanguage]
+                      ? "border-teal-400 bg-teal-50 text-teal-800"
+                      : "border-slate-200 bg-white text-slate-900"
+                  }`}
+                >
+                  {/* 원어 (소스 언어) */}
+                  <option value={sourceLanguage === "auto" ? "ko" : sourceLanguage}>
+                    {getLanguageInfo(sourceLanguage === "auto" ? "ko" : sourceLanguage).flag} {getLanguageInfo(sourceLanguage === "auto" ? "ko" : sourceLanguage).name} (원어)
+                  </option>
+                  {/* 번역 언어가 있으면 표시 */}
+                  {targetLanguage !== "none" && targetLanguage !== sourceLanguage && (
+                    <option value={targetLanguage}>
+                      {getLanguageInfo(targetLanguage).flag} {getLanguageInfo(targetLanguage).name} (번역)
+                    </option>
+                  )}
+                  {/* 한국어가 아직 없으면 추가 */}
+                  {sourceLanguage !== "ko" && targetLanguage !== "ko" && (
+                    <option value="ko">🇰🇷 한국어</option>
+                  )}
+                </select>
+                
+                {/* 저장된 요약 표시 */}
+                {Object.keys(savedSummaries).length > 0 && (
+                  <div className="flex items-center gap-1 ml-2">
+                    <span className="text-xs text-slate-500">저장됨:</span>
+                    {Object.keys(savedSummaries).map(code => {
+                      const lang = LANGUAGES.find(l => l.code === code)
+                      return (
+                        <button
+                          key={code}
+                          onClick={() => loadOrGenerateSummary(code)}
+                          className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
+                            summaryLanguage === code
+                              ? "bg-teal-500 text-white"
+                              : "bg-teal-100 text-teal-700 hover:bg-teal-200"
+                          }`}
+                        >
+                          {lang?.flag || code}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                
+                {/* 다시 요약 버튼 */}
+                <Button
+                  disabled={isSummarizing}
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setSavedSummaries(prev => {
+                      const newSummaries = { ...prev }
+                      delete newSummaries[summaryLanguage]
+                      return newSummaries
+                    })
+                    loadOrGenerateSummary(summaryLanguage)
+                  }}
+                  className="ml-auto"
+                >
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  다시 요약
+                </Button>
+              </div>
+            </div>
+
             <div className="flex-1 overflow-y-auto p-6">
               {isSummarizing ? (
                 <div className="flex flex-col items-center justify-center py-12">
                   <Loader2 className="h-10 w-10 animate-spin text-amber-500 mb-4" />
-                  <p className="text-slate-600">AI가 요약을 생성하고 있습니다...</p>
+                  <p className="text-slate-600">AI가 {getLanguageInfo(summaryLanguage).name} 요약을 생성하고 있습니다...</p>
                 </div>
               ) : (
                 <div className="prose prose-slate max-w-none">
