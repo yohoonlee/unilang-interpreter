@@ -2606,14 +2606,44 @@ Please write the transcript following this exact format.`
                             </Button>
                           </div>
                         </div>
+                      ) : documentViewTab === "conversation" ? (
+                        /* 원본대화: 스피커 버튼과 함께 렌더링 */
+                        <div className="space-y-3">
+                          {transcripts.map((item, idx) => (
+                            <div key={item.id || idx} className="flex items-start gap-2 p-3 bg-slate-50 rounded-lg">
+                              {/* 스피커 버튼 */}
+                              {sessionAudioUrl && item.start !== undefined && (
+                                <button
+                                  onClick={() => playAudioFromTime(item.id, item.start!, item.end)}
+                                  className={`flex-shrink-0 p-1.5 rounded-full transition-colors ${
+                                    currentPlayingItemId === item.id 
+                                      ? "bg-teal-500 text-white" 
+                                      : "bg-teal-100 text-teal-600 hover:bg-teal-200"
+                                  }`}
+                                  title="이 구간 재생"
+                                >
+                                  {currentPlayingItemId === item.id ? (
+                                    <Square className="h-3 w-3" />
+                                  ) : (
+                                    <Play className="h-3 w-3" />
+                                  )}
+                                </button>
+                              )}
+                              {/* 화자명 + 내용 */}
+                              <div className="flex-1">
+                                <span className="font-bold text-teal-700">[{item.speakerName}]</span>
+                                <span className="ml-2 text-slate-700">{item.original}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       ) : (
+                        /* KR원문 / US번역: 마크다운 렌더링 */
                         <div className="prose prose-slate max-w-none prose-headings:text-teal-800 prose-strong:text-teal-700 prose-li:marker:text-teal-500">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {documentViewTab === "conversation" 
-                              ? documentTextConversation 
-                              : documentViewTab === "original" 
-                                ? documentTextOriginal 
-                                : documentTextTranslated}
+                            {documentViewTab === "original" 
+                              ? documentTextOriginal 
+                              : documentTextTranslated}
                           </ReactMarkdown>
                         </div>
                       )}
