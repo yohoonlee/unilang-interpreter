@@ -1212,6 +1212,8 @@ function MicTranslatePageContent() {
   const UTTERANCES_PER_PAGE = 20
   
   const loadSessionData = async (sessionToLoad: SessionItem) => {
+    console.log("⭐⭐⭐ loadSessionData 호출됨! sessionToLoad:", JSON.stringify(sessionToLoad))
+    alert("loadSessionData 호출됨: " + sessionToLoad.title) // 임시 알림
     setIsLoadingSessions(true)
     try {
       console.log("세션 로드 시작:", sessionToLoad.id)
