@@ -1212,8 +1212,6 @@ function MicTranslatePageContent() {
   const UTTERANCES_PER_PAGE = 20
   
   const loadSessionData = async (sessionToLoad: SessionItem) => {
-    console.log("⭐⭐⭐ loadSessionData 호출됨! sessionToLoad:", JSON.stringify(sessionToLoad))
-    alert("loadSessionData 호출됨: " + sessionToLoad.title) // 임시 알림
     setIsLoadingSessions(true)
     try {
       console.log("세션 로드 시작:", sessionToLoad.id)
@@ -1332,9 +1330,7 @@ function MicTranslatePageContent() {
         setTargetLanguage(sessionToLoad.target_languages[0])
       }
       // 🎙️ 오디오 URL 설정
-      console.log("🔊🔊🔊 세션 로드 - audio_url:", sessionToLoad.audio_url, "전체 세션:", JSON.stringify(sessionToLoad))
       setAudioUrl(sessionToLoad.audio_url || null)
-      console.log("🔊🔊🔊 setAudioUrl 호출 완료")
       setShowSessionList(false)
       
       // 중요: 회의록 보기 모드 리셋 (STT/번역 결과 표시)
