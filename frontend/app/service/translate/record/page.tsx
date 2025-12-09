@@ -625,6 +625,7 @@ function RecordTranslatePageContent() {
       }
       
       setDocumentViewTab("original")
+      setIsEditingDocument(false)
       setShowDocumentInPanel(true)
       
       // 문서 정리 완료 후 요약본 자동 생성
@@ -1527,6 +1528,7 @@ Please write the transcript following this exact format.`
                             onClick={async (e) => {
                               e.stopPropagation()
                               await loadSessionData(session)
+                              setIsEditingDocument(false)
                               setShowDocumentInPanel(true)
                             }}
                             title="녹음기록 보기"
@@ -1956,7 +1958,10 @@ Please write the transcript following this exact format.`
                   {/* 녹음기록 버튼 */}
                   {documentTextOriginal && (
                     <Button
-                      onClick={() => setShowDocumentInPanel(true)}
+                      onClick={() => {
+                        setIsEditingDocument(false)
+                        setShowDocumentInPanel(true)
+                      }}
                       size="sm"
                       variant="outline"
                       className="h-10 px-3 rounded-full border-2 border-emerald-400 text-emerald-600 hover:bg-emerald-100"
@@ -2241,7 +2246,10 @@ Please write the transcript following this exact format.`
                           {/* 녹음기록 버튼 */}
                           {documentTextOriginal && (
                             <Button
-                              onClick={() => setShowDocumentInPanel(true)}
+                              onClick={() => {
+                                setIsEditingDocument(false)
+                                setShowDocumentInPanel(true)
+                              }}
                               size="sm"
                               className="h-8 px-3 rounded-lg text-white"
                               style={{ backgroundColor: '#00BAB7' }}
@@ -2491,6 +2499,7 @@ Please write the transcript following this exact format.`
                           onClick={async (e) => {
                             e.stopPropagation()
                             await loadSessionData(session)
+                            setIsEditingDocument(false)
                             setShowDocumentInPanel(true)
                           }}
                           title="녹음기록 보기"
