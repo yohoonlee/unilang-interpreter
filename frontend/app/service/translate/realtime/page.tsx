@@ -2534,8 +2534,8 @@ function MicTranslatePageContent() {
 
   // ========== 음성 재생 기능 ==========
   
-  // 특정 시점부터 오디오 재생
-  const playAudioFromTime = (itemId: string, startTime?: number) => {
+  // 특정 시점부터 오디오 재생 (endTime이 있으면 해당 구간만 재생)
+  const playAudioFromTime = (itemId: string, startTime?: number, endTime?: number) => {
     if (!audioUrl) {
       console.log("🔊 오디오 URL이 없습니다")
       return
@@ -2553,7 +2553,19 @@ function MicTranslatePageContent() {
     // 시작 시간이 있으면 해당 시점으로 이동
     if (startTime !== undefined && startTime > 0) {
       audio.currentTime = startTime / 1000 // ms → seconds
-      console.log("🔊 오디오 재생:", startTime / 1000, "초부터")
+      console.log("🔊 오디오 재생:", startTime / 1000, "초부터", endTime ? `${endTime / 1000}초까지` : "끝까지")
+    }
+    
+    // endTime이 있으면 해당 시점에서 멈추기
+    if (endTime !== undefined && endTime > 0) {
+      const endTimeSeconds = endTime / 1000
+      audio.ontimeupdate = () => {
+        if (audio.currentTime >= endTimeSeconds) {
+          audio.pause()
+          setIsPlayingAudio(false)
+          setCurrentPlayingItemId(null)
+        }
+      }
     }
     
     audio.onplay = () => {
@@ -5378,10 +5390,7 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                     </span>
                   )}
                   
-                  {/* 디버그: audioUrl 상태 - 항상 표시 */}
-                  <span className="text-xs text-blue-500 ml-2">
-                    [DEBUG: audioUrl={audioUrl ? "있음" : "없음"}]
-                  </span>
+                  {/* audioUrl 없을 때 표시 */}
                   {!audioUrl && !isUploadingAudio && !isRecordingAudio && sessionId && (
                     <span className="text-xs text-red-400 ml-2">(음성 없음)</span>
                   )}
@@ -5527,13 +5536,50 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                       prose-th:bg-slate-100 dark:prose-th:bg-slate-700 prose-th:border prose-th:border-slate-300 prose-th:p-3 prose-th:text-left
                       prose-td:border prose-td:border-slate-300 prose-td:p-3
                     ">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {documentViewTab === "conversation" 
-                          ? documentTextConversation 
-                          : documentViewTab === "original" 
+                      {/* 원본대화 탭: 스피커 버튼 포함하여 렌더링 */}
+                      {documentViewTab === "conversation" ? (
+                        <div className="space-y-3">
+                          {transcripts.map((item, index) => (
+                            <div key={item.id || index} className="flex items-start gap-2 p-2 rounded-lg hover:bg-slate-50">
+                              {/* 스피커 버튼 */}
+                              {audioUrl && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className={`h-6 w-6 shrink-0 p-0 ${currentPlayingItemId === item.id ? 'bg-teal-100' : ''}`}
+                                  onClick={() => {
+                                    if (currentPlayingItemId === item.id && isPlayingAudio) {
+                                      stopAudioPlayback()
+                                    } else {
+                                      playAudioFromTime(item.id, item.start, item.end)
+                                    }
+                                  }}
+                                  title={currentPlayingItemId === item.id && isPlayingAudio ? "녹음 정지" : "녹음 재생"}
+                                >
+                                  {currentPlayingItemId === item.id && isPlayingAudio ? (
+                                    <VolumeX className="h-4 w-4 text-red-500" />
+                                  ) : (
+                                    <Volume2 className="h-4 w-4 text-teal-500" />
+                                  )}
+                                </Button>
+                              )}
+                              {/* 화자 + 내용 */}
+                              <div className="flex-1">
+                                <span className="font-bold text-slate-800">
+                                  [{item.speakerName || `화자 ${item.speaker || '?'}`}]
+                                </span>
+                                <span className="ml-2 text-slate-700">{item.original}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {documentViewTab === "original" 
                             ? documentTextOriginal 
                             : documentTextTranslated}
-                      </ReactMarkdown>
+                        </ReactMarkdown>
+                      )}
                     </div>
                   </div>
                 )}
@@ -5642,14 +5688,16 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                           } else {
                             // item.start가 있으면 AssemblyAI 결과이므로 그 값 사용, 아니면 timestamp로 계산
                             let offsetMs = 0
+                            let endMs: number | undefined = undefined
                             if (item.start !== undefined) {
                               offsetMs = item.start
+                              endMs = item.end // 끝 시간도 전달
                             } else {
                               const sessionStart = currentSessionCreatedAt?.getTime() || item.timestamp.getTime()
                               const itemTime = item.timestamp.getTime()
                               offsetMs = Math.max(0, itemTime - sessionStart)
                             }
-                            playAudioFromTime(item.id, offsetMs)
+                            playAudioFromTime(item.id, offsetMs, endMs)
                           }
                         }}
                         title={currentPlayingItemId === item.id && isPlayingAudio ? "녹음 정지" : "녹음 재생"}
