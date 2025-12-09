@@ -557,14 +557,16 @@ function RecordTranslatePageContent() {
   
   // 문서 정리
   const generateDocument = async (transcriptItems?: TranscriptItem[]) => {
+    console.log("[문서정리] 호출됨, transcriptItems:", transcriptItems?.length, "transcripts:", transcripts.length)
     const items = transcriptItems || transcripts
     
     // 배열 체크
     if (!Array.isArray(items) || items.length === 0) {
-      console.error("[문서정리] items가 유효하지 않음:", items)
+      console.error("[문서정리] items가 유효하지 않음:", { transcriptItems, transcriptsLength: transcripts.length })
       setError("통역 결과가 없습니다. 먼저 통역을 완료해주세요.")
       return
     }
+    console.log("[문서정리] 처리할 items:", items.length)
     
     setIsDocumenting(true)
     setDocumentTextOriginal("")
@@ -2016,7 +2018,7 @@ Please write the transcript following this exact format.`
 
                   {/* 문서 정리 */}
                   <Button
-                    onClick={generateDocument}
+                    onClick={() => generateDocument()}
                     disabled={isDocumenting}
                     size="sm"
                     variant="outline"
