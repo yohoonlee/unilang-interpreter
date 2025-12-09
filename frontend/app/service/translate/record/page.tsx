@@ -660,12 +660,9 @@ function RecordTranslatePageContent() {
       const tgtLangName = getLanguageInfo(targetLanguage).name
       
       const originalTexts = items.map(t => `[${t.speakerName}] ${t.original}`).join("\n")
-      const translatedTexts = items
-        .filter(t => t.translated)
-        .map(t => `[${t.speakerName}] ${t.translated}`)
-        .join("\n")
       
-      if (targetLanguage === "none" || !translatedTexts) {
+      // 번역 언어가 "none"이면 원문만 정리
+      if (targetLanguage === "none") {
         const response = await fetch("/api/gemini/summarize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -684,33 +681,39 @@ function RecordTranslatePageContent() {
         
         await saveDocumentToDb(result.summary, "")
       } else {
-        const [originalResponse, translatedResponse] = await Promise.all([
-          fetch("/api/gemini/summarize", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: originalTexts,
-              targetLanguage: sourceLanguage === "auto" ? "ko" : sourceLanguage,
-              customPrompt: getDocumentPrompt(sourceLanguage === "auto" ? "ko" : sourceLanguage, srcLangName) + "\n\n원본 텍스트:\n" + originalTexts,
-            }),
-          }),
-          fetch("/api/gemini/summarize", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: translatedTexts,
-              targetLanguage: targetLanguage,
-              customPrompt: getDocumentPrompt(targetLanguage, tgtLangName) + "\n\n원본 텍스트:\n" + translatedTexts,
-            }),
-          }),
-        ])
+        // 번역 언어가 있으면: 원문 정리 + 번역 정리
+        // 기존 번역이 있으면 사용, 없으면 원문을 번역 언어로 정리
+        const existingTranslatedTexts = items
+          .filter(t => t.translated)
+          .map(t => `[${t.speakerName}] ${t.translated}`)
+          .join("\n")
         
-        const [originalResult, translatedResult] = await Promise.all([
-          originalResponse.json(),
-          translatedResponse.json(),
-        ])
+        // 원문 정리 API 호출
+        const originalResponse = await fetch("/api/gemini/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: originalTexts,
+            targetLanguage: sourceLanguage === "auto" ? "ko" : sourceLanguage,
+            customPrompt: getDocumentPrompt(sourceLanguage === "auto" ? "ko" : sourceLanguage, srcLangName) + "\n\n원본 텍스트:\n" + originalTexts,
+          }),
+        })
         
+        const originalResult = await originalResponse.json()
         if (!originalResult.success) throw new Error(originalResult.error || "원어 문서 정리 실패")
+        
+        // 번역 정리: 기존 번역이 있으면 번역 텍스트 정리, 없으면 원문을 번역 언어로 정리
+        const translatedResponse = await fetch("/api/gemini/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: existingTranslatedTexts || originalTexts,
+            targetLanguage: targetLanguage,
+            customPrompt: getDocumentPrompt(targetLanguage, tgtLangName) + "\n\n원본 텍스트:\n" + (existingTranslatedTexts || originalTexts),
+          }),
+        })
+        
+        const translatedResult = await translatedResponse.json()
         if (!translatedResult.success) throw new Error(translatedResult.error || "번역어 문서 정리 실패")
         
         setDocumentTextOriginal(originalResult.summary)
