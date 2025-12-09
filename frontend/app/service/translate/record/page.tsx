@@ -548,9 +548,9 @@ function RecordTranslatePageContent() {
     setCurrentPlayingItemId(null)
   }
   
-  // AI 재정리
-  const reorganizeSentences = async () => {
-    if (!Array.isArray(transcripts) || transcripts.length < 2) return
+  // AI 재정리 - 재정리된 transcripts를 반환
+  const reorganizeSentences = async (): Promise<TranscriptItem[] | null> => {
+    if (!Array.isArray(transcripts) || transcripts.length < 2) return null
     
     setIsReorganizing(true)
     try {
@@ -604,10 +604,12 @@ function RecordTranslatePageContent() {
       }
 
       setTranscripts(newTranscripts)
+      return newTranscripts // 재정리된 결과 반환
       
     } catch (err) {
       console.error("AI 재정리 오류:", err)
       setError(err instanceof Error ? err.message : "AI 재정리에 실패했습니다.")
+      return null
     } finally {
       setIsReorganizing(false)
     }
@@ -2258,20 +2260,25 @@ Please write the transcript following this exact format.`
                   <Button
                     onClick={async () => {
                       try {
-                        // 1. AI 재정리 (2개 이상일 때)
+                        let itemsToProcess = transcripts
+                        
+                        // 1. AI 재정리 (2개 이상일 때) - 반환된 결과 사용
                         if (transcripts.length >= 2) {
                           setError("🔄 AI 재정리 중...")
-                          await reorganizeSentences()
+                          const reorganizedItems = await reorganizeSentences()
+                          if (reorganizedItems) {
+                            itemsToProcess = reorganizedItems
+                          }
                         }
                         
-                        // 2. 문서 정리
+                        // 2. 문서 정리 (재정리된 items 전달)
                         setError("📝 녹음기록 작성 중...")
-                        await generateDocument()
+                        await generateDocument(itemsToProcess)
                         
                         // 3. 요약 생성
                         if (sessionId) {
                           setError("✨ 요약본 생성 중...")
-                          await generateSummaryForSession(sessionId)
+                          await generateSummaryForSession(sessionId, itemsToProcess)
                         }
                         
                         setError(null)
