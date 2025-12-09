@@ -136,6 +136,12 @@ function RecordTranslatePageContent() {
   const [audioUrl, setAudioUrl] = useState("")
   const [uploadProgress, setUploadProgress] = useState(0)
   
+  // 오디오 재생 관련
+  const [sessionAudioUrl, setSessionAudioUrl] = useState<string | null>(null) // 세션의 녹음 파일 URL
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null)
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false)
+  const [currentPlayingItemId, setCurrentPlayingItemId] = useState<string | null>(null)
+  
   // 전사 결과
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([])
   const [assemblyResult, setAssemblyResult] = useState<AssemblyAIResult | null>(null)
@@ -470,6 +476,61 @@ function RecordTranslatePageContent() {
       console.error("자동 처리 오류:", err)
       setError(null)
     }
+  }
+  
+  // ========== 오디오 재생 기능 ==========
+  
+  // 특정 시점부터 오디오 재생
+  const playAudioFromTime = (itemId: string, startTimeMs?: number) => {
+    if (!sessionAudioUrl) {
+      console.log("🔊 오디오 URL이 없습니다")
+      return
+    }
+    
+    // 기존 재생 중지
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause()
+    }
+    
+    // 새 오디오 플레이어 생성
+    const audio = new Audio(sessionAudioUrl)
+    audioPlayerRef.current = audio
+    
+    // 시작 시간이 있으면 해당 시점으로 이동
+    if (startTimeMs !== undefined && startTimeMs > 0) {
+      audio.currentTime = startTimeMs / 1000 // ms → seconds
+      console.log("🔊 오디오 재생:", startTimeMs / 1000, "초부터")
+    }
+    
+    audio.onplay = () => {
+      setIsPlayingAudio(true)
+      setCurrentPlayingItemId(itemId)
+    }
+    
+    audio.onended = () => {
+      setIsPlayingAudio(false)
+      setCurrentPlayingItemId(null)
+    }
+    
+    audio.onerror = (e) => {
+      console.error("🔊 오디오 재생 오류:", e)
+      setIsPlayingAudio(false)
+      setCurrentPlayingItemId(null)
+    }
+    
+    audio.play().catch(err => {
+      console.error("🔊 오디오 재생 실패:", err)
+    })
+  }
+  
+  // 오디오 재생 중지
+  const stopAudioPlayback = () => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause()
+      audioPlayerRef.current = null
+    }
+    setIsPlayingAudio(false)
+    setCurrentPlayingItemId(null)
   }
   
   // AI 재정리
@@ -2531,6 +2592,30 @@ Please write the transcript following this exact format.`
                               {/* 액션 버튼들 */}
                               {!mergeMode && !isEditing && (
                                 <div className="flex items-center gap-1">
+                                  {/* 🎙️ 녹음 재생 버튼 (녹음 파일이 있을 때만) */}
+                                  {sessionAudioUrl && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (currentPlayingItemId === item.id && isPlayingAudio) {
+                                          stopAudioPlayback()
+                                        } else {
+                                          playAudioFromTime(item.id, item.start)
+                                        }
+                                      }}
+                                      className={`p-1.5 rounded-full hover:bg-white/50 transition-colors ${
+                                        currentPlayingItemId === item.id && isPlayingAudio ? "text-red-500 bg-red-50" : "text-teal-600"
+                                      }`}
+                                      title={currentPlayingItemId === item.id && isPlayingAudio ? "녹음 정지" : "녹음 재생"}
+                                    >
+                                      {currentPlayingItemId === item.id && isPlayingAudio ? (
+                                        <VolumeX className="h-4 w-4" />
+                                      ) : (
+                                        <Play className="h-4 w-4" />
+                                      )}
+                                    </button>
+                                  )}
+                                  
                                   {/* 원본 TTS */}
                                   <button
                                     onClick={(e) => {
@@ -2540,7 +2625,7 @@ Please write the transcript following this exact format.`
                                     className={`p-1.5 rounded-full hover:bg-white/50 transition-colors ${
                                       speakingId === `${item.id}-original` ? "text-teal-600" : "text-slate-400"
                                     }`}
-                                    title="원본 읽기"
+                                    title="원본 TTS"
                                   >
                                     <Volume2 className={`h-4 w-4 ${speakingId === `${item.id}-original` ? "animate-pulse" : ""}`} />
                                   </button>

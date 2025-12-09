@@ -1570,10 +1570,11 @@ function MicTranslatePageContent() {
       const srcLangName = getLanguageInfo(sourceLanguage).name
       const tgtLangName = getLanguageInfo(targetLanguage).name
       
-      // 원본대화 생성 (화자별 대화 형식) - transcript 데이터에서 직접 생성
+      // 원본대화 생성 (STT 결과 그대로) - 통역 결과와 동일한 순서로 정렬
+      // 실시간 통역에서는 화자 구분이 어려우므로 시간순으로 표시
       const conversationLines = transcripts.map((t, i) => {
-        const speakerName = `화자 ${String.fromCharCode(65 + (i % 26))}` // 화자 A, B, C...
-        return `**[${speakerName}]** ${t.original}`
+        const timeStr = t.timestamp.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        return `**[${timeStr}]** ${t.original}`
       })
       const conversationText = conversationLines.join("\n\n")
       setDocumentTextConversation(conversationText)
@@ -2644,10 +2645,8 @@ function MicTranslatePageContent() {
       setIsListening(false)
       setCurrentTranscript("")
       
-      // 🎙️ 녹음 모드: 오디오 녹음 중지 (업로드는 세션 종료 시)
-      if (isRecordMode) {
-        stopAudioRecording()
-      }
+      // ⚠️ 녹음 모드에서도 마이크 일시정지 시 녹음은 계속 유지
+      // 녹음 중지 및 업로드는 세션 종료(finalizeSession) 시에만 수행
       
       // ⚠️ 세션 종료하지 않음 - 이어서 작업 가능하도록 유지
       console.log("⏸️ 마이크 중지 - 세션 유지:", sessionId)
@@ -4428,16 +4427,20 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                     )}
                   </Button>
                 )}
-                {/* 기록 목록 버튼 */}
+                {/* 기록 목록 버튼 - 녹음 모드면 녹음 메인화면으로 */}
                 <Button 
                   variant="ghost" 
                   size="icon"
                   onClick={() => {
-                    setShowSessionList(true)
-                    loadSessions()
+                    if (isRecordMode) {
+                      window.location.href = "/service/translate/record"
+                    } else {
+                      setShowSessionList(true)
+                      loadSessions()
+                    }
                   }}
                   className="text-white hover:bg-white/20 relative"
-                  title="통역 기록 목록"
+                  title={isRecordMode ? "녹음 메인화면" : "통역 기록 목록"}
                 >
                   <List className="h-5 w-5" />
                   {sessions.length > 0 && (
@@ -4613,27 +4616,32 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
 
             {/* 컨트롤 버튼 (한 줄 정렬) */}
             <div className="flex items-center justify-center flex-wrap gap-2 pt-3 border-t border-teal-200 dark:border-teal-700">
-              {/* 목록 버튼 - 민트색 배경 */}
+              {/* 목록 버튼 - 녹음 모드면 녹음 메인화면으로, 아니면 통역 기록 목록으로 */}
               <Button
                 onClick={() => {
-                  // 타이머 중지 및 초기화
-                  stopSessionTimer()
-                  setSessionStartTime(null)
-                  setElapsedSeconds(0)
-                  
-                  setSessionId(null)
-                  setTranscripts([])
-                  setCurrentSessionTitle("")
-                  setCurrentSessionCreatedAt(null)
-                  setDocumentTextOriginal("")
-                  setDocumentTextTranslated("")
-                  setHasMoreUtterances(false)
-                  setTotalUtteranceCount(0)
-                  loadSessions()
+                  if (isRecordMode) {
+                    // 녹음 모드면 녹음 메인화면으로 이동
+                    window.location.href = "/service/translate/record"
+                  } else {
+                    // 타이머 중지 및 초기화
+                    stopSessionTimer()
+                    setSessionStartTime(null)
+                    setElapsedSeconds(0)
+                    
+                    setSessionId(null)
+                    setTranscripts([])
+                    setCurrentSessionTitle("")
+                    setCurrentSessionCreatedAt(null)
+                    setDocumentTextOriginal("")
+                    setDocumentTextTranslated("")
+                    setHasMoreUtterances(false)
+                    setTotalUtteranceCount(0)
+                    loadSessions()
+                  }
                 }}
                 size="sm"
                 className="h-10 px-4 rounded-full bg-teal-100 text-teal-700 hover:bg-teal-200 hover:text-teal-800 border border-teal-300"
-                title="통역 기록 목록으로 이동"
+                title={isRecordMode ? "녹음 메인화면으로 이동" : "통역 기록 목록으로 이동"}
               >
                 <List className="h-4 w-4 mr-1" />
                 목록
