@@ -2536,6 +2536,8 @@ function MicTranslatePageContent() {
   
   // 특정 시점부터 오디오 재생 (endTime이 있으면 해당 구간만 재생)
   const playAudioFromTime = (itemId: string, startTime?: number, endTime?: number) => {
+    console.log("🔊 playAudioFromTime 호출:", { itemId, startTime, endTime, audioUrl: audioUrl ? "있음" : "없음" })
+    
     if (!audioUrl) {
       console.log("🔊 오디오 URL이 없습니다")
       return
@@ -2559,8 +2561,10 @@ function MicTranslatePageContent() {
     // endTime이 있으면 해당 시점에서 멈추기
     if (endTime !== undefined && endTime > 0) {
       const endTimeSeconds = endTime / 1000
+      console.log("🔊 종료 시간 설정:", endTimeSeconds, "초")
       audio.ontimeupdate = () => {
         if (audio.currentTime >= endTimeSeconds) {
+          console.log("🔊 종료 시간 도달, 재생 중지")
           audio.pause()
           setIsPlayingAudio(false)
           setCurrentPlayingItemId(null)
