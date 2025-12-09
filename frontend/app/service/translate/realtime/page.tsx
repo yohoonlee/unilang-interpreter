@@ -2800,19 +2800,7 @@ function MicTranslatePageContent() {
           let translatedText = ""
           if (targetLanguage !== "none" && targetLanguage !== sourceLanguage) {
             try {
-              const translateResponse = await fetch("/api/gemini/translate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  text: utterance.text,
-                  sourceLang: result.language || sourceLanguage,
-                  targetLang: targetLanguage,
-                }),
-              })
-              const translateResult = await translateResponse.json()
-              if (translateResult.translatedText) {
-                translatedText = translateResult.translatedText
-              }
+              translatedText = await translateText(utterance.text, result.language || sourceLanguage, targetLanguage)
             } catch (e) {
               console.error("번역 오류:", e)
             }
@@ -3554,18 +3542,8 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
         for (const idx of changedIndices) {
           if (newParagraphs[idx]?.trim()) {
             try {
-              const response = await fetch("/api/gemini/translate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  text: newParagraphs[idx],
-                  targetLang: targetLang,
-                }),
-              })
-              const translateResult = await response.json()
-              if (translateResult.translatedText) {
-                translatedParagraphs[idx] = translateResult.translatedText
-              }
+              const translatedPara = await translateText(newParagraphs[idx], isEditingOriginal ? sourceLanguage : targetLanguage, targetLang)
+              translatedParagraphs[idx] = translatedPara
             } catch (e) {
               console.error(`문단 ${idx} 번역 실패:`, e)
             }
