@@ -1546,7 +1546,15 @@ function MicTranslatePageContent() {
       // 1. Supabase Storage에 업로드 (재생용) - 실패해도 계속 진행
       setError("🎙️ 음성 파일 업로드 중...")
       const uploadedUrl = await uploadAudioToStorage(sessionId)
-      console.log("🎙️ 업로드 결과:", uploadedUrl || "(업로드 실패 - 계속 진행)")
+      console.log("🎙️ 업로드 결과:", uploadedUrl || "(업로드 실패)")
+      
+      // 업로드 실패 시 로컬 blob URL 사용
+      if (!uploadedUrl) {
+        const localBlobUrl = URL.createObjectURL(audioBlob)
+        setAudioUrl(localBlobUrl)
+        setAudioFileSize(audioBlob.size)
+        console.log("🎙️ 로컬 blob URL 사용:", localBlobUrl)
+      }
       
       // 2. AssemblyAI로 화자 분리 처리 (기존 transcripts 대체)
       processedTranscripts = await processWithAssemblyAI(audioBlob, sessionId)
@@ -2792,16 +2800,17 @@ function MicTranslatePageContent() {
           let translatedText = ""
           if (targetLanguage !== "none" && targetLanguage !== sourceLanguage) {
             try {
-              const translateResponse = await fetch("/api/translate", {
+              const translateResponse = await fetch("/api/gemini/translate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   text: utterance.text,
-                  targetLanguage: targetLanguage,
+                  sourceLang: result.language || sourceLanguage,
+                  targetLang: targetLanguage,
                 }),
               })
               const translateResult = await translateResponse.json()
-              if (translateResult.success) {
+              if (translateResult.translatedText) {
                 translatedText = translateResult.translatedText
               }
             } catch (e) {
@@ -3545,17 +3554,17 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
         for (const idx of changedIndices) {
           if (newParagraphs[idx]?.trim()) {
             try {
-              const response = await fetch("/api/translate", {
+              const response = await fetch("/api/gemini/translate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   text: newParagraphs[idx],
-                  targetLanguage: targetLang,
+                  targetLang: targetLang,
                 }),
               })
-              const result = await response.json()
-              if (result.success && result.translatedText) {
-                translatedParagraphs[idx] = result.translatedText
+              const translateResult = await response.json()
+              if (translateResult.translatedText) {
+                translatedParagraphs[idx] = translateResult.translatedText
               }
             } catch (e) {
               console.error(`문단 ${idx} 번역 실패:`, e)
