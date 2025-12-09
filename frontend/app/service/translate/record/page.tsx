@@ -2542,6 +2542,27 @@ Please write the transcript following this exact format.`
                             <Button
                               onClick={async () => {
                                 setIsSavingDocument(true)
+                                
+                                // 텍스트에서 직접 변경된 화자명을 추출하여 transcripts에 반영
+                                // **[화자명]** 또는 [화자명] 형태로 표시된 것을 찾아 매핑
+                                const speakerMatches = editDocumentText.match(/\*\*\[([^\]]+)\]\*\*|\[([^\]]+)\]/g)
+                                if (speakerMatches) {
+                                  // 각 발화의 순서대로 화자명 매핑
+                                  const extractedSpeakers: string[] = []
+                                  speakerMatches.forEach(match => {
+                                    // **[화자명]** -> 화자명
+                                    // [화자명] -> 화자명
+                                    const name = match.replace(/\*\*/g, "").replace(/\[|\]/g, "").trim()
+                                    extractedSpeakers.push(name)
+                                  })
+                                  
+                                  // transcripts 순서와 매핑하여 화자명 업데이트
+                                  setTranscripts(prev => prev.map((t, idx) => ({
+                                    ...t,
+                                    speakerName: extractedSpeakers[idx] || t.speakerName
+                                  })))
+                                }
+                                
                                 // 현재 탭에 따라 업데이트
                                 if (documentViewTab === "conversation") {
                                   setDocumentTextConversation(editDocumentText)
@@ -2555,7 +2576,17 @@ Please write the transcript following this exact format.`
                                 }
                                 
                                 // 화자명 변경사항도 DB에 저장 (utterances 테이블)
-                                for (const item of transcripts) {
+                                // 최신 transcripts 상태를 사용해야 하므로 직접 API 호출
+                                const currentTranscripts = transcripts.map((t, idx) => {
+                                  const speakerMatches = editDocumentText.match(/\*\*\[([^\]]+)\]\*\*|\[([^\]]+)\]/g)
+                                  if (speakerMatches && speakerMatches[idx]) {
+                                    const name = speakerMatches[idx].replace(/\*\*/g, "").replace(/\[|\]/g, "").trim()
+                                    return { ...t, speakerName: name }
+                                  }
+                                  return t
+                                })
+                                
+                                for (const item of currentTranscripts) {
                                   if (item.utteranceId) {
                                     await supabase
                                       .from("utterances")
