@@ -743,51 +743,73 @@ function RecordTranslatePageContent() {
     }
   }
   
-  // 문서 프롬프트 - 화자별 글머리표 형식
+  // 문서 프롬프트 - 주제별 정리 형식
   const getDocumentPrompt = (langCode: string, langName: string) => {
     if (langCode === "en") {
-      return `You are a professional recording transcript writer. Convert the speech recognition text into ${langName} organized transcript.
+      return `You are a professional meeting minutes writer. Analyze the conversation and organize it by topics/themes.
 IMPORTANT: Your ENTIRE response MUST be in English. Do not use any other language.
 
-## Recording Transcript Format Rules
-Write in markdown format with bullet points for each speaker's statement:
+## Document Format Rules
+Organize the content by topics/themes in markdown format:
 
-- **[Speaker A]** What Speaker A said (converted to written form)
-- **[Speaker B]** What Speaker B said (converted to written form)
-- **[Speaker A]** Next statement from Speaker A
-...
+## [Topic 1: Topic Title]
+Summary of discussions related to this topic.
+- Key point 1
+- Key point 2
+- Key point 3
 
-## Additional Rules:
-1. Each statement starts with a bullet point (-)
-2. Speaker name in bold brackets: **[Speaker A]**, **[Speaker B]**, etc.
-3. Convert spoken language to clear written form
-4. Remove filler words (um, uh, like, etc.)
-5. Keep the chronological order of statements
-6. **Bold** important keywords within statements
+## [Topic 2: Topic Title]
+Summary of discussions related to this topic.
+- Key point 1
+- Key point 2
 
-Please write the transcript following this exact format.`
+## ✨ Summary
+**Key Discussion Points**: Brief summary of main topics discussed.
+**Decisions Made**: Any decisions or conclusions reached.
+**Action Items**: Any follow-up items or tasks mentioned.
+
+## Rules:
+1. Group related discussions into topics
+2. Use clear, professional written language
+3. Remove filler words and redundant content
+4. **Bold** important keywords
+5. Create meaningful topic titles based on content
+6. Include a summary section at the end
+
+Please write the document following this exact format.`
     }
     
-    return `당신은 전문 녹음기록 작성 비서입니다. 음성 인식 텍스트를 ${langName} 녹음기록으로 변환합니다.
+    return `당신은 전문 회의록 작성 비서입니다. 대화 내용을 분석하여 주제별로 정리합니다.
 중요: 반드시 ${langName}로 작성해주세요.
 
-## 녹음기록 작성 형식
-화자별로 글머리표를 사용하여 마크다운 형식으로 작성합니다:
+## 문서 작성 형식
+내용을 주제/테마별로 마크다운 형식으로 정리합니다:
 
-- **[화자 A]** 화자 A가 말한 내용 (문어체로 변환)
-- **[화자 B]** 화자 B가 말한 내용 (문어체로 변환)
-- **[화자 A]** 화자 A의 다음 발언
-...
+## [주제 1: 주제 제목]
+해당 주제와 관련된 논의 내용 요약.
+- 핵심 포인트 1
+- 핵심 포인트 2
+- 핵심 포인트 3
 
-## 추가 규칙:
-1. 각 발언은 글머리표(-)로 시작
-2. 화자명은 굵은 대괄호로 표시: **[화자 A]**, **[화자 B]** 등
-3. 구어체를 명확한 문어체로 변환
-4. 음, 어, 그.. 등 불필요한 말 제거
-5. 발언 순서(시간순) 유지
-6. 발언 내 **중요 키워드**는 굵게 표시
+## [주제 2: 주제 제목]
+해당 주제와 관련된 논의 내용 요약.
+- 핵심 포인트 1
+- 핵심 포인트 2
 
-위 형식에 맞춰 녹음기록을 작성하세요.`
+## ✨ 요약 정리
+**핵심 논의 사항**: 주요 논의 주제 간략 요약.
+**결정 사항**: 도출된 결정이나 결론.
+**액션 아이템**: 언급된 후속 조치나 과제.
+
+## 규칙:
+1. 관련 논의를 주제별로 그룹화
+2. 명확하고 전문적인 문어체 사용
+3. 불필요한 말과 중복 내용 제거
+4. **중요 키워드**는 굵게 표시
+5. 내용에 맞는 의미 있는 주제 제목 작성
+6. 마지막에 요약 섹션 포함
+
+위 형식에 맞춰 문서를 작성하세요.`
   }
   
   // DB에 녹음기록 저장
