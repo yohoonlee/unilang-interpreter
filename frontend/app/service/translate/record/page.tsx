@@ -474,7 +474,7 @@ function RecordTranslatePageContent() {
   
   // AI 재정리
   const reorganizeSentences = async () => {
-    if (transcripts.length < 2) return
+    if (!Array.isArray(transcripts) || transcripts.length < 2) return
     
     setIsReorganizing(true)
     try {
@@ -558,7 +558,13 @@ function RecordTranslatePageContent() {
   // 문서 정리
   const generateDocument = async (transcriptItems?: TranscriptItem[]) => {
     const items = transcriptItems || transcripts
-    if (items.length === 0) return
+    
+    // 배열 체크
+    if (!Array.isArray(items) || items.length === 0) {
+      console.error("[문서정리] items가 유효하지 않음:", items)
+      setError("통역 결과가 없습니다. 먼저 통역을 완료해주세요.")
+      return
+    }
     
     setIsDocumenting(true)
     setDocumentTextOriginal("")
@@ -720,8 +726,10 @@ Please write the transcript following this exact format.`
   // 요약 생성
   const generateSummaryForSession = async (sessId: string, transcriptItems?: TranscriptItem[]) => {
     const items = transcriptItems || transcripts
-    if (items.length === 0) {
-      console.log("[요약] transcripts가 비어있음")
+    
+    // 배열 체크
+    if (!Array.isArray(items) || items.length === 0) {
+      console.log("[요약] items가 유효하지 않음:", items)
       return
     }
     
