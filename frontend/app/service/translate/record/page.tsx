@@ -1247,12 +1247,14 @@ Please write the transcript following this exact format.`
 
         setProcessingStatus("")
         setRecordMode("idle")
+        setUploadProgress(0)
         setAudioUrl("")
 
       } catch (err) {
         console.error("YouTube 처리 오류:", err)
         setError(err instanceof Error ? err.message : "YouTube 처리 중 오류가 발생했습니다")
         setRecordMode("idle")
+        setUploadProgress(0)
         setProcessingStatus("")
       }
     } else {
@@ -1260,6 +1262,7 @@ Please write the transcript following this exact format.`
       setProcessingStatus("오디오 파일 분석 중...")
       await transcribeFromUrl(audioUrl)
       setRecordMode("idle")
+      setUploadProgress(0)
       setAudioUrl("")
     }
   }
@@ -1778,8 +1781,8 @@ Please write the transcript following this exact format.`
                 </div>
               )}
 
-              {/* URL 입력 모드 */}
-              {recordMode === "url" && !isProcessing && (
+              {/* URL 입력 모드 - 입력 대기 */}
+              {recordMode === "url" && !isProcessing && uploadProgress === 0 && (
                 <div className="space-y-3">
                   <div className="flex gap-2">
                     <input
@@ -1790,13 +1793,73 @@ Please write the transcript following this exact format.`
                       className="flex-1 px-3 py-2 rounded-lg border border-slate-200 bg-white"
                     />
                     <Button onClick={handleUrlTranscribe} style={{ backgroundColor: '#00BBAE' }} className="hover:opacity-90">
-                      <Globe className="h-4 w-4 mr-2" />
-                      전사
+                      <Play className="h-4 w-4 mr-2" />
+                      통역시작
                     </Button>
                   </div>
                   <Button variant="ghost" size="sm" onClick={() => setRecordMode("idle")}>
                     취소
                   </Button>
+                </div>
+              )}
+
+              {/* URL 처리 중 상태 */}
+              {recordMode === "url" && (isProcessing || uploadProgress > 0) && (
+                <div className="space-y-4 p-4 bg-teal-50 rounded-xl border border-teal-200">
+                  {/* 상태 헤더 */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-teal-100">
+                        <Globe className="h-6 w-6 text-teal-600 animate-pulse" />
+                      </div>
+                      <div>
+                        <div className="font-medium text-teal-700">
+                          {processingStatus || "URL 통역 중..."}
+                        </div>
+                        <div className="text-sm text-slate-500">
+                          {audioUrl.length > 50 ? audioUrl.substring(0, 50) + "..." : audioUrl}
+                        </div>
+                      </div>
+                    </div>
+                    {/* 종료 버튼 */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setRecordMode("idle")
+                        setUploadProgress(0)
+                        setProcessingStatus("")
+                        setAudioUrl("")
+                      }}
+                      className="border-red-300 text-red-600 hover:bg-red-50"
+                    >
+                      <Square className="h-4 w-4 mr-1" />
+                      종료
+                    </Button>
+                  </div>
+                  
+                  {/* 진행률 바 */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-600">진행률</span>
+                      <span className="font-medium text-teal-600">{uploadProgress}%</span>
+                    </div>
+                    <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full transition-all duration-500"
+                        style={{ 
+                          width: `${uploadProgress}%`,
+                          background: 'linear-gradient(to right, #00BBAE, #14B8A6)'
+                        }}
+                      />
+                    </div>
+                    <div className="text-xs text-slate-500 text-center">
+                      {uploadProgress < 30 && "URL 분석 중..."}
+                      {uploadProgress >= 30 && uploadProgress < 70 && "자막/음성 추출 중..."}
+                      {uploadProgress >= 70 && uploadProgress < 100 && "데이터 변환 중..."}
+                      {uploadProgress >= 100 && "완료! AI 처리 중..."}
+                    </div>
+                  </div>
                 </div>
               )}
 
