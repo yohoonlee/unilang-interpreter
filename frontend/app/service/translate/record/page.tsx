@@ -99,6 +99,7 @@ interface SessionItem {
   source_language: string
   target_languages: string[]
   total_utterances?: number
+  audio_url?: string // 녹음 파일 URL
 }
 
 // 언어 정보 가져오기
@@ -344,6 +345,7 @@ function RecordTranslatePageContent() {
           target_languages: targetLanguage === "none" ? [] : [targetLanguage],
           status: "completed",
           total_utterances: res.utterances.length,
+          audio_url: sessionAudioUrl, // 업로드된 오디오 파일 URL
           metadata: {
             transcriptId: res.transcriptId,
             duration: res.duration,
@@ -1031,6 +1033,9 @@ Please write the transcript following this exact format.`
       setShowSessionList(false)
       setShowDocumentInPanel(false)
       
+      // 🎙️ 오디오 URL 설정
+      setSessionAudioUrl(session.audio_url || null)
+      
       // 발화 데이터 로드
       const { data: utterances, error } = await supabase
         .from("utterances")
@@ -1470,6 +1475,34 @@ Please write the transcript following this exact format.`
     setUploadedFile(file)
     setUploadProgress(0)
     setProcessingStatus("파일 업로드 중...")
+    
+    // Supabase Storage에 파일 업로드 (재생을 위해)
+    if (userId) {
+      try {
+        const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+        const filePath = `recordings/${userId}/${fileName}`
+        
+        const { error: uploadError } = await supabase.storage
+          .from('audio-recordings')
+          .upload(filePath, file, {
+            contentType: file.type,
+            upsert: true
+          })
+        
+        if (!uploadError) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('audio-recordings')
+            .getPublicUrl(filePath)
+          
+          setSessionAudioUrl(publicUrl)
+          console.log("🎙️ 오디오 파일 업로드 완료:", publicUrl)
+        } else {
+          console.error("🎙️ 오디오 파일 업로드 실패:", uploadError)
+        }
+      } catch (err) {
+        console.error("🎙️ 오디오 파일 업로드 오류:", err)
+      }
+    }
     
     await transcribeFromFile(file)
     
