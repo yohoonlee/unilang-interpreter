@@ -90,6 +90,7 @@ interface SessionItem {
   target_languages: string[]
   total_utterances: number
   status: string
+  audio_url?: string // 녹음 파일 URL
 }
 
 // Suspense wrapper for useSearchParams
@@ -489,6 +490,19 @@ function MicTranslatePageContent() {
   const lastProcessedTextRef = useRef<string>("") // 중복 처리 방지용
   const processingRef = useRef<boolean>(false) // 처리 중 플래그
   const sessionIdRef = useRef<string | null>(null) // 세션 ID ref (비동기 문제 해결용)
+  
+  // 음성 녹음 관련 (녹음 모드에서만 사용)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const recordingStreamRef = useRef<MediaStream | null>(null)
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null) // 세션의 녹음 파일 URL
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false)
+  
+  // 오디오 재생 관련
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null)
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false)
+  const [currentPlayingItemId, setCurrentPlayingItemId] = useState<string | null>(null)
   
   // 문장 버퍼링 관련 ref (맥락 통역 개선)
   const sentenceBufferRef = useRef<string>("") // 문장 버퍼
@@ -1232,6 +1246,8 @@ function MicTranslatePageContent() {
         if (sessionToLoad.target_languages.length > 0) {
           setTargetLanguage(sessionToLoad.target_languages[0])
         }
+        // 🎙️ 오디오 URL 설정
+        setAudioUrl(sessionToLoad.audio_url || null)
         setShowSessionList(false)
         return
       }
@@ -1294,6 +1310,8 @@ function MicTranslatePageContent() {
       if (sessionToLoad.target_languages && sessionToLoad.target_languages.length > 0) {
         setTargetLanguage(sessionToLoad.target_languages[0])
       }
+      // 🎙️ 오디오 URL 설정
+      setAudioUrl(sessionToLoad.audio_url || null)
       setShowSessionList(false)
       
       // 중요: 회의록 보기 모드 리셋 (STT/번역 결과 표시)
@@ -1474,6 +1492,17 @@ function MicTranslatePageContent() {
     // 시스템 오디오 캡처 중이면 중지
     if (isCapturingSystemAudio) {
       stopSystemAudioCapture()
+    }
+    
+    // 🎙️ 녹음 모드: 오디오 녹음 중지 및 업로드
+    if (isRecordMode && audioChunksRef.current.length > 0) {
+      stopAudioRecording()
+      
+      // 약간의 딜레이 후 업로드 (MediaRecorder 종료 대기)
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      setError("🎙️ 음성 파일 업로드 중...")
+      await uploadAudioToStorage(sessionId)
     }
     
     // 타이머 중지
@@ -2419,6 +2448,165 @@ function MicTranslatePageContent() {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
+  // ========== 음성 재생 기능 ==========
+  
+  // 특정 시점부터 오디오 재생
+  const playAudioFromTime = (itemId: string, startTime?: number) => {
+    if (!audioUrl) {
+      console.log("🔊 오디오 URL이 없습니다")
+      return
+    }
+    
+    // 기존 재생 중지
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause()
+    }
+    
+    // 새 오디오 플레이어 생성
+    const audio = new Audio(audioUrl)
+    audioPlayerRef.current = audio
+    
+    // 시작 시간이 있으면 해당 시점으로 이동
+    if (startTime !== undefined && startTime > 0) {
+      audio.currentTime = startTime / 1000 // ms → seconds
+      console.log("🔊 오디오 재생:", startTime / 1000, "초부터")
+    }
+    
+    audio.onplay = () => {
+      setIsPlayingAudio(true)
+      setCurrentPlayingItemId(itemId)
+    }
+    
+    audio.onended = () => {
+      setIsPlayingAudio(false)
+      setCurrentPlayingItemId(null)
+    }
+    
+    audio.onerror = (e) => {
+      console.error("🔊 오디오 재생 오류:", e)
+      setIsPlayingAudio(false)
+      setCurrentPlayingItemId(null)
+    }
+    
+    audio.play().catch(err => {
+      console.error("🔊 오디오 재생 실패:", err)
+    })
+  }
+  
+  // 오디오 재생 중지
+  const stopAudioPlayback = () => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause()
+      audioPlayerRef.current = null
+    }
+    setIsPlayingAudio(false)
+    setCurrentPlayingItemId(null)
+  }
+
+  // ========== 음성 녹음 기능 (녹음 모드에서만) ==========
+  
+  // 오디오 녹음 시작
+  const startAudioRecording = async (stream: MediaStream) => {
+    if (!isRecordMode) return
+    
+    try {
+      // 기존 녹음 정리
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      
+      audioChunksRef.current = []
+      recordingStreamRef.current = stream
+      
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      })
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data)
+        }
+      }
+      
+      mediaRecorder.onstop = () => {
+        console.log("🎙️ 오디오 녹음 중지, 청크 수:", audioChunksRef.current.length)
+        setIsRecordingAudio(false)
+      }
+      
+      mediaRecorder.onerror = (event) => {
+        console.error("🎙️ 오디오 녹음 오류:", event)
+        setIsRecordingAudio(false)
+      }
+      
+      mediaRecorderRef.current = mediaRecorder
+      mediaRecorder.start(1000) // 1초마다 데이터 수집
+      setIsRecordingAudio(true)
+      console.log("🎙️ 오디오 녹음 시작")
+    } catch (err) {
+      console.error("🎙️ 오디오 녹음 시작 실패:", err)
+    }
+  }
+  
+  // 오디오 녹음 중지
+  const stopAudioRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+      console.log("🎙️ 오디오 녹음 중지 요청")
+    }
+  }
+  
+  // 녹음된 오디오를 Supabase Storage에 업로드
+  const uploadAudioToStorage = async (sessionId: string): Promise<string | null> => {
+    if (audioChunksRef.current.length === 0) {
+      console.log("🎙️ 업로드할 오디오 청크가 없습니다")
+      return null
+    }
+    
+    setIsUploadingAudio(true)
+    
+    try {
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+      const fileName = `${sessionId}_${Date.now()}.webm`
+      const filePath = `recordings/${userId}/${fileName}`
+      
+      console.log("🎙️ 오디오 업로드 시작:", filePath, "크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
+      
+      const { data, error } = await supabase.storage
+        .from('audio-recordings')
+        .upload(filePath, audioBlob, {
+          contentType: 'audio/webm',
+          upsert: true
+        })
+      
+      if (error) {
+        console.error("🎙️ 오디오 업로드 실패:", error)
+        return null
+      }
+      
+      // Public URL 가져오기
+      const { data: { publicUrl } } = supabase.storage
+        .from('audio-recordings')
+        .getPublicUrl(filePath)
+      
+      console.log("🎙️ 오디오 업로드 완료:", publicUrl)
+      
+      // 세션에 audio_url 저장
+      await supabase
+        .from('translation_sessions')
+        .update({ audio_url: publicUrl })
+        .eq('id', sessionId)
+      
+      setAudioUrl(publicUrl)
+      return publicUrl
+    } catch (err) {
+      console.error("🎙️ 오디오 업로드 오류:", err)
+      return null
+    } finally {
+      setIsUploadingAudio(false)
+      audioChunksRef.current = [] // 청크 초기화
+    }
+  }
+
   // 녹음 시작/중지
   const toggleListening = async () => {
     if (isListening) {
@@ -2445,6 +2633,11 @@ function MicTranslatePageContent() {
       }
       setIsListening(false)
       setCurrentTranscript("")
+      
+      // 🎙️ 녹음 모드: 오디오 녹음 중지 (업로드는 세션 종료 시)
+      if (isRecordMode) {
+        stopAudioRecording()
+      }
       
       // ⚠️ 세션 종료하지 않음 - 이어서 작업 가능하도록 유지
       console.log("⏸️ 마이크 중지 - 세션 유지:", sessionId)
@@ -2491,6 +2684,16 @@ function MicTranslatePageContent() {
         recognition.start()
         isListeningRef.current = true
         setIsListening(true)
+        
+        // 🎙️ 녹음 모드: 마이크 스트림으로 오디오 녹음 시작
+        if (isRecordMode) {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+            await startAudioRecording(stream)
+          } catch (err) {
+            console.error("🎙️ 마이크 스트림 획득 실패:", err)
+          }
+        }
       } catch (e) {
         console.error("Recognition start error:", e)
         setError("음성 인식 시작에 실패했습니다. 다시 시도해주세요.")
@@ -5008,12 +5211,38 @@ Follow this format to write the meeting minutes. Faithfully reflect the original
                         >
                           <Trash2 className="h-4 w-4 text-slate-500 hover:text-red-500" />
                         </Button>
+                        {/* 🎙️ 녹음 오디오 재생 버튼 (녹음 파일이 있을 때만) */}
+                        {audioUrl && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className={`h-6 w-6 shrink-0 ${currentPlayingItemId === item.id ? 'text-teal-500' : ''}`}
+                            onClick={() => {
+                              if (currentPlayingItemId === item.id && isPlayingAudio) {
+                                stopAudioPlayback()
+                              } else {
+                                // 세션 시작 시간과 발화 시간 차이로 재생 위치 계산
+                                const sessionStart = currentSessionCreatedAt?.getTime() || item.timestamp.getTime()
+                                const itemTime = item.timestamp.getTime()
+                                const offsetMs = Math.max(0, itemTime - sessionStart)
+                                playAudioFromTime(item.id, offsetMs)
+                              }
+                            }}
+                            title={currentPlayingItemId === item.id && isPlayingAudio ? "녹음 정지" : "녹음 재생"}
+                          >
+                            {currentPlayingItemId === item.id && isPlayingAudio ? (
+                              <VolumeX className="h-4 w-4 text-teal-500" />
+                            ) : (
+                              <Play className="h-4 w-4 text-teal-500" />
+                            )}
+                          </Button>
+                        )}
                         <Button 
                           variant="ghost" 
                           size="icon" 
                           className="h-6 w-6 shrink-0"
                           onClick={() => speakText(item.original, item.sourceLanguage)}
-                          title="원문 재생"
+                          title="TTS 재생"
                         >
                           <Volume2 className="h-4 w-4" />
                         </Button>
