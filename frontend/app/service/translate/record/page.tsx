@@ -1893,7 +1893,7 @@ You MUST follow this format exactly. Do not deviate from this format.`
     return patterns.some(pattern => pattern.test(url))
   }
 
-  // URL 전사 - 모든 URL (YouTube 포함)을 시스템 오디오 캡처 + AssemblyAI 방식으로 처리
+  // URL 전사 - YouTube는 자막 API, 일반 URL은 AssemblyAI 직접 전사
   const handleUrlTranscribe = async () => {
     if (!audioUrl.trim()) {
       setError("URL을 입력해주세요")
@@ -1906,34 +1906,150 @@ You MUST follow this format exactly. Do not deviate from this format.`
     setDocumentTextTranslated("")
     setRecordMode("url")
     setUploadProgress(10)
-    
-    const isYouTube = isYouTubeUrl(audioUrl)
-    
-    // 모든 URL에 대해 시스템 오디오 캡처 방식 사용
-    // YouTube의 경우 자막 API가 차단되어 있어 시스템 오디오 녹음 후 AssemblyAI로 STT 처리
+    setProcessingStatus("URL 분석 중...")
+
+    // YouTube URL인 경우 자막 API 사용
+    if (isYouTubeUrl(audioUrl)) {
+      try {
+        setProcessingStatus("YouTube 자막 추출 중...")
+        setUploadProgress(30)
+
+        const response = await fetch("/api/youtube/transcript", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            youtubeUrl: audioUrl,
+            targetLanguage: targetLanguage !== "none" ? targetLanguage : undefined,
+          }),
+        })
+
+        const data = await response.json()
+
+        if (!data.success) {
+          // 자막 API 실패 시 시스템 오디오 캡처 모드로 전환
+          if (data.useRealtimeMode) {
+            setError(`⚠️ ${data.error}\n\n대안: 시스템 오디오 녹음 모드를 사용하시겠습니까?\n아래 '시스템 오디오 녹음' 버튼을 클릭하세요.`)
+            setRecordMode("idle")
+            setUploadProgress(0)
+            setProcessingStatus("")
+            return
+          }
+          throw new Error(data.error || "YouTube 자막을 가져올 수 없습니다")
+        }
+
+        setUploadProgress(70)
+        setProcessingStatus("데이터 변환 중...")
+
+        // 세션 생성
+        let newSessionId: string | null = null
+        if (userId) {
+          const { count } = await supabase
+            .from("translation_sessions")
+            .select("*", { count: "exact", head: true })
+            .eq("user_id", userId)
+            .eq("session_type", "record")
+          
+          const sessionNumber = (count || 0) + 1
+          const title = data.videoTitle || `YouTube 녹음 ${sessionNumber}`
+          
+          const { data: session, error } = await supabase
+            .from("translation_sessions")
+            .insert({
+              user_id: userId,
+              title,
+              session_type: "record",
+              source_language: data.language || sourceLanguage,
+              target_languages: targetLanguage === "none" ? [] : [targetLanguage],
+              status: "completed",
+              total_utterances: data.utterances?.length || 0,
+              metadata: {
+                youtubeVideoId: data.videoId,
+                youtubeTitle: data.videoTitle,
+                duration: data.duration,
+              },
+            })
+            .select()
+            .single()
+
+          if (!error && session) {
+            newSessionId = session.id
+            setSessionId(session.id)
+            setCurrentSessionTitle(session.title)
+          }
+        }
+
+        // 발화 변환
+        const items: TranscriptItem[] = (data.utterances || []).map((u: any, idx: number) => ({
+          id: `youtube-${idx}-${Date.now()}`,
+          speaker: u.speaker || "A",
+          speakerName: `화자 ${u.speaker || "A"}`,
+          original: u.text,
+          translated: u.translated || "",
+          sourceLanguage: data.language || sourceLanguage,
+          targetLanguage: targetLanguage,
+          timestamp: new Date(),
+          start: u.start || 0,
+          end: u.end || 0,
+        }))
+
+        setTranscripts(items)
+        setUploadProgress(100)
+
+        // DB 저장
+        if (newSessionId) {
+          await saveUtterancesToDb(items, newSessionId)
+        }
+
+        // 자동 AI 처리
+        if (newSessionId && items.length > 0) {
+          await autoProcessAfterRecording(newSessionId, items)
+        }
+
+        // 세션 목록 새로고침
+        await loadSessions()
+
+        setProcessingStatus("")
+        setRecordMode("idle")
+        setUploadProgress(0)
+        setAudioUrl("")
+
+      } catch (err) {
+        console.error("YouTube 처리 오류:", err)
+        setError(err instanceof Error ? err.message : "YouTube 처리 중 오류가 발생했습니다")
+        setRecordMode("idle")
+        setUploadProgress(0)
+        setProcessingStatus("")
+      }
+    } else {
+      // 일반 오디오/비디오 URL인 경우 AssemblyAI 직접 전사
+      setProcessingStatus("오디오 파일 분석 중...")
+      await transcribeFromUrl(audioUrl)
+      setRecordMode("idle")
+      setUploadProgress(0)
+      setAudioUrl("")
+      // 세션 목록 새로고침 (AssemblyAI 콜백에서 처리됨)
+    }
+  }
+  
+  // 시스템 오디오 녹음 모드 시작 (YouTube 자막 API 실패 시 대안)
+  const startSystemAudioRecordMode = async () => {
+    setError(null)
+    setRecordMode("url")
+    setUploadProgress(10)
     setProcessingStatus("시스템 오디오 캡처 준비 중...")
     
-    // 1. 시스템 오디오 녹음 시작
+    // 시스템 오디오 녹음 시작
     const recordingStarted = await startUrlAudioRecording()
     
     if (!recordingStarted) {
-      // 사용자가 화면 공유를 취소한 경우
       setRecordMode("idle")
       setUploadProgress(0)
       return
     }
     
-    // 2. 사용자에게 안내 메시지 표시
-    if (isYouTube) {
-      setError(`📢 YouTube 오디오 녹음 준비 완료!\n\n1. 새 탭에서 YouTube 영상을 여세요: ${audioUrl}\n2. 영상을 재생하세요\n3. 영상이 끝나면 아래 '녹음 완료' 버튼을 클릭하세요`)
-    } else {
-      setError(`📢 오디오 녹음 준비 완료!\n\n1. URL에서 오디오를 재생하세요\n2. 재생이 끝나면 아래 '녹음 완료' 버튼을 클릭하세요`)
-    }
-    
-    setProcessingStatus("🎙️ 시스템 오디오 녹음 중... 오디오 재생 후 '녹음 완료' 버튼을 클릭하세요")
+    setError(`📢 시스템 오디오 녹음 준비 완료!\n\n1. 새 탭에서 URL을 열고 오디오를 재생하세요\n2. 재생이 끝나면 아래 '녹음 완료' 버튼을 클릭하세요`)
+    setProcessingStatus("🎙️ 시스템 오디오 녹음 중...")
     setUploadProgress(30)
-    
-    // 녹음 완료 버튼은 UI에서 처리 (사용자가 직접 클릭)
   }
   
   // 파일 업로드
@@ -2482,7 +2598,7 @@ You MUST follow this format exactly. Do not deviate from this format.`
               )}
 
               {/* URL 입력 모드 - 입력 대기 */}
-              {recordMode === "url" && !isProcessing && uploadProgress === 0 && (
+              {recordMode === "url" && !isProcessing && uploadProgress === 0 && !isRecordingAudio && (
                 <div className="space-y-3">
                   <div className="flex gap-2">
                     <input
@@ -2497,9 +2613,24 @@ You MUST follow this format exactly. Do not deviate from this format.`
                       통역시작
                     </Button>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => setRecordMode("idle")}>
-                    취소
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="sm" onClick={() => setRecordMode("idle")}>
+                      ← 뒤로
+                    </Button>
+                    <span className="text-xs text-slate-400">|</span>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={startSystemAudioRecordMode}
+                      className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                    >
+                      <Radio className="h-3 w-3 mr-1" />
+                      시스템 오디오 녹음 (대안)
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    💡 YouTube: 자막 자동 추출 | 일반 URL: AssemblyAI 전사 | 자막 실패 시: 시스템 오디오 녹음
+                  </p>
                 </div>
               )}
 
