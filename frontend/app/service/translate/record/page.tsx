@@ -695,20 +695,46 @@ function RecordTranslatePageContent() {
       return
     }
     
-    setProcessingStatus("음성 인식 중... (AssemblyAI)")
-    setUploadProgress(50)
+    setProcessingStatus("오디오 파일 업로드 중...")
+    setUploadProgress(30)
     
     try {
-      // AssemblyAI로 STT 처리
-      const formData = new FormData()
-      formData.append('audio', audioBlob, 'recording.webm')
-      formData.append('language', sourceLanguage === 'auto' ? '' : sourceLanguage)
+      // 1. 먼저 Supabase Storage에 오디오 업로드
+      const tempFileName = `temp_${Date.now()}_${Math.random().toString(36).substring(7)}.webm`
+      const tempFilePath = `recordings/temp/${tempFileName}`
       
-      console.log("🎙️ AssemblyAI 업로드 시작...")
+      console.log("🎙️ Supabase Storage 업로드 시작...")
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('audio-recordings')
+        .upload(tempFilePath, audioBlob, {
+          contentType: 'audio/webm',
+          upsert: true
+        })
+      
+      if (uploadError) {
+        throw new Error(`오디오 업로드 실패: ${uploadError.message}`)
+      }
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('audio-recordings')
+        .getPublicUrl(tempFilePath)
+      
+      console.log("🎙️ 오디오 업로드 완료, URL:", publicUrl)
+      setUploadProgress(50)
+      setProcessingStatus("음성 인식 중... (AssemblyAI)")
+      
+      // 2. AssemblyAI에 URL 전달하여 STT 처리
+      console.log("🎙️ AssemblyAI 전사 시작...")
       
       const response = await fetch('/api/assemblyai/transcribe', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audioUrl: publicUrl,
+          languageCode: sourceLanguage === 'auto' ? undefined : sourceLanguage,
+          speakerLabels: true,
+        }),
       })
       
       const result = await response.json()
@@ -746,6 +772,7 @@ function RecordTranslatePageContent() {
             target_languages: targetLanguage === "none" ? [] : [targetLanguage],
             status: "completed",
             total_utterances: result.utterances?.length || 0,
+            audio_url: publicUrl, // 오디오 URL 바로 저장
           })
           .select()
           .single()
@@ -754,36 +781,8 @@ function RecordTranslatePageContent() {
           newSessionId = session.id
           setSessionId(session.id)
           setCurrentSessionTitle(session.title)
-          console.log("🎙️ 세션 생성 완료:", session.id)
-        }
-      }
-      
-      // 오디오 파일 업로드
-      if (newSessionId && userId) {
-        setProcessingStatus("오디오 저장 중...")
-        const fileName = `${newSessionId}_${Date.now()}.webm`
-        const filePath = `recordings/${userId}/${fileName}`
-        
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('audio-recordings')
-          .upload(filePath, audioBlob, {
-            contentType: 'audio/webm',
-            upsert: true
-          })
-        
-        if (!uploadError && uploadData) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('audio-recordings')
-            .getPublicUrl(filePath)
-          
-          // 세션에 audio_url 저장
-          await supabase
-            .from('translation_sessions')
-            .update({ audio_url: publicUrl })
-            .eq('id', newSessionId)
-          
           setSessionAudioUrl(publicUrl)
-          console.log("🎙️ 오디오 URL 저장 완료:", publicUrl)
+          console.log("🎙️ 세션 생성 완료:", session.id)
         }
       }
       
