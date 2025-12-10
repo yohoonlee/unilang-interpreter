@@ -593,13 +593,9 @@ function RecordTranslatePageContent() {
       recordingStreamRef.current = stream
       
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data)
-          // 청크 로그는 10개마다만 출력 (콘솔 과부하 방지)
-          if (audioChunksRef.current.length % 10 === 0) {
-            console.log("🎙️ 녹음 진행 중, 현재 청크 수:", audioChunksRef.current.length)
-          }
-        }
+        // 모든 데이터 추가 (빈 청크도 디버깅용으로)
+        audioChunksRef.current.push(event.data)
+        console.log(`🎙️ 청크 ${audioChunksRef.current.length}: 크기=${event.data.size} bytes`)
       }
       
       mediaRecorder.onstop = () => {
@@ -647,29 +643,42 @@ function RecordTranslatePageContent() {
   // 녹음 스트림 참조
   const recordingStreamRef = useRef<MediaStream | null>(null)
   
-  // URL 오디오 녹음 중지
-  const stopUrlAudioRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop()
-      console.log("🎙️ URL 오디오 녹음 중지 요청")
-    }
-    
-    // 스트림 정리
-    if (recordingStreamRef.current) {
-      recordingStreamRef.current.getTracks().forEach(track => track.stop())
-      recordingStreamRef.current = null
-    }
+  // URL 오디오 녹음 중지 (Promise 반환)
+  const stopUrlAudioRecording = (): Promise<void> => {
+    return new Promise((resolve) => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        // onstop 핸들러가 완료될 때 resolve
+        const originalOnStop = mediaRecorderRef.current.onstop
+        mediaRecorderRef.current.onstop = (event) => {
+          if (originalOnStop && typeof originalOnStop === 'function') {
+            originalOnStop.call(mediaRecorderRef.current, event)
+          }
+          console.log("🎙️ MediaRecorder onstop 완료")
+          resolve()
+        }
+        mediaRecorderRef.current.stop()
+        console.log("🎙️ URL 오디오 녹음 중지 요청")
+      } else {
+        resolve()
+      }
+      
+      // 스트림 정리
+      if (recordingStreamRef.current) {
+        recordingStreamRef.current.getTracks().forEach(track => track.stop())
+        recordingStreamRef.current = null
+      }
+    })
   }
   
   // URL 녹음 완료 처리 (녹음 완료 버튼 클릭 시 또는 화면 공유 종료 시)
   const handleUrlRecordingComplete = async () => {
     console.log("🎙️ URL 녹음 완료 처리 시작")
     
-    // 녹음 중지
-    stopUrlAudioRecording()
+    // 녹음 중지 (onstop 완료까지 대기)
+    await stopUrlAudioRecording()
     
-    // 약간의 딜레이 (MediaRecorder 종료 대기)
-    await new Promise(resolve => setTimeout(resolve, 500))
+    // 추가 딜레이 (안전을 위해)
+    await new Promise(resolve => setTimeout(resolve, 200))
     
     // 녹음된 청크 확인
     if (audioChunksRef.current.length === 0) {
@@ -682,12 +691,33 @@ function RecordTranslatePageContent() {
     
     console.log("🎙️ 녹음된 청크 수:", audioChunksRef.current.length)
     
+    // 각 청크 크기 확인
+    let totalSize = 0
+    audioChunksRef.current.forEach((chunk, i) => {
+      console.log(`🎙️ 청크[${i}] 크기: ${chunk.size} bytes`)
+      totalSize += chunk.size
+    })
+    console.log(`🎙️ 총 청크 크기: ${totalSize} bytes`)
+    
+    // 빈 청크 제거
+    const validChunks = audioChunksRef.current.filter(chunk => chunk.size > 0)
+    console.log(`🎙️ 유효 청크 수: ${validChunks.length}`)
+    
+    if (validChunks.length === 0) {
+      setError("⚠️ 오디오가 녹음되지 않았습니다.\n\n확인 사항:\n1. 화면 공유 팝업에서 '오디오 공유' 또는 '시스템 오디오 공유'를 체크했는지 확인\n2. 실제로 오디오가 재생되고 있는지 확인\n3. 브라우저 탭 공유 시 해당 탭에서 소리가 나는지 확인")
+      setRecordMode("idle")
+      setUploadProgress(0)
+      setProcessingStatus("")
+      audioChunksRef.current = []
+      return
+    }
+    
     // 오디오 Blob 생성
-    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+    const audioBlob = new Blob(validChunks, { type: 'audio/webm' })
     console.log("🎙️ 오디오 Blob 생성 완료, 크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
     
     if (audioBlob.size < 1000) {
-      setError("녹음된 오디오가 너무 짧습니다. 오디오를 더 길게 녹음해주세요.")
+      setError("⚠️ 녹음된 오디오가 너무 짧습니다.\n\n확인 사항:\n1. 화면 공유 팝업에서 '오디오 공유'를 체크했는지 확인\n2. URL에서 오디오가 실제로 재생되었는지 확인")
       setRecordMode("idle")
       setUploadProgress(0)
       setProcessingStatus("")
