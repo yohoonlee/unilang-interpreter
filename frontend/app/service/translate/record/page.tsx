@@ -143,6 +143,14 @@ function RecordTranslatePageContent() {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false)
   const [currentPlayingItemId, setCurrentPlayingItemId] = useState<string | null>(null)
   
+  // URL 녹음 관련 (마이크녹음과 동일한 구조)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const audioSourceRef = useRef<HTMLAudioElement | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false)
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false)
+  
   // 전사 결과
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([])
   const [assemblyResult, setAssemblyResult] = useState<AssemblyAIResult | null>(null)
@@ -270,6 +278,12 @@ function RecordTranslatePageContent() {
     setRecordMode("idle")
     setProcessingStatus("음성 인식 완료! 데이터 처리 중...")
     
+    // URL 녹음 중지 (녹음 중인 경우)
+    if (isRecordingAudio && mediaRecorderRef.current) {
+      console.log("🎙️ 전사 완료, URL 오디오 녹음 중지")
+      stopUrlAudioRecording()
+    }
+    
     // 세션 생성
     let newSessionId: string | null = null
     if (userId) {
@@ -278,6 +292,16 @@ function RecordTranslatePageContent() {
         newSessionId = session.id
         setSessionId(session.id)
         setCurrentSessionTitle(session.title)
+      }
+    }
+    
+    // URL 녹음된 오디오 업로드 (녹음이 시작되었고 세션이 생성된 경우)
+    if (newSessionId && audioChunksRef.current.length > 0) {
+      console.log("🎙️ URL 오디오 업로드 시작")
+      setProcessingStatus("오디오 저장 중...")
+      const uploadedUrl = await uploadUrlAudioToStorage(newSessionId)
+      if (uploadedUrl) {
+        console.log("🎙️ URL 오디오 업로드 완료:", uploadedUrl)
       }
     }
     
@@ -479,6 +503,172 @@ function RecordTranslatePageContent() {
       console.error("자동 처리 오류:", err)
       setError(null)
     }
+  }
+  
+  // ========== URL 오디오 녹음 기능 ==========
+  
+  // URL에서 오디오를 다운로드하여 녹음 시작
+  const startUrlAudioRecording = async (url: string) => {
+    try {
+      console.log("🎙️ URL 오디오 녹음 시작:", url)
+      
+      // 기존 녹음 정리
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      
+      audioChunksRef.current = []
+      
+      // URL에서 오디오 다운로드 (CORS 문제 해결을 위해 서버를 통해 다운로드)
+      setProcessingStatus("오디오 다운로드 중...")
+      
+      // 직접 fetch 시도 (CORS 문제가 있을 수 있음)
+      let audioBlob: Blob
+      try {
+        const response = await fetch(url, {
+          mode: 'cors',
+          credentials: 'omit'
+        })
+        if (!response.ok) {
+          throw new Error("오디오 다운로드 실패")
+        }
+        audioBlob = await response.blob()
+      } catch (fetchError) {
+        console.warn("🎙️ 직접 다운로드 실패, 서버를 통해 다운로드 시도:", fetchError)
+        // CORS 문제가 있으면 서버를 통해 다운로드 (향후 구현)
+        // 일단 오디오를 직접 저장하는 방식으로 변경
+        // URL을 그대로 저장하고, 재생 시 사용
+        console.log("🎙️ URL을 그대로 사용합니다")
+        return // URL을 그대로 사용하므로 녹음하지 않음
+      }
+      
+      console.log("🎙️ 오디오 다운로드 완료, 크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
+      
+      // 다운로드한 오디오를 직접 Supabase Storage에 저장 (녹음 대신)
+      // 이렇게 하면 CORS 문제를 피할 수 있음
+      if (userId) {
+        const fileName = `url_${Date.now()}.${audioBlob.type.includes('mp4') ? 'mp4' : 'webm'}`
+        const filePath = `recordings/${userId}/${fileName}`
+        
+        const { data, error } = await supabase.storage
+          .from('audio-recordings')
+          .upload(filePath, audioBlob, {
+            contentType: audioBlob.type || 'audio/webm',
+            upsert: true
+          })
+        
+        if (!error && data) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('audio-recordings')
+            .getPublicUrl(filePath)
+          
+          console.log("🎙️ URL 오디오 저장 완료:", publicUrl)
+          // 전역 변수에 저장하여 나중에 사용
+          audioChunksRef.current = [audioBlob] // 나중에 업로드할 때 사용
+          setSessionAudioUrl(publicUrl)
+          setIsRecordingAudio(true) // 녹음 중 상태로 표시
+        }
+      }
+      
+    } catch (err) {
+      console.error("🎙️ URL 오디오 처리 실패:", err)
+      // 오류가 발생해도 전사는 계속 진행
+      setError(`URL 오디오 처리 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
+      setIsRecordingAudio(false)
+    }
+  }
+  
+  // URL 오디오 녹음 중지
+  const stopUrlAudioRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+      console.log("🎙️ URL 오디오 녹음 중지 요청")
+    }
+    
+    // 오디오 재생 중지
+    if (audioSourceRef.current) {
+      audioSourceRef.current.pause()
+    }
+  }
+  
+  // 녹음된 오디오를 Supabase Storage에 업로드 (이미 저장된 경우 세션에만 연결)
+  const uploadUrlAudioToStorage = async (sessId: string): Promise<string | null> => {
+    console.log("🎙️ uploadUrlAudioToStorage 호출됨")
+    
+    // 이미 sessionAudioUrl이 있으면 그대로 사용 (startUrlAudioRecording에서 이미 저장됨)
+    if (sessionAudioUrl) {
+      console.log("🎙️ 이미 저장된 오디오 URL 사용:", sessionAudioUrl)
+      
+      // 세션에 audio_url 저장
+      const { error: updateError } = await supabase
+        .from('translation_sessions')
+        .update({ audio_url: sessionAudioUrl })
+        .eq('id', sessId)
+      
+      if (updateError) {
+        console.error("🎙️ audio_url DB 저장 실패:", updateError)
+      } else {
+        console.log("🎙️ audio_url DB 저장 성공:", sessId)
+      }
+      
+      return sessionAudioUrl
+    }
+    
+    // audioChunksRef에 데이터가 있으면 업로드 (이전 방식 호환)
+    if (audioChunksRef.current.length > 0) {
+      setIsUploadingAudio(true)
+      
+      try {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        const fileName = `${sessId}_${Date.now()}.webm`
+        const filePath = `recordings/${userId}/${fileName}`
+        
+        console.log("🎙️ 오디오 업로드 시작:", filePath, "크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
+        
+        const { data, error } = await supabase.storage
+          .from('audio-recordings')
+          .upload(filePath, audioBlob, {
+            contentType: 'audio/webm',
+            upsert: true
+          })
+        
+        if (error) {
+          console.error("🎙️ 오디오 업로드 실패:", error)
+          return null
+        }
+        
+        // Public URL 가져오기
+        const { data: { publicUrl } } = supabase.storage
+          .from('audio-recordings')
+          .getPublicUrl(filePath)
+        
+        console.log("🎙️ 오디오 업로드 완료:", publicUrl)
+        
+        // 세션에 audio_url 저장
+        const { error: updateError } = await supabase
+          .from('translation_sessions')
+          .update({ audio_url: publicUrl })
+          .eq('id', sessId)
+        
+        if (updateError) {
+          console.error("🎙️ audio_url DB 저장 실패:", updateError)
+        } else {
+          console.log("🎙️ audio_url DB 저장 성공:", sessId)
+        }
+        
+        setSessionAudioUrl(publicUrl)
+        return publicUrl
+      } catch (err) {
+        console.error("🎙️ 오디오 업로드 오류:", err)
+        return null
+      } finally {
+        setIsUploadingAudio(false)
+        audioChunksRef.current = [] // 청크 초기화
+      }
+    }
+    
+    console.log("🎙️ 업로드할 오디오가 없습니다")
+    return null
   }
   
   // ========== 오디오 재생 기능 ==========
@@ -750,31 +940,34 @@ function RecordTranslatePageContent() {
 IMPORTANT: Your ENTIRE response MUST be in English. Do not use any other language.
 
 ## Document Format Rules
-Organize the content by topics/themes in markdown format:
+Organize the content by topics/themes in markdown format. Each topic MUST follow this exact format:
 
 ## [Topic 1: Topic Title]
-Summary of discussions related to this topic.
-- Key point 1
-- Key point 2
-- Key point 3
+Summary: A one-sentence summary of the discussions related to this topic.
+- Detail 1 (written in clear, formal written language)
+- Detail 2 (written in clear, formal written language)
+- Detail 3 (written in clear, formal written language)
 
 ## [Topic 2: Topic Title]
-Summary of discussions related to this topic.
-- Key point 1
-- Key point 2
+Summary: A one-sentence summary of the discussions related to this topic.
+- Detail 1 (written in clear, formal written language)
+- Detail 2 (written in clear, formal written language)
 
-## ✨ Summary
+## Summary
 **Key Discussion Points**: Brief summary of main topics discussed.
 **Decisions Made**: Any decisions or conclusions reached.
 **Action Items**: Any follow-up items or tasks mentioned.
 
 ## Rules:
-1. Group related discussions into topics
-2. Use clear, professional written language
-3. Remove filler words and redundant content
-4. **Bold** important keywords
-5. Create meaningful topic titles based on content
-6. Include a summary section at the end
+1. Each topic must be written in the format "## [Topic Number: Topic Title]"
+2. The first line of each topic must start with "Summary: " followed by a one-sentence summary of the topic's core content
+3. Details must be written using bullet points (-) in clear, formal written language
+4. Group related discussions into topics
+5. Use clear, professional written language (avoid colloquial expressions)
+6. Remove filler words and redundant content
+7. **Bold** important keywords
+8. Create meaningful topic titles based on content
+9. Include a "## Summary" section at the end
 
 Please write the document following this exact format.`
     }
@@ -783,33 +976,36 @@ Please write the document following this exact format.`
 중요: 반드시 ${langName}로 작성해주세요.
 
 ## 문서 작성 형식
-내용을 주제/테마별로 마크다운 형식으로 정리합니다:
+내용을 주제/테마별로 마크다운 형식으로 정리합니다. 각 주제마다 반드시 다음 형식을 따르세요:
 
 ## [주제 1: 주제 제목]
-해당 주제와 관련된 논의 내용 요약.
-- 핵심 포인트 1
-- 핵심 포인트 2
-- 핵심 포인트 3
+요약: 해당 주제와 관련된 논의 내용을 한 문장으로 요약 정리합니다.
+- 세부내용 1 (문어체로 명확하게 작성)
+- 세부내용 2 (문어체로 명확하게 작성)
+- 세부내용 3 (문어체로 명확하게 작성)
 
 ## [주제 2: 주제 제목]
-해당 주제와 관련된 논의 내용 요약.
-- 핵심 포인트 1
-- 핵심 포인트 2
+요약: 해당 주제와 관련된 논의 내용을 한 문장으로 요약 정리합니다.
+- 세부내용 1 (문어체로 명확하게 작성)
+- 세부내용 2 (문어체로 명확하게 작성)
 
-## ✨ 요약 정리
+## 요약 정리
 **핵심 논의 사항**: 주요 논의 주제 간략 요약.
 **결정 사항**: 도출된 결정이나 결론.
 **액션 아이템**: 언급된 후속 조치나 과제.
 
 ## 규칙:
-1. 관련 논의를 주제별로 그룹화
-2. 명확하고 전문적인 문어체 사용
-3. 불필요한 말과 중복 내용 제거
-4. **중요 키워드**는 굵게 표시
-5. 내용에 맞는 의미 있는 주제 제목 작성
-6. 마지막에 요약 섹션 포함
+1. 각 주제는 반드시 "## [주제 번호: 주제 제목]" 형식으로 작성
+2. 각 주제의 첫 줄은 반드시 "요약: "으로 시작하여 해당 주제의 핵심 내용을 한 문장으로 요약
+3. 세부내용은 글머리표(-)를 사용하여 문어체로 명확하게 작성
+4. 관련 논의를 주제별로 그룹화
+5. 명확하고 전문적인 문어체 사용 (구어체 금지)
+6. 불필요한 말과 중복 내용 제거
+7. **중요 키워드**는 굵게 표시
+8. 내용에 맞는 의미 있는 주제 제목 작성
+9. 마지막에 "## 요약 정리" 섹션 포함
 
-위 형식에 맞춰 문서를 작성하세요.`
+위 형식에 정확히 맞춰 문서를 작성하세요.`
   }
   
   // DB에 녹음기록 저장
@@ -1485,6 +1681,30 @@ Please write the document following this exact format.`
           await saveUtterancesToDb(items, newSessionId)
         }
 
+        // YouTube URL의 경우 오디오 URL을 metadata에 저장 (CORS 문제로 직접 다운로드 어려움)
+        // 필요시 YouTube API를 통해 오디오를 가져올 수 있도록 URL 저장
+        if (newSessionId && audioUrl) {
+          // YouTube URL을 audio_url에 저장 (재생 시 사용)
+          const { error: updateError } = await supabase
+            .from('translation_sessions')
+            .update({ 
+              audio_url: audioUrl, // YouTube URL 저장
+              metadata: {
+                ...((await supabase.from('translation_sessions').select('metadata').eq('id', newSessionId).single()).data?.metadata || {}),
+                youtubeVideoId: data.videoId,
+                youtubeTitle: data.videoTitle,
+                duration: data.duration,
+                isYouTubeUrl: true
+              }
+            })
+            .eq('id', newSessionId)
+          
+          if (!updateError) {
+            setSessionAudioUrl(audioUrl)
+            console.log("🎙️ YouTube URL 저장 완료:", audioUrl)
+          }
+        }
+
         // 자동 AI 처리
         if (newSessionId && items.length > 0) {
           await autoProcessAfterRecording(newSessionId, items)
@@ -1508,6 +1728,15 @@ Please write the document following this exact format.`
     } else {
       // 일반 오디오 URL인 경우 AssemblyAI 사용
       setProcessingStatus("오디오 파일 분석 중...")
+      
+      // URL에서 오디오 녹음 시작 (마이크녹음과 동일한 프로세스)
+      try {
+        await startUrlAudioRecording(audioUrl)
+      } catch (err) {
+        console.error("URL 오디오 녹음 시작 실패:", err)
+        // 녹음 실패해도 전사는 계속 진행
+      }
+      
       await transcribeFromUrl(audioUrl)
       setRecordMode("idle")
       setUploadProgress(0)
