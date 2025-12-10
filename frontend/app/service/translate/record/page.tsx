@@ -278,10 +278,13 @@ function RecordTranslatePageContent() {
     setRecordMode("idle")
     setProcessingStatus("음성 인식 완료! 데이터 처리 중...")
     
-    // URL 녹음 중지 (녹음 중인 경우)
+    // URL 녹음 중지 (녹음 중인 경우) - 마이크녹음과 동일
     if (isRecordingAudio && mediaRecorderRef.current) {
       console.log("🎙️ 전사 완료, URL 오디오 녹음 중지")
       stopUrlAudioRecording()
+      
+      // 약간의 딜레이 후 처리 (MediaRecorder 종료 대기) - 마이크녹음과 동일
+      await new Promise(resolve => setTimeout(resolve, 500))
     }
     
     // 세션 생성
@@ -295,15 +298,19 @@ function RecordTranslatePageContent() {
       }
     }
     
-    // URL 녹음된 오디오 업로드 (녹음이 시작되었고 세션이 생성된 경우)
+    // URL 녹음된 오디오 업로드 (녹음이 시작되었고 세션이 생성된 경우) - 마이크녹음과 동일
     if (newSessionId && audioChunksRef.current.length > 0) {
-      console.log("🎙️ URL 오디오 업로드 시작")
+      console.log("🎙️ URL 오디오 업로드 시작, 청크 수:", audioChunksRef.current.length)
       setProcessingStatus("오디오 저장 중...")
       const uploadedUrl = await uploadUrlAudioToStorage(newSessionId)
       if (uploadedUrl) {
         console.log("🎙️ URL 오디오 업로드 완료:", uploadedUrl)
         setSessionAudioUrl(uploadedUrl) // sessionAudioUrl 설정
+      } else {
+        console.warn("🎙️ URL 오디오 업로드 실패")
       }
+    } else {
+      console.log("🎙️ URL 오디오 업로드 건너뜀 - newSessionId:", newSessionId, "audioChunks:", audioChunksRef.current.length)
     }
     
     // 세션에서 audio_url 로드 (이미 저장된 경우) - 마이크녹음과 동일
@@ -524,10 +531,10 @@ function RecordTranslatePageContent() {
   
   // ========== URL 오디오 녹음 기능 ==========
   
-  // URL에서 오디오를 다운로드하여 녹음 시작
-  const startUrlAudioRecording = async (url: string) => {
+  // URL 녹음: 시스템 오디오 캡처 시작 (YouTube 기능과 동일)
+  const startUrlAudioRecording = async () => {
     try {
-      console.log("🎙️ URL 오디오 녹음 시작:", url)
+      console.log("🎙️ URL 시스템 오디오 캡처 시작")
       
       // 기존 녹음 정리
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -536,61 +543,89 @@ function RecordTranslatePageContent() {
       
       audioChunksRef.current = []
       
-      // URL에서 오디오 다운로드 (CORS 문제 해결을 위해 서버를 통해 다운로드)
-      setProcessingStatus("오디오 다운로드 중...")
+      // getDisplayMedia로 화면 + 시스템 오디오 캡처 (YouTube 기능과 동일)
+      setProcessingStatus("시스템 오디오 캡처 준비 중...")
       
-      // 직접 fetch 시도 (CORS 문제가 있을 수 있음)
-      let audioBlob: Blob
-      try {
-        const response = await fetch(url, {
-          mode: 'cors',
-          credentials: 'omit'
-        })
-        if (!response.ok) {
-          throw new Error("오디오 다운로드 실패")
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true, // 화면 공유 필수 (오디오만 불가)
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
         }
-        audioBlob = await response.blob()
-      } catch (fetchError) {
-        console.warn("🎙️ 직접 다운로드 실패, 서버를 통해 다운로드 시도:", fetchError)
-        // CORS 문제가 있으면 서버를 통해 다운로드 (향후 구현)
-        // 일단 오디오를 직접 저장하는 방식으로 변경
-        // URL을 그대로 저장하고, 재생 시 사용
-        console.log("🎙️ URL을 그대로 사용합니다")
-        return // URL을 그대로 사용하므로 녹음하지 않음
+      })
+
+      // 오디오 트랙 확인
+      const audioTracks = stream.getAudioTracks()
+      if (audioTracks.length === 0) {
+        setError("⚠️ 오디오가 캡처되지 않았습니다!\n\n화면 공유 팝업에서:\n1. 'Chrome 탭' 선택\n2. URL 오디오가 재생되는 탭 선택\n3. '오디오 공유' 체크 ✅\n4. '공유' 클릭")
+        stream.getTracks().forEach(track => track.stop())
+        setIsRecordingAudio(false)
+        return
+      }
+
+      console.log("🎙️ 시스템 오디오 트랙 캡처 성공:", audioTracks[0].label)
+      
+      // 비디오 트랙은 필요 없으므로 중지 (오디오만 사용)
+      stream.getVideoTracks().forEach(track => track.stop())
+      
+      // MediaRecorder 설정 (마이크녹음과 동일)
+      let mimeType = 'audio/webm;codecs=opus'
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/webm'
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'audio/mp4'
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = '' // 기본값 사용
+          }
+        }
+      }
+      console.log("🎙️ 사용할 mimeType:", mimeType || '기본값')
+      
+      const mediaRecorder = mimeType 
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
+      
+      mediaRecorderRef.current = mediaRecorder
+      audioSourceRef.current = null // 시스템 오디오는 stream 사용
+      audioContextRef.current = null
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data)
+          console.log("🎙️ 오디오 청크 추가, 현재 청크 수:", audioChunksRef.current.length, "크기:", event.data.size)
+        }
       }
       
-      console.log("🎙️ 오디오 다운로드 완료, 크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
+      mediaRecorder.onstop = () => {
+        console.log("🎙️ URL 오디오 녹음 중지, 청크 수:", audioChunksRef.current.length)
+        setIsRecordingAudio(false)
+        
+        // 스트림 정리
+        stream.getTracks().forEach(track => track.stop())
+      }
       
-      // 다운로드한 오디오를 직접 Supabase Storage에 저장 (녹음 대신)
-      // 이렇게 하면 CORS 문제를 피할 수 있음
-      if (userId) {
-        const fileName = `url_${Date.now()}.${audioBlob.type.includes('mp4') ? 'mp4' : 'webm'}`
-        const filePath = `recordings/${userId}/${fileName}`
-        
-        const { data, error } = await supabase.storage
-          .from('audio-recordings')
-          .upload(filePath, audioBlob, {
-            contentType: audioBlob.type || 'audio/webm',
-            upsert: true
-          })
-        
-        if (!error && data) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('audio-recordings')
-            .getPublicUrl(filePath)
-          
-          console.log("🎙️ URL 오디오 저장 완료:", publicUrl)
-          // 전역 변수에 저장하여 나중에 사용
-          audioChunksRef.current = [audioBlob] // 나중에 업로드할 때 사용
-          setSessionAudioUrl(publicUrl)
-          setIsRecordingAudio(true) // 녹음 중 상태로 표시
-        }
+      mediaRecorder.onerror = (event) => {
+        console.error("🎙️ URL 오디오 녹음 오류:", event)
+        setIsRecordingAudio(false)
+        stream.getTracks().forEach(track => track.stop())
+      }
+      
+      // 녹음 시작
+      mediaRecorder.start(1000) // 1초마다 데이터 수집
+      setIsRecordingAudio(true)
+      setProcessingStatus("시스템 오디오 녹음 중... URL에서 오디오를 재생해주세요.")
+      console.log("🎙️ URL 시스템 오디오 녹음 시작 성공!")
+      
+      // 스트림 종료 감지
+      audioTracks[0].onended = () => {
+        console.log("🎙️ 시스템 오디오 트랙 종료됨")
+        stopUrlAudioRecording()
       }
       
     } catch (err) {
-      console.error("🎙️ URL 오디오 처리 실패:", err)
-      // 오류가 발생해도 전사는 계속 진행
-      setError(`URL 오디오 처리 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
+      console.error("🎙️ URL 시스템 오디오 캡처 실패:", err)
+      setError(`시스템 오디오 캡처 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
       setIsRecordingAudio(false)
     }
   }
@@ -601,25 +636,50 @@ function RecordTranslatePageContent() {
       mediaRecorderRef.current.stop()
       console.log("🎙️ URL 오디오 녹음 중지 요청")
     }
-    
-    // 오디오 재생 중지
-    if (audioSourceRef.current) {
-      audioSourceRef.current.pause()
-    }
   }
   
-  // 녹음된 오디오를 Supabase Storage에 업로드 (이미 저장된 경우 세션에만 연결)
+  // 녹음된 오디오를 Supabase Storage에 업로드 (마이크녹음과 동일)
   const uploadUrlAudioToStorage = async (sessId: string): Promise<string | null> => {
-    console.log("🎙️ uploadUrlAudioToStorage 호출됨")
+    console.log("🎙️ uploadUrlAudioToStorage 호출됨, 청크 수:", audioChunksRef.current.length)
     
-    // 이미 sessionAudioUrl이 있으면 그대로 사용 (startUrlAudioRecording에서 이미 저장됨)
-    if (sessionAudioUrl) {
-      console.log("🎙️ 이미 저장된 오디오 URL 사용:", sessionAudioUrl)
+    if (audioChunksRef.current.length === 0) {
+      console.log("🎙️ 업로드할 오디오 청크가 없습니다")
+      setError("녹음된 오디오가 없습니다. 시스템 오디오 녹음이 제대로 시작되지 않았을 수 있습니다.")
+      return null
+    }
+    
+    setIsUploadingAudio(true)
+    
+    try {
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+      const fileName = `${sessId}_${Date.now()}.webm`
+      const filePath = `recordings/${userId}/${fileName}`
       
-      // 세션에 audio_url 저장
+      console.log("🎙️ 오디오 업로드 시작:", filePath, "크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
+      
+      const { data, error } = await supabase.storage
+        .from('audio-recordings')
+        .upload(filePath, audioBlob, {
+          contentType: 'audio/webm',
+          upsert: true
+        })
+      
+      if (error) {
+        console.error("🎙️ 오디오 업로드 실패:", error)
+        return null
+      }
+      
+      // Public URL 가져오기
+      const { data: { publicUrl } } = supabase.storage
+        .from('audio-recordings')
+        .getPublicUrl(filePath)
+      
+      console.log("🎙️ 오디오 업로드 완료:", publicUrl)
+      
+      // 세션에 audio_url 저장 (sessId 파라미터 사용!)
       const { error: updateError } = await supabase
         .from('translation_sessions')
-        .update({ audio_url: sessionAudioUrl })
+        .update({ audio_url: publicUrl })
         .eq('id', sessId)
       
       if (updateError) {
@@ -628,64 +688,15 @@ function RecordTranslatePageContent() {
         console.log("🎙️ audio_url DB 저장 성공:", sessId)
       }
       
-      return sessionAudioUrl
+      setSessionAudioUrl(publicUrl)
+      return publicUrl
+    } catch (err) {
+      console.error("🎙️ 오디오 업로드 오류:", err)
+      return null
+    } finally {
+      setIsUploadingAudio(false)
+      audioChunksRef.current = [] // 청크 초기화
     }
-    
-    // audioChunksRef에 데이터가 있으면 업로드 (이전 방식 호환)
-    if (audioChunksRef.current.length > 0) {
-      setIsUploadingAudio(true)
-      
-      try {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        const fileName = `${sessId}_${Date.now()}.webm`
-        const filePath = `recordings/${userId}/${fileName}`
-        
-        console.log("🎙️ 오디오 업로드 시작:", filePath, "크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
-        
-        const { data, error } = await supabase.storage
-          .from('audio-recordings')
-          .upload(filePath, audioBlob, {
-            contentType: 'audio/webm',
-            upsert: true
-          })
-        
-        if (error) {
-          console.error("🎙️ 오디오 업로드 실패:", error)
-          return null
-        }
-        
-        // Public URL 가져오기
-        const { data: { publicUrl } } = supabase.storage
-          .from('audio-recordings')
-          .getPublicUrl(filePath)
-        
-        console.log("🎙️ 오디오 업로드 완료:", publicUrl)
-        
-        // 세션에 audio_url 저장
-        const { error: updateError } = await supabase
-          .from('translation_sessions')
-          .update({ audio_url: publicUrl })
-          .eq('id', sessId)
-        
-        if (updateError) {
-          console.error("🎙️ audio_url DB 저장 실패:", updateError)
-        } else {
-          console.log("🎙️ audio_url DB 저장 성공:", sessId)
-        }
-        
-        setSessionAudioUrl(publicUrl)
-        return publicUrl
-      } catch (err) {
-        console.error("🎙️ 오디오 업로드 오류:", err)
-        return null
-      } finally {
-        setIsUploadingAudio(false)
-        audioChunksRef.current = [] // 청크 초기화
-      }
-    }
-    
-    console.log("🎙️ 업로드할 오디오가 없습니다")
-    return null
   }
   
   // ========== 오디오 재생 기능 ==========
@@ -1756,18 +1767,21 @@ You MUST follow this format exactly. Do not deviate from this format.`
         setProcessingStatus("")
       }
     } else {
-      // 일반 오디오 URL인 경우 AssemblyAI 사용
+      // 일반 오디오 URL인 경우
+      // 1. 먼저 시스템 오디오 캡처 시작 (사용자가 URL에서 오디오를 재생할 수 있도록)
+      setProcessingStatus("시스템 오디오 캡처 준비 중...")
+      
+      // 시스템 오디오 녹음 시작
+      await startUrlAudioRecording()
+      
+      // 2. 사용자에게 안내 메시지 표시
+      setError("📢 안내: 화면 공유 팝업에서 오디오 공유를 체크하고, URL에서 오디오를 재생해주세요.\n재생이 완료되면 전사를 시작합니다.")
+      
+      // 3. URL 전사 시작 (녹음과 동시에 진행)
       setProcessingStatus("오디오 파일 분석 중...")
-      
-      // URL에서 오디오 녹음 시작 (마이크녹음과 동일한 프로세스)
-      try {
-        await startUrlAudioRecording(audioUrl)
-      } catch (err) {
-        console.error("URL 오디오 녹음 시작 실패:", err)
-        // 녹음 실패해도 전사는 계속 진행
-      }
-      
       await transcribeFromUrl(audioUrl)
+      
+      // 4. 전사 완료 후 녹음 중지 (handleTranscriptReady에서 처리됨)
       setRecordMode("idle")
       setUploadProgress(0)
       setAudioUrl("")
