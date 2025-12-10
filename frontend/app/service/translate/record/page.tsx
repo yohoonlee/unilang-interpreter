@@ -302,6 +302,23 @@ function RecordTranslatePageContent() {
       const uploadedUrl = await uploadUrlAudioToStorage(newSessionId)
       if (uploadedUrl) {
         console.log("🎙️ URL 오디오 업로드 완료:", uploadedUrl)
+        setSessionAudioUrl(uploadedUrl) // sessionAudioUrl 설정
+      }
+    }
+    
+    // 세션에서 audio_url 로드 (이미 저장된 경우) - 마이크녹음과 동일
+    if (newSessionId) {
+      const { data: sessionData } = await supabase
+        .from("translation_sessions")
+        .select("audio_url")
+        .eq("id", newSessionId)
+        .single()
+      
+      if (sessionData?.audio_url) {
+        console.log("🎙️ 세션에서 audio_url 로드:", sessionData.audio_url)
+        setSessionAudioUrl(sessionData.audio_url)
+      } else {
+        console.log("🎙️ 세션에 audio_url이 없습니다")
       }
     }
     
@@ -673,33 +690,55 @@ function RecordTranslatePageContent() {
   
   // ========== 오디오 재생 기능 ==========
   
-  // 특정 시점부터 오디오 재생 (endTimeMs가 있으면 해당 구간만 재생)
+  // 특정 시점부터 오디오 재생 (endTimeMs가 있으면 해당 구간만 재생) - 마이크녹음과 동일
   const playAudioFromTime = (itemId: string, startTimeMs?: number, endTimeMs?: number) => {
+    console.log("🔊 playAudioFromTime 호출:", { itemId, startTimeMs, endTimeMs, sessionAudioUrl: sessionAudioUrl ? "있음" : "없음" })
+    
     if (!sessionAudioUrl) {
       console.log("🔊 오디오 URL이 없습니다")
+      setError("오디오 파일이 없습니다. 녹음이 완료되지 않았을 수 있습니다.")
       return
     }
     
     // 기존 재생 중지
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause()
+      audioPlayerRef.current = null
     }
     
     // 새 오디오 플레이어 생성
     const audio = new Audio(sessionAudioUrl)
     audioPlayerRef.current = audio
     
-    // 시작 시간이 있으면 해당 시점으로 이동
-    if (startTimeMs !== undefined && startTimeMs > 0) {
-      audio.currentTime = startTimeMs / 1000 // ms → seconds
-      console.log("🔊 오디오 재생:", startTimeMs / 1000, "초부터", endTimeMs ? `${endTimeMs / 1000}초까지` : "끝까지")
+    // 오디오 로드 완료 후 재생 시작
+    audio.onloadedmetadata = () => {
+      console.log("🔊 오디오 메타데이터 로드 완료, duration:", audio.duration)
+      
+      // 시작 시간이 있으면 해당 시점으로 이동
+      if (startTimeMs !== undefined && startTimeMs > 0) {
+        const startTimeSeconds = startTimeMs / 1000
+        if (startTimeSeconds < audio.duration) {
+          audio.currentTime = startTimeSeconds
+          console.log("🔊 오디오 재생:", startTimeSeconds, "초부터", endTimeMs ? `${endTimeMs / 1000}초까지` : "끝까지")
+        } else {
+          console.warn("🔊 시작 시간이 오디오 길이를 초과합니다:", startTimeSeconds, ">", audio.duration)
+        }
+      }
+      
+      // 재생 시작
+      audio.play().catch(err => {
+        console.error("🔊 오디오 재생 실패:", err)
+        setError(`오디오 재생 실패: ${err.message}`)
+      })
     }
     
     // endTimeMs가 있으면 해당 시점에서 멈추기
     if (endTimeMs !== undefined && endTimeMs > 0) {
       const endTimeSeconds = endTimeMs / 1000
+      console.log("🔊 종료 시간 설정:", endTimeSeconds, "초")
       audio.ontimeupdate = () => {
         if (audio.currentTime >= endTimeSeconds) {
+          console.log("🔊 종료 시간 도달, 재생 중지")
           audio.pause()
           setIsPlayingAudio(false)
           setCurrentPlayingItemId(null)
@@ -708,24 +747,26 @@ function RecordTranslatePageContent() {
     }
     
     audio.onplay = () => {
+      console.log("🔊 오디오 재생 시작")
       setIsPlayingAudio(true)
       setCurrentPlayingItemId(itemId)
     }
     
     audio.onended = () => {
+      console.log("🔊 오디오 재생 종료")
       setIsPlayingAudio(false)
       setCurrentPlayingItemId(null)
     }
     
     audio.onerror = (e) => {
       console.error("🔊 오디오 재생 오류:", e)
+      setError("오디오 재생 중 오류가 발생했습니다.")
       setIsPlayingAudio(false)
       setCurrentPlayingItemId(null)
     }
     
-    audio.play().catch(err => {
-      console.error("🔊 오디오 재생 실패:", err)
-    })
+    // 오디오 로드 시작
+    audio.load()
   }
   
   // 오디오 재생 중지
@@ -848,7 +889,13 @@ function RecordTranslatePageContent() {
     setDocumentTextConversation(conversationLines.join("\n\n"))
     
     try {
-      const srcLangName = getLanguageInfo(sourceLanguage === "auto" ? "ko" : sourceLanguage).name
+      // 실제 원문 언어 감지 (items의 sourceLanguage 또는 assemblyResult.language 사용)
+      const detectedSourceLanguage = items[0]?.sourceLanguage || assemblyResult?.language || (sourceLanguage === "auto" ? "ko" : sourceLanguage)
+      const actualSourceLanguage = detectedSourceLanguage === "auto" ? "ko" : detectedSourceLanguage
+      
+      console.log("[문서정리] 감지된 원문 언어:", actualSourceLanguage, "items[0].sourceLanguage:", items[0]?.sourceLanguage, "assemblyResult.language:", assemblyResult?.language)
+      
+      const srcLangName = getLanguageInfo(actualSourceLanguage).name
       const tgtLangName = getLanguageInfo(targetLanguage).name
       
       const originalTexts = items.map(t => `[${t.speakerName}] ${t.original}`).join("\n")
@@ -860,8 +907,8 @@ function RecordTranslatePageContent() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             text: originalTexts,
-            targetLanguage: sourceLanguage === "auto" ? "ko" : sourceLanguage,
-            customPrompt: getDocumentPrompt(sourceLanguage === "auto" ? "ko" : sourceLanguage, srcLangName) + "\n\n원본 텍스트:\n" + originalTexts,
+            targetLanguage: actualSourceLanguage,
+            customPrompt: getDocumentPrompt(actualSourceLanguage, srcLangName) + "\n\n원본 텍스트:\n" + originalTexts,
           }),
         })
         
@@ -880,14 +927,14 @@ function RecordTranslatePageContent() {
           .map(t => `[${t.speakerName}] ${t.translated}`)
           .join("\n")
         
-        // 원문 정리 API 호출
+        // 원문 정리 API 호출 (실제 원문 언어 사용)
         const originalResponse = await fetch("/api/gemini/summarize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             text: originalTexts,
-            targetLanguage: sourceLanguage === "auto" ? "ko" : sourceLanguage,
-            customPrompt: getDocumentPrompt(sourceLanguage === "auto" ? "ko" : sourceLanguage, srcLangName) + "\n\n원본 텍스트:\n" + originalTexts,
+            targetLanguage: actualSourceLanguage,
+            customPrompt: getDocumentPrompt(actualSourceLanguage, srcLangName) + "\n\n원본 텍스트:\n" + originalTexts,
           }),
         })
         
@@ -937,75 +984,77 @@ function RecordTranslatePageContent() {
   const getDocumentPrompt = (langCode: string, langName: string) => {
     if (langCode === "en") {
       return `You are a professional meeting minutes writer. Analyze the conversation and organize it by topics/themes.
-IMPORTANT: Your ENTIRE response MUST be in English. Do not use any other language.
+IMPORTANT: Your ENTIRE response MUST be in English. Do not use any other language. If the original text is in English, write in English. If it's in another language, write in that language.
 
-## Document Format Rules
+## Document Format Rules (MUST follow this format exactly)
 Organize the content by topics/themes in markdown format. Each topic MUST follow this exact format:
 
 ## [Topic 1: Topic Title]
 Summary: A one-sentence summary of the discussions related to this topic.
-- Detail 1 (written in clear, formal written language)
-- Detail 2 (written in clear, formal written language)
-- Detail 3 (written in clear, formal written language)
+- Write detail 1 in clear, formal written language.
+- Write detail 2 in clear, formal written language.
+- Write detail 3 in clear, formal written language.
 
 ## [Topic 2: Topic Title]
 Summary: A one-sentence summary of the discussions related to this topic.
-- Detail 1 (written in clear, formal written language)
-- Detail 2 (written in clear, formal written language)
+- Write detail 1 in clear, formal written language.
+- Write detail 2 in clear, formal written language.
 
 ## Summary
 **Key Discussion Points**: Brief summary of main topics discussed.
 **Decisions Made**: Any decisions or conclusions reached.
 **Action Items**: Any follow-up items or tasks mentioned.
 
-## Rules:
-1. Each topic must be written in the format "## [Topic Number: Topic Title]"
+## Required Rules (MUST follow):
+1. Each topic must be written in the format "## [Topic Number: Topic Title]" (e.g., ## [Topic 1: Meeting Start])
 2. The first line of each topic must start with "Summary: " followed by a one-sentence summary of the topic's core content
-3. Details must be written using bullet points (-) in clear, formal written language
+3. Details must be written using bullet points (-) in clear, formal written language (absolutely no colloquial expressions)
 4. Group related discussions into topics
-5. Use clear, professional written language (avoid colloquial expressions)
+5. Use clear, professional written language (absolutely no colloquial expressions, contractions, or interjections)
 6. Remove filler words and redundant content
 7. **Bold** important keywords
 8. Create meaningful topic titles based on content
 9. Include a "## Summary" section at the end
+10. Maintain the original language (if English, write in English; if Korean, write in Korean)
 
-Please write the document following this exact format.`
+You MUST follow this format exactly. Do not deviate from this format.`
     }
     
     return `당신은 전문 회의록 작성 비서입니다. 대화 내용을 분석하여 주제별로 정리합니다.
-중요: 반드시 ${langName}로 작성해주세요.
+중요: 반드시 ${langName}로 작성해주세요. 원문이 ${langName}이면 ${langName}로, 다른 언어면 해당 언어로 작성하세요.
 
-## 문서 작성 형식
-내용을 주제/테마별로 마크다운 형식으로 정리합니다. 각 주제마다 반드시 다음 형식을 따르세요:
+## 문서 작성 형식 (반드시 이 형식을 정확히 따르세요)
+내용을 주제/테마별로 마크다운 형식으로 정리합니다. 각 주제마다 반드시 다음 형식을 정확히 따르세요:
 
 ## [주제 1: 주제 제목]
 요약: 해당 주제와 관련된 논의 내용을 한 문장으로 요약 정리합니다.
-- 세부내용 1 (문어체로 명확하게 작성)
-- 세부내용 2 (문어체로 명확하게 작성)
-- 세부내용 3 (문어체로 명확하게 작성)
+- 세부내용 1을 문어체로 명확하게 작성합니다.
+- 세부내용 2를 문어체로 명확하게 작성합니다.
+- 세부내용 3을 문어체로 명확하게 작성합니다.
 
 ## [주제 2: 주제 제목]
 요약: 해당 주제와 관련된 논의 내용을 한 문장으로 요약 정리합니다.
-- 세부내용 1 (문어체로 명확하게 작성)
-- 세부내용 2 (문어체로 명확하게 작성)
+- 세부내용 1을 문어체로 명확하게 작성합니다.
+- 세부내용 2를 문어체로 명확하게 작성합니다.
 
 ## 요약 정리
 **핵심 논의 사항**: 주요 논의 주제 간략 요약.
 **결정 사항**: 도출된 결정이나 결론.
 **액션 아이템**: 언급된 후속 조치나 과제.
 
-## 규칙:
-1. 각 주제는 반드시 "## [주제 번호: 주제 제목]" 형식으로 작성
+## 필수 규칙 (반드시 지켜야 합니다):
+1. 각 주제는 반드시 "## [주제 번호: 주제 제목]" 형식으로 작성 (예: ## [주제 1: 회의 시작])
 2. 각 주제의 첫 줄은 반드시 "요약: "으로 시작하여 해당 주제의 핵심 내용을 한 문장으로 요약
-3. 세부내용은 글머리표(-)를 사용하여 문어체로 명확하게 작성
+3. 세부내용은 반드시 글머리표(-)를 사용하여 문어체로 명확하게 작성 (구어체 절대 금지)
 4. 관련 논의를 주제별로 그룹화
-5. 명확하고 전문적인 문어체 사용 (구어체 금지)
+5. 명확하고 전문적인 문어체 사용 (구어체, 축약형, 감탄사 등 절대 금지)
 6. 불필요한 말과 중복 내용 제거
 7. **중요 키워드**는 굵게 표시
 8. 내용에 맞는 의미 있는 주제 제목 작성
-9. 마지막에 "## 요약 정리" 섹션 포함
+9. 마지막에 반드시 "## 요약 정리" 섹션 포함
+10. 원문 언어를 그대로 유지 (한국어면 한국어로, 영어면 영어로)
 
-위 형식에 정확히 맞춰 문서를 작성하세요.`
+위 형식을 정확히 따르지 않으면 안 됩니다. 반드시 이 형식대로 작성하세요.`
   }
   
   // DB에 녹음기록 저장
@@ -1276,7 +1325,8 @@ Please write the document following this exact format.`
       setShowSessionList(false)
       setShowDocumentInPanel(false)
       
-      // 🎙️ 오디오 URL 설정
+      // 🎙️ 오디오 URL 설정 (마이크녹음과 동일)
+      console.log("🔊 세션 로드 - audio_url:", session.audio_url)
       setSessionAudioUrl(session.audio_url || null)
       
       // 발화 데이터 로드
@@ -2626,7 +2676,12 @@ Please write the document following this exact format.`
                                   : "bg-teal-100 text-teal-700"
                               }`}
                             >
-                              {getLanguageInfo(sourceLanguage === "auto" ? "ko" : sourceLanguage).flag} 원문
+                              {(() => {
+                                // 실제 원문 언어 감지
+                                const detectedLang = transcripts[0]?.sourceLanguage || assemblyResult?.language || (sourceLanguage === "auto" ? "ko" : sourceLanguage)
+                                const actualLang = detectedLang === "auto" ? "ko" : detectedLang
+                                return getLanguageInfo(actualLang).flag + " " + (actualLang === "en" ? "US 원문" : "원문")
+                              })()}
                             </button>
                             {documentTextTranslated && (
                               <button
@@ -2637,7 +2692,10 @@ Please write the document following this exact format.`
                                     : "bg-teal-100 text-teal-700"
                                 }`}
                               >
-                                {getLanguageInfo(targetLanguage).flag} 번역
+                                {(() => {
+                                  const tgtLang = targetLanguage === "none" ? "ko" : targetLanguage
+                                  return getLanguageInfo(tgtLang).flag + " " + (tgtLang === "en" ? "US 번역" : "번역")
+                                })()}
                               </button>
                             )}
                           </div>
