@@ -696,40 +696,22 @@ function RecordTranslatePageContent() {
     
     if (!sessionAudioUrl) {
       console.log("🔊 오디오 URL이 없습니다")
-      setError("오디오 파일이 없습니다. 녹음이 완료되지 않았을 수 있습니다.")
       return
     }
     
     // 기존 재생 중지
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause()
-      audioPlayerRef.current = null
     }
     
     // 새 오디오 플레이어 생성
     const audio = new Audio(sessionAudioUrl)
     audioPlayerRef.current = audio
     
-    // 오디오 로드 완료 후 재생 시작
-    audio.onloadedmetadata = () => {
-      console.log("🔊 오디오 메타데이터 로드 완료, duration:", audio.duration)
-      
-      // 시작 시간이 있으면 해당 시점으로 이동
-      if (startTimeMs !== undefined && startTimeMs > 0) {
-        const startTimeSeconds = startTimeMs / 1000
-        if (startTimeSeconds < audio.duration) {
-          audio.currentTime = startTimeSeconds
-          console.log("🔊 오디오 재생:", startTimeSeconds, "초부터", endTimeMs ? `${endTimeMs / 1000}초까지` : "끝까지")
-        } else {
-          console.warn("🔊 시작 시간이 오디오 길이를 초과합니다:", startTimeSeconds, ">", audio.duration)
-        }
-      }
-      
-      // 재생 시작
-      audio.play().catch(err => {
-        console.error("🔊 오디오 재생 실패:", err)
-        setError(`오디오 재생 실패: ${err.message}`)
-      })
+    // 시작 시간이 있으면 해당 시점으로 이동
+    if (startTimeMs !== undefined && startTimeMs > 0) {
+      audio.currentTime = startTimeMs / 1000 // ms → seconds
+      console.log("🔊 오디오 재생:", startTimeMs / 1000, "초부터", endTimeMs ? `${endTimeMs / 1000}초까지` : "끝까지")
     }
     
     // endTimeMs가 있으면 해당 시점에서 멈추기
@@ -747,26 +729,24 @@ function RecordTranslatePageContent() {
     }
     
     audio.onplay = () => {
-      console.log("🔊 오디오 재생 시작")
       setIsPlayingAudio(true)
       setCurrentPlayingItemId(itemId)
     }
     
     audio.onended = () => {
-      console.log("🔊 오디오 재생 종료")
       setIsPlayingAudio(false)
       setCurrentPlayingItemId(null)
     }
     
     audio.onerror = (e) => {
       console.error("🔊 오디오 재생 오류:", e)
-      setError("오디오 재생 중 오류가 발생했습니다.")
       setIsPlayingAudio(false)
       setCurrentPlayingItemId(null)
     }
     
-    // 오디오 로드 시작
-    audio.load()
+    audio.play().catch(err => {
+      console.error("🔊 오디오 재생 실패:", err)
+    })
   }
   
   // 오디오 재생 중지
