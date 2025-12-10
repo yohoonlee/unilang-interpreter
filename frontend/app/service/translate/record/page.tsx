@@ -35,6 +35,7 @@ import {
   Square,
   Clock,
   Users,
+  Radio,
 } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -594,7 +595,10 @@ function RecordTranslatePageContent() {
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data)
-          console.log("🎙️ 오디오 청크 추가, 현재 청크 수:", audioChunksRef.current.length, "크기:", event.data.size)
+          // 청크 로그는 10개마다만 출력 (콘솔 과부하 방지)
+          if (audioChunksRef.current.length % 10 === 0) {
+            console.log("🎙️ 녹음 진행 중, 현재 청크 수:", audioChunksRef.current.length)
+          }
         }
       }
       
