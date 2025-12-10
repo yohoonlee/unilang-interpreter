@@ -133,10 +133,17 @@ function RecordTranslatePageContent() {
   const [showSessionList, setShowSessionList] = useState(false)
   const [isLoadingSessions, setIsLoadingSessions] = useState(false)
   
-  // 녹음 모드: idle, recording, url, file
-  const [recordMode, setRecordMode] = useState<"idle" | "recording" | "url" | "file">("idle")
+  // 녹음 모드: idle, recording, url, file, pendingAudio (자막 로드 완료, 오디오 녹음 대기)
+  const [recordMode, setRecordMode] = useState<"idle" | "recording" | "url" | "file" | "pendingAudio">("idle")
   const [audioUrl, setAudioUrl] = useState("")
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [pendingYoutubeData, setPendingYoutubeData] = useState<{
+    videoId: string
+    videoTitle: string
+    duration: number
+    items: TranscriptItem[]
+    newSessionId: string | null
+  } | null>(null)
   
   // 오디오 재생 관련
   const [sessionAudioUrl, setSessionAudioUrl] = useState<string | null>(null) // 세션의 녹음 파일 URL
@@ -2000,18 +2007,22 @@ You MUST follow this format exactly. Do not deviate from this format.`
           await saveUtterancesToDb(items, newSessionId)
         }
 
-        // 자동 AI 처리
-        if (newSessionId && items.length > 0) {
-          await autoProcessAfterRecording(newSessionId, items)
-        }
-
         // 세션 목록 새로고침
         await loadSessions()
 
+        // 오디오 녹음 대기 상태로 전환 (자막은 로드됨, 오디오 녹음 필요)
+        setPendingYoutubeData({
+          videoId: data.videoId,
+          videoTitle: data.videoTitle,
+          duration: data.duration,
+          items,
+          newSessionId,
+        })
+        
         setProcessingStatus("")
-        setRecordMode("idle")
+        setRecordMode("pendingAudio")
         setUploadProgress(0)
-        setAudioUrl("")
+        // audioUrl은 유지 (녹음 시 참조용)
 
       } catch (err) {
         console.error("YouTube 처리 오류:", err)
@@ -2050,6 +2061,134 @@ You MUST follow this format exactly. Do not deviate from this format.`
     setError(`📢 시스템 오디오 녹음 준비 완료!\n\n1. 새 탭에서 URL을 열고 오디오를 재생하세요\n2. 재생이 끝나면 아래 '녹음 완료' 버튼을 클릭하세요`)
     setProcessingStatus("🎙️ 시스템 오디오 녹음 중...")
     setUploadProgress(30)
+  }
+  
+  // YouTube 오디오 녹음 시작 (자막 로드 후)
+  const startYoutubeAudioRecording = async () => {
+    if (!pendingYoutubeData) return
+    
+    setError(null)
+    setProcessingStatus("시스템 오디오 캡처 준비 중...")
+    
+    // 시스템 오디오 녹음 시작
+    const recordingStarted = await startUrlAudioRecording()
+    
+    if (!recordingStarted) {
+      return
+    }
+    
+    setError(`🎬 YouTube 오디오 녹음 중!\n\n1. YouTube 영상을 처음부터 재생하세요: ${audioUrl}\n2. 영상이 끝나면 아래 '녹음 완료' 버튼을 클릭하세요\n\n💡 자막은 이미 로드되어 있습니다. 오디오만 녹음하면 됩니다.`)
+    setProcessingStatus("🎙️ YouTube 오디오 녹음 중...")
+  }
+  
+  // YouTube 오디오 녹음 완료 처리
+  const handleYoutubeAudioRecordingComplete = async () => {
+    if (!pendingYoutubeData) return
+    
+    console.log("🎬 YouTube 오디오 녹음 완료 처리 시작")
+    
+    // 녹음 중지 (onstop 완료까지 대기)
+    await stopUrlAudioRecording()
+    await new Promise(resolve => setTimeout(resolve, 200))
+    
+    // 청크 확인
+    const validChunks = audioChunksRef.current.filter(chunk => chunk.size > 0)
+    console.log(`🎬 유효 청크 수: ${validChunks.length}`)
+    
+    if (validChunks.length === 0) {
+      setError("⚠️ 오디오가 녹음되지 않았습니다.\n화면 공유 시 '탭 오디오도 공유'를 체크했는지 확인하세요.")
+      return
+    }
+    
+    // 오디오 Blob 생성
+    const audioBlob = new Blob(validChunks, { type: 'audio/webm' })
+    console.log("🎬 오디오 Blob 생성 완료, 크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
+    
+    if (audioBlob.size < 1000) {
+      setError("⚠️ 녹음된 오디오가 너무 짧습니다.")
+      return
+    }
+    
+    setProcessingStatus("오디오 저장 중...")
+    setUploadProgress(50)
+    
+    try {
+      // Supabase Storage에 오디오 업로드
+      if (pendingYoutubeData.newSessionId && userId) {
+        const fileName = `${pendingYoutubeData.newSessionId}_${Date.now()}.webm`
+        const filePath = `recordings/${userId}/${fileName}`
+        
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('audio-recordings')
+          .upload(filePath, audioBlob, {
+            contentType: 'audio/webm',
+            upsert: true
+          })
+        
+        if (!uploadError && uploadData) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('audio-recordings')
+            .getPublicUrl(filePath)
+          
+          // 세션에 audio_url 저장
+          await supabase
+            .from('translation_sessions')
+            .update({ audio_url: publicUrl })
+            .eq('id', pendingYoutubeData.newSessionId)
+          
+          setSessionAudioUrl(publicUrl)
+          console.log("🎬 오디오 URL 저장 완료:", publicUrl)
+        }
+      }
+      
+      setUploadProgress(80)
+      setProcessingStatus("AI 처리 중...")
+      
+      // 자동 AI 처리
+      if (pendingYoutubeData.newSessionId && pendingYoutubeData.items.length > 0) {
+        await autoProcessAfterRecording(pendingYoutubeData.newSessionId, pendingYoutubeData.items)
+      }
+      
+      // 세션 목록 새로고침
+      await loadSessions()
+      
+      setUploadProgress(100)
+      setProcessingStatus("")
+      setRecordMode("idle")
+      setAudioUrl("")
+      setPendingYoutubeData(null)
+      audioChunksRef.current = []
+      setError(null)
+      
+      console.log("🎬 YouTube 오디오 녹음 처리 완료!")
+      
+    } catch (err) {
+      console.error("🎬 YouTube 오디오 처리 오류:", err)
+      setError(err instanceof Error ? err.message : "오디오 처리 중 오류가 발생했습니다")
+    }
+  }
+  
+  // YouTube 오디오 녹음 건너뛰기 (자막만 사용)
+  const skipYoutubeAudioRecording = async () => {
+    if (!pendingYoutubeData) return
+    
+    setProcessingStatus("AI 처리 중...")
+    setUploadProgress(80)
+    
+    // 자동 AI 처리 (오디오 없이)
+    if (pendingYoutubeData.newSessionId && pendingYoutubeData.items.length > 0) {
+      await autoProcessAfterRecording(pendingYoutubeData.newSessionId, pendingYoutubeData.items)
+    }
+    
+    // 세션 목록 새로고침
+    await loadSessions()
+    
+    setUploadProgress(100)
+    setProcessingStatus("")
+    setRecordMode("idle")
+    setAudioUrl("")
+    setPendingYoutubeData(null)
+    setError(null)
   }
   
   // 파일 업로드
@@ -2723,6 +2862,96 @@ You MUST follow this format exactly. Do not deviate from this format.`
                       녹음 종료
                     </Button>
                     <Button variant="outline" onClick={cancelRecording}>
+                      취소
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* YouTube 자막 로드 완료 - 오디오 녹음 대기 */}
+              {recordMode === "pendingAudio" && pendingYoutubeData && !isRecordingAudio && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
+                        <Check className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-green-700">✅ 자막 로드 완료!</div>
+                        <div className="text-sm text-green-600">{pendingYoutubeData.videoTitle}</div>
+                      </div>
+                    </div>
+                    <div className="text-sm text-green-700 mb-3">
+                      {transcripts.length}개 자막 | {Math.floor(pendingYoutubeData.duration / 60)}분 {Math.floor(pendingYoutubeData.duration % 60)}초
+                    </div>
+                    <div className="text-sm text-slate-600 bg-white p-3 rounded border border-green-100">
+                      💡 <strong>오디오 녹음</strong>을 진행하면 각 자막 구간별로 음성을 재생할 수 있습니다.
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={startYoutubeAudioRecording}
+                      className="flex-1 bg-orange-500 hover:bg-orange-600"
+                    >
+                      <Radio className="h-4 w-4 mr-2" />
+                      오디오 녹음 시작
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      onClick={skipYoutubeAudioRecording}
+                      className="border-slate-300"
+                    >
+                      녹음 건너뛰기
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500 text-center">
+                    오디오 녹음: YouTube 영상을 재생하면서 시스템 오디오를 캡처합니다
+                  </p>
+                </div>
+              )}
+              
+              {/* YouTube 오디오 녹음 중 (자막 로드 후) */}
+              {recordMode === "pendingAudio" && pendingYoutubeData && isRecordingAudio && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <div
+                      className="w-16 h-16 rounded-full bg-orange-500 animate-pulse flex items-center justify-center"
+                    >
+                      <Radio className="h-8 w-8 text-white" />
+                    </div>
+                    <div>
+                      <div className="text-xl font-bold text-orange-600">
+                        🎬 YouTube 오디오 녹음 중
+                      </div>
+                      <div className="text-sm text-slate-500">
+                        {pendingYoutubeData.videoTitle}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                    <div className="text-sm text-orange-700 space-y-1">
+                      <p>📌 <strong>녹음 방법:</strong></p>
+                      <p>1. YouTube 영상을 <strong>처음부터</strong> 재생하세요</p>
+                      <p>2. 영상이 끝나면 아래 버튼 클릭</p>
+                      <p>3. 자막과 오디오가 자동으로 연결됩니다</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleYoutubeAudioRecordingComplete}
+                      className="flex-1 bg-orange-500 hover:bg-orange-600"
+                    >
+                      <Square className="h-4 w-4 mr-2" />
+                      녹음 완료
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        stopUrlAudioRecording()
+                        setError(null)
+                      }}
+                    >
                       취소
                     </Button>
                   </div>
