@@ -544,20 +544,23 @@ function RecordTranslatePageContent() {
       
       audioChunksRef.current = []
       
-      // getDisplayMedia로 화면 + 시스템 오디오 캡처 (YouTube 기능과 동일)
+      // getDisplayMedia로 화면 + 시스템 오디오 캡처 (YouTube Live 기능과 동일)
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true, // 화면 공유 필수 (오디오만 불가)
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
-        }
+        },
+        // @ts-expect-error - Chrome specific options
+        preferCurrentTab: true,
+        selfBrowserSurface: "include",
       })
 
       // 오디오 트랙 확인
       const audioTracks = stream.getAudioTracks()
       if (audioTracks.length === 0) {
-        setError("⚠️ 오디오가 캡처되지 않았습니다!\n\n화면 공유 팝업에서:\n1. 'Chrome 탭' 선택\n2. 오디오가 재생되는 탭 선택\n3. '오디오 공유' 체크 ✅\n4. '공유' 클릭")
+        setError("⚠️ 오디오가 캡처되지 않았습니다!\n\n화면 공유 팝업에서:\n1. 'Chrome 탭' 선택\n2. 오디오가 재생되는 탭 선택\n3. '탭 오디오도 공유' 체크 ✅\n4. '공유' 클릭")
         stream.getTracks().forEach(track => track.stop())
         setIsRecordingAudio(false)
         return false
@@ -565,8 +568,11 @@ function RecordTranslatePageContent() {
 
       console.log("🎙️ 시스템 오디오 트랙 캡처 성공:", audioTracks[0].label)
       
-      // 비디오 트랙은 필요 없으므로 중지 (오디오만 사용)
+      // 비디오 트랙 중지 (오디오만 필요)
       stream.getVideoTracks().forEach(track => track.stop())
+      
+      // 오디오 트랙만 포함하는 새 스트림 생성 (YouTube Live와 동일)
+      const audioOnlyStream = new MediaStream(audioTracks)
       
       // MediaRecorder 설정 (마이크녹음과 동일)
       let mimeType = 'audio/webm;codecs=opus'
@@ -581,9 +587,10 @@ function RecordTranslatePageContent() {
       }
       console.log("🎙️ 사용할 mimeType:", mimeType || '기본값')
       
+      // 오디오 전용 스트림으로 MediaRecorder 생성
       const mediaRecorder = mimeType 
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream)
+        ? new MediaRecorder(audioOnlyStream, { mimeType })
+        : new MediaRecorder(audioOnlyStream)
       
       mediaRecorderRef.current = mediaRecorder
       audioSourceRef.current = null // 시스템 오디오는 stream 사용

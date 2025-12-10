@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     console.log("[AssemblyAI] Starting transcription:", transcriptParams)
 
     // 전사 실행
-    const transcript = await client.transcripts.transcribe(transcriptParams)
+    let transcript = await client.transcripts.transcribe(transcriptParams)
 
     console.log("[AssemblyAI] Transcription completed:", {
       id: transcript.id,
@@ -86,12 +86,41 @@ export async function POST(request: NextRequest) {
       speakerCount: transcript.utterances?.length || 0,
     })
 
-    // 에러 체크
+    // 에러 체크 - language_detection 실패 시 영어로 재시도
     if (transcript.status === "error") {
-      return NextResponse.json(
-        { error: transcript.error || "Transcription failed" },
-        { status: 500 }
-      )
+      const errorMessage = transcript.error || ""
+      
+      // 언어 감지 실패 에러인 경우 영어로 재시도
+      if (errorMessage.includes("language_detection") && transcriptParams.language_detection) {
+        console.log("[AssemblyAI] Language detection failed, retrying with English...")
+        
+        const retryParams = {
+          ...transcriptParams,
+          language_detection: false,
+          language_code: "en" as const, // 기본 영어로 재시도
+        }
+        
+        transcript = await client.transcripts.transcribe(retryParams)
+        
+        console.log("[AssemblyAI] Retry completed:", {
+          id: transcript.id,
+          status: transcript.status,
+          language: transcript.language_code,
+        })
+        
+        // 재시도도 실패한 경우
+        if (transcript.status === "error") {
+          return NextResponse.json(
+            { error: transcript.error || "Transcription failed after retry" },
+            { status: 500 }
+          )
+        }
+      } else {
+        return NextResponse.json(
+          { error: transcript.error || "Transcription failed" },
+          { status: 500 }
+        )
+      }
     }
 
     // 화자별 발언 정리
