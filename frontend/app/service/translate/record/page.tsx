@@ -532,7 +532,7 @@ function RecordTranslatePageContent() {
   // ========== URL 오디오 녹음 기능 ==========
   
   // URL 녹음: 시스템 오디오 캡처 시작 (YouTube 기능과 동일)
-  const startUrlAudioRecording = async () => {
+  const startUrlAudioRecording = async (): Promise<boolean> => {
     try {
       console.log("🎙️ URL 시스템 오디오 캡처 시작")
       
@@ -544,8 +544,6 @@ function RecordTranslatePageContent() {
       audioChunksRef.current = []
       
       // getDisplayMedia로 화면 + 시스템 오디오 캡처 (YouTube 기능과 동일)
-      setProcessingStatus("시스템 오디오 캡처 준비 중...")
-      
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true, // 화면 공유 필수 (오디오만 불가)
         audio: {
@@ -558,10 +556,10 @@ function RecordTranslatePageContent() {
       // 오디오 트랙 확인
       const audioTracks = stream.getAudioTracks()
       if (audioTracks.length === 0) {
-        setError("⚠️ 오디오가 캡처되지 않았습니다!\n\n화면 공유 팝업에서:\n1. 'Chrome 탭' 선택\n2. URL 오디오가 재생되는 탭 선택\n3. '오디오 공유' 체크 ✅\n4. '공유' 클릭")
+        setError("⚠️ 오디오가 캡처되지 않았습니다!\n\n화면 공유 팝업에서:\n1. 'Chrome 탭' 선택\n2. 오디오가 재생되는 탭 선택\n3. '오디오 공유' 체크 ✅\n4. '공유' 클릭")
         stream.getTracks().forEach(track => track.stop())
         setIsRecordingAudio(false)
-        return
+        return false
       }
 
       console.log("🎙️ 시스템 오디오 트랙 캡처 성공:", audioTracks[0].label)
@@ -590,6 +588,9 @@ function RecordTranslatePageContent() {
       audioSourceRef.current = null // 시스템 오디오는 stream 사용
       audioContextRef.current = null
       
+      // 스트림 참조 저장 (나중에 정리용)
+      recordingStreamRef.current = stream
+      
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data)
@@ -614,27 +615,256 @@ function RecordTranslatePageContent() {
       // 녹음 시작
       mediaRecorder.start(1000) // 1초마다 데이터 수집
       setIsRecordingAudio(true)
-      setProcessingStatus("시스템 오디오 녹음 중... URL에서 오디오를 재생해주세요.")
       console.log("🎙️ URL 시스템 오디오 녹음 시작 성공!")
       
-      // 스트림 종료 감지
+      // 스트림 종료 감지 (사용자가 화면 공유 중지 시)
       audioTracks[0].onended = () => {
-        console.log("🎙️ 시스템 오디오 트랙 종료됨")
-        stopUrlAudioRecording()
+        console.log("🎙️ 시스템 오디오 트랙 종료됨 (사용자가 화면 공유 중지)")
+        if (isRecordingAudio) {
+          // 자동으로 녹음 완료 처리
+          handleUrlRecordingComplete()
+        }
       }
+      
+      return true
       
     } catch (err) {
       console.error("🎙️ URL 시스템 오디오 캡처 실패:", err)
-      setError(`시스템 오디오 캡처 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
+      if ((err as Error).name === "NotAllowedError") {
+        setError("화면 공유가 취소되었습니다.")
+      } else {
+        setError(`시스템 오디오 캡처 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
+      }
       setIsRecordingAudio(false)
+      return false
     }
   }
+  
+  // 녹음 스트림 참조
+  const recordingStreamRef = useRef<MediaStream | null>(null)
   
   // URL 오디오 녹음 중지
   const stopUrlAudioRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
       console.log("🎙️ URL 오디오 녹음 중지 요청")
+    }
+    
+    // 스트림 정리
+    if (recordingStreamRef.current) {
+      recordingStreamRef.current.getTracks().forEach(track => track.stop())
+      recordingStreamRef.current = null
+    }
+  }
+  
+  // URL 녹음 완료 처리 (녹음 완료 버튼 클릭 시 또는 화면 공유 종료 시)
+  const handleUrlRecordingComplete = async () => {
+    console.log("🎙️ URL 녹음 완료 처리 시작")
+    
+    // 녹음 중지
+    stopUrlAudioRecording()
+    
+    // 약간의 딜레이 (MediaRecorder 종료 대기)
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    // 녹음된 청크 확인
+    if (audioChunksRef.current.length === 0) {
+      setError("녹음된 오디오가 없습니다. 오디오가 재생되는 동안 녹음을 진행해주세요.")
+      setRecordMode("idle")
+      setUploadProgress(0)
+      setProcessingStatus("")
+      return
+    }
+    
+    console.log("🎙️ 녹음된 청크 수:", audioChunksRef.current.length)
+    
+    // 오디오 Blob 생성
+    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+    console.log("🎙️ 오디오 Blob 생성 완료, 크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
+    
+    if (audioBlob.size < 1000) {
+      setError("녹음된 오디오가 너무 짧습니다. 오디오를 더 길게 녹음해주세요.")
+      setRecordMode("idle")
+      setUploadProgress(0)
+      setProcessingStatus("")
+      audioChunksRef.current = []
+      return
+    }
+    
+    setProcessingStatus("음성 인식 중... (AssemblyAI)")
+    setUploadProgress(50)
+    
+    try {
+      // AssemblyAI로 STT 처리
+      const formData = new FormData()
+      formData.append('audio', audioBlob, 'recording.webm')
+      formData.append('language', sourceLanguage === 'auto' ? '' : sourceLanguage)
+      
+      console.log("🎙️ AssemblyAI 업로드 시작...")
+      
+      const response = await fetch('/api/assemblyai/transcribe', {
+        method: 'POST',
+        body: formData,
+      })
+      
+      const result = await response.json()
+      
+      if (!result.success) {
+        throw new Error(result.error || '음성 인식 실패')
+      }
+      
+      console.log("🎙️ AssemblyAI 결과:", result)
+      setUploadProgress(80)
+      setProcessingStatus("데이터 처리 중...")
+      
+      // handleTranscriptReady와 동일한 처리
+      setAssemblyResult(result)
+      
+      // 세션 생성
+      let newSessionId: string | null = null
+      if (userId) {
+        const { count } = await supabase
+          .from("translation_sessions")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .eq("session_type", "record")
+        
+        const sessionNumber = (count || 0) + 1
+        const title = `URL 녹음 ${sessionNumber}`
+        
+        const { data: session, error } = await supabase
+          .from("translation_sessions")
+          .insert({
+            user_id: userId,
+            title,
+            session_type: "record",
+            source_language: result.language || sourceLanguage,
+            target_languages: targetLanguage === "none" ? [] : [targetLanguage],
+            status: "completed",
+            total_utterances: result.utterances?.length || 0,
+          })
+          .select()
+          .single()
+        
+        if (!error && session) {
+          newSessionId = session.id
+          setSessionId(session.id)
+          setCurrentSessionTitle(session.title)
+          console.log("🎙️ 세션 생성 완료:", session.id)
+        }
+      }
+      
+      // 오디오 파일 업로드
+      if (newSessionId && userId) {
+        setProcessingStatus("오디오 저장 중...")
+        const fileName = `${newSessionId}_${Date.now()}.webm`
+        const filePath = `recordings/${userId}/${fileName}`
+        
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('audio-recordings')
+          .upload(filePath, audioBlob, {
+            contentType: 'audio/webm',
+            upsert: true
+          })
+        
+        if (!uploadError && uploadData) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('audio-recordings')
+            .getPublicUrl(filePath)
+          
+          // 세션에 audio_url 저장
+          await supabase
+            .from('translation_sessions')
+            .update({ audio_url: publicUrl })
+            .eq('id', newSessionId)
+          
+          setSessionAudioUrl(publicUrl)
+          console.log("🎙️ 오디오 URL 저장 완료:", publicUrl)
+        }
+      }
+      
+      // 발화 변환
+      const detectedSourceLang = result.language || sourceLanguage
+      const items: TranscriptItem[] = (result.utterances || []).map((u: any, idx: number) => ({
+        id: `url-${idx}-${Date.now()}`,
+        speaker: u.speaker || "A",
+        speakerName: `화자 ${u.speaker || "A"}`,
+        original: u.text,
+        translated: "",
+        sourceLanguage: detectedSourceLang,
+        targetLanguage: targetLanguage,
+        timestamp: new Date(),
+        start: u.start || 0,
+        end: u.end || 0,
+      }))
+      
+      setTranscripts(items)
+      setUploadProgress(90)
+      
+      // 번역 처리 (targetLanguage가 있는 경우)
+      if (targetLanguage !== "none" && items.length > 0) {
+        setProcessingStatus("번역 중...")
+        const translatedItems = await Promise.all(
+          items.map(async (item) => {
+            try {
+              const res = await fetch("/api/translate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  text: item.original,
+                  sourceLanguage: detectedSourceLang,
+                  targetLanguage: targetLanguage,
+                }),
+              })
+              const data = await res.json()
+              return { ...item, translated: data.translatedText || "" }
+            } catch {
+              return item
+            }
+          })
+        )
+        setTranscripts(translatedItems)
+        
+        // DB 저장
+        if (newSessionId) {
+          await saveUtterancesToDb(translatedItems, newSessionId)
+        }
+        
+        // 자동 AI 처리
+        if (newSessionId) {
+          await autoProcessAfterRecording(newSessionId, translatedItems)
+        }
+      } else {
+        // DB 저장
+        if (newSessionId) {
+          await saveUtterancesToDb(items, newSessionId)
+        }
+        
+        // 자동 AI 처리
+        if (newSessionId && items.length > 0) {
+          await autoProcessAfterRecording(newSessionId, items)
+        }
+      }
+      
+      // 세션 목록 새로고침
+      await loadSessions()
+      
+      setUploadProgress(100)
+      setProcessingStatus("")
+      setRecordMode("idle")
+      setAudioUrl("")
+      audioChunksRef.current = []
+      setError(null)
+      
+      console.log("🎙️ URL 녹음 처리 완료!")
+      
+    } catch (err) {
+      console.error("🎙️ URL 녹음 처리 오류:", err)
+      setError(err instanceof Error ? err.message : "음성 인식 중 오류가 발생했습니다")
+      setRecordMode("idle")
+      setUploadProgress(0)
+      setProcessingStatus("")
+      audioChunksRef.current = []
     }
   }
   
@@ -1623,7 +1853,7 @@ You MUST follow this format exactly. Do not deviate from this format.`
     return patterns.some(pattern => pattern.test(url))
   }
 
-  // URL 전사
+  // URL 전사 - 모든 URL (YouTube 포함)을 시스템 오디오 캡처 + AssemblyAI 방식으로 처리
   const handleUrlTranscribe = async () => {
     if (!audioUrl.trim()) {
       setError("URL을 입력해주세요")
@@ -1636,157 +1866,34 @@ You MUST follow this format exactly. Do not deviate from this format.`
     setDocumentTextTranslated("")
     setRecordMode("url")
     setUploadProgress(10)
-    setProcessingStatus("URL 분석 중...")
-
-    // YouTube URL인 경우 자막 API 사용
-    if (isYouTubeUrl(audioUrl)) {
-      try {
-        setProcessingStatus("YouTube 자막 추출 중...")
-        setUploadProgress(30)
-
-        const response = await fetch("/api/youtube/transcript", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            youtubeUrl: audioUrl,
-            targetLanguage: targetLanguage !== "none" ? targetLanguage : undefined,
-          }),
-        })
-
-        const data = await response.json()
-
-        if (!data.success) {
-          throw new Error(data.error || "YouTube 자막을 가져올 수 없습니다")
-        }
-
-        setUploadProgress(70)
-        setProcessingStatus("데이터 변환 중...")
-
-        // 세션 생성
-        let newSessionId: string | null = null
-        if (userId) {
-          const { count } = await supabase
-            .from("translation_sessions")
-            .select("*", { count: "exact", head: true })
-            .eq("user_id", userId)
-            .eq("session_type", "record")
-          
-          const sessionNumber = (count || 0) + 1
-          const title = data.videoTitle || `YouTube 녹음 ${sessionNumber}`
-          
-          const { data: session, error } = await supabase
-            .from("translation_sessions")
-            .insert({
-              user_id: userId,
-              title,
-              session_type: "record",
-              source_language: data.language || sourceLanguage,
-              target_languages: targetLanguage === "none" ? [] : [targetLanguage],
-              status: "completed",
-              total_utterances: data.utterances?.length || 0,
-              metadata: {
-                youtubeVideoId: data.videoId,
-                youtubeTitle: data.videoTitle,
-                duration: data.duration,
-              },
-            })
-            .select()
-            .single()
-
-          if (!error && session) {
-            newSessionId = session.id
-            setSessionId(session.id)
-            setCurrentSessionTitle(session.title)
-          }
-        }
-
-        // 발화 변환
-        const items: TranscriptItem[] = (data.utterances || []).map((u: any, idx: number) => ({
-          id: `youtube-${idx}`,
-          speaker: u.speaker || "A",
-          speakerName: "화자 A",
-          original: u.text,
-          translated: u.translated || "",
-          sourceLanguage: data.language || sourceLanguage,
-          targetLanguage: targetLanguage,
-          timestamp: new Date(),
-          start: u.start || 0,
-          end: u.end || 0,
-        }))
-
-        setTranscripts(items)
-        setUploadProgress(100)
-
-        // DB 저장
-        if (newSessionId) {
-          await saveUtterancesToDb(items, newSessionId)
-        }
-
-        // YouTube URL의 경우 오디오 URL을 metadata에 저장 (CORS 문제로 직접 다운로드 어려움)
-        // 필요시 YouTube API를 통해 오디오를 가져올 수 있도록 URL 저장
-        if (newSessionId && audioUrl) {
-          // YouTube URL을 audio_url에 저장 (재생 시 사용)
-          const { error: updateError } = await supabase
-            .from('translation_sessions')
-            .update({ 
-              audio_url: audioUrl, // YouTube URL 저장
-              metadata: {
-                ...((await supabase.from('translation_sessions').select('metadata').eq('id', newSessionId).single()).data?.metadata || {}),
-                youtubeVideoId: data.videoId,
-                youtubeTitle: data.videoTitle,
-                duration: data.duration,
-                isYouTubeUrl: true
-              }
-            })
-            .eq('id', newSessionId)
-          
-          if (!updateError) {
-            setSessionAudioUrl(audioUrl)
-            console.log("🎙️ YouTube URL 저장 완료:", audioUrl)
-          }
-        }
-
-        // 자동 AI 처리
-        if (newSessionId && items.length > 0) {
-          await autoProcessAfterRecording(newSessionId, items)
-        }
-
-        // 세션 목록 새로고침
-        await loadSessions()
-
-        setProcessingStatus("")
-        setRecordMode("idle")
-        setUploadProgress(0)
-        setAudioUrl("")
-
-      } catch (err) {
-        console.error("YouTube 처리 오류:", err)
-        setError(err instanceof Error ? err.message : "YouTube 처리 중 오류가 발생했습니다")
-        setRecordMode("idle")
-        setUploadProgress(0)
-        setProcessingStatus("")
-      }
-    } else {
-      // 일반 오디오 URL인 경우
-      // 1. 먼저 시스템 오디오 캡처 시작 (사용자가 URL에서 오디오를 재생할 수 있도록)
-      setProcessingStatus("시스템 오디오 캡처 준비 중...")
-      
-      // 시스템 오디오 녹음 시작
-      await startUrlAudioRecording()
-      
-      // 2. 사용자에게 안내 메시지 표시
-      setError("📢 안내: 화면 공유 팝업에서 오디오 공유를 체크하고, URL에서 오디오를 재생해주세요.\n재생이 완료되면 전사를 시작합니다.")
-      
-      // 3. URL 전사 시작 (녹음과 동시에 진행)
-      setProcessingStatus("오디오 파일 분석 중...")
-      await transcribeFromUrl(audioUrl)
-      
-      // 4. 전사 완료 후 녹음 중지 (handleTranscriptReady에서 처리됨)
+    
+    const isYouTube = isYouTubeUrl(audioUrl)
+    
+    // 모든 URL에 대해 시스템 오디오 캡처 방식 사용
+    // YouTube의 경우 자막 API가 차단되어 있어 시스템 오디오 녹음 후 AssemblyAI로 STT 처리
+    setProcessingStatus("시스템 오디오 캡처 준비 중...")
+    
+    // 1. 시스템 오디오 녹음 시작
+    const recordingStarted = await startUrlAudioRecording()
+    
+    if (!recordingStarted) {
+      // 사용자가 화면 공유를 취소한 경우
       setRecordMode("idle")
       setUploadProgress(0)
-      setAudioUrl("")
-      // 세션 목록 새로고침 (AssemblyAI 콜백에서 처리됨)
+      return
     }
+    
+    // 2. 사용자에게 안내 메시지 표시
+    if (isYouTube) {
+      setError(`📢 YouTube 오디오 녹음 준비 완료!\n\n1. 새 탭에서 YouTube 영상을 여세요: ${audioUrl}\n2. 영상을 재생하세요\n3. 영상이 끝나면 아래 '녹음 완료' 버튼을 클릭하세요`)
+    } else {
+      setError(`📢 오디오 녹음 준비 완료!\n\n1. URL에서 오디오를 재생하세요\n2. 재생이 끝나면 아래 '녹음 완료' 버튼을 클릭하세요`)
+    }
+    
+    setProcessingStatus("🎙️ 시스템 오디오 녹음 중... 오디오 재생 후 '녹음 완료' 버튼을 클릭하세요")
+    setUploadProgress(30)
+    
+    // 녹음 완료 버튼은 UI에서 처리 (사용자가 직접 클릭)
   }
   
   // 파일 업로드
@@ -2451,19 +2558,70 @@ You MUST follow this format exactly. Do not deviate from this format.`
                 </div>
               )}
 
+              {/* URL 시스템 오디오 녹음 중 */}
+              {isRecordingAudio && recordMode === "url" && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <div
+                      className="w-16 h-16 rounded-full bg-orange-500 animate-pulse flex items-center justify-center"
+                    >
+                      <Radio className="h-8 w-8 text-white" />
+                    </div>
+                    <div>
+                      <div className="text-xl font-bold text-orange-600">
+                        🎙️ 시스템 오디오 녹음 중
+                      </div>
+                      <div className="text-sm text-slate-500">
+                        URL에서 오디오를 재생하세요. 재생이 끝나면 아래 버튼을 클릭하세요.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                    <div className="text-sm text-orange-700 space-y-1">
+                      <p>📌 <strong>사용 방법:</strong></p>
+                      <p>1. 새 탭에서 URL을 열고 오디오를 재생하세요</p>
+                      <p>2. 녹음할 내용이 모두 재생되면 아래 버튼 클릭</p>
+                      <p>3. 자동으로 음성인식 및 번역이 진행됩니다</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleUrlRecordingComplete}
+                      className="flex-1 bg-orange-500 hover:bg-orange-600"
+                    >
+                      <Square className="h-4 w-4 mr-2" />
+                      녹음 완료 (음성인식 시작)
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        stopUrlAudioRecording()
+                        setRecordMode("idle")
+                        setUploadProgress(0)
+                        setProcessingStatus("")
+                        setError(null)
+                        audioChunksRef.current = []
+                      }}
+                    >
+                      취소
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* 처리 중 (녹음, 파일, URL 모두) */}
-              {isProcessing && (
+              {isProcessing && !isRecordingAudio && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-4">
                     <Loader2 className="h-12 w-12 text-teal-500 animate-spin" />
                     <div>
                       <div className="font-medium text-lg text-teal-700">
-                        {uploadProgress < 30 ? "파일 업로드 중..." : uploadProgress < 70 ? "음성 분석 중..." : "전사 결과 처리 중..."}
+                        {processingStatus || (uploadProgress < 30 ? "파일 업로드 중..." : uploadProgress < 70 ? "음성 분석 중..." : "전사 결과 처리 중...")}
                       </div>
                       <div className="text-sm text-slate-500">
                         {recordMode === "file" && "파일을 처리하고 있습니다. 파일 크기에 따라 시간이 걸릴 수 있습니다."}
                         {recordMode === "recording" && "녹음된 음성을 분석하고 있습니다."}
-                        {recordMode === "url" && "URL에서 음성을 추출하고 분석하고 있습니다."}
+                        {recordMode === "url" && !isRecordingAudio && "URL에서 음성을 추출하고 분석하고 있습니다."}
                         {recordMode === "idle" && "음성을 처리하고 있습니다."}
                       </div>
                     </div>
