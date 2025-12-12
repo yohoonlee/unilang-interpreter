@@ -3004,107 +3004,113 @@ You MUST follow this format exactly. Do not deviate from this format.`
                 </div>
               )}
 
-              {/* YouTube 자막 로드 완료 - 오디오 녹음 대기 */}
-              {recordMode === "pendingAudio" && pendingYoutubeData && !isRecordingAudio && (
+              {/* YouTube 자막 로드 완료 - 오디오 녹음 (대기/진행) */}
+              {recordMode === "pendingAudio" && pendingYoutubeData && (
                 <div className="space-y-4">
-                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
-                        <Check className="h-5 w-5 text-white" />
+                  {/* 상태 표시 - 녹음 대기 중 */}
+                  {!isRecordingAudio && (
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
+                          <Check className="h-5 w-5 text-white" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-green-700">✅ 자막 로드 완료!</div>
+                          <div className="text-sm text-green-600">{pendingYoutubeData.videoTitle}</div>
+                        </div>
+                      </div>
+                      <div className="text-sm text-green-700">
+                        {transcripts.length}개 자막 | {Math.floor(pendingYoutubeData.duration / 60)}분 {Math.floor(pendingYoutubeData.duration % 60)}초
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* 상태 표시 - 녹음 중 */}
+                  {isRecordingAudio && (
+                    <div className="flex items-center gap-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                      <div className="w-12 h-12 rounded-full bg-red-500 animate-pulse flex items-center justify-center">
+                        <Radio className="h-6 w-6 text-white" />
                       </div>
                       <div>
-                        <div className="font-bold text-green-700">✅ 자막 로드 완료!</div>
-                        <div className="text-sm text-green-600">{pendingYoutubeData.videoTitle}</div>
+                        <div className="text-lg font-bold text-red-600">🔴 오디오 녹음 중</div>
+                        <div className="text-sm text-slate-500">{pendingYoutubeData.videoTitle}</div>
                       </div>
                     </div>
-                    <div className="text-sm text-green-700 mb-3">
-                      {transcripts.length}개 자막 | {Math.floor(pendingYoutubeData.duration / 60)}분 {Math.floor(pendingYoutubeData.duration % 60)}초
-                    </div>
-                  </div>
+                  )}
                   
-                  {/* YouTube 영상 Embed (IFrame API 제어) */}
-                  <div className="aspect-video w-full rounded-lg overflow-hidden border border-slate-200 bg-black">
+                  {/* YouTube 영상 Embed (항상 표시 - 플레이어 유지) */}
+                  <div className={`aspect-video w-full rounded-lg overflow-hidden bg-black ${isRecordingAudio ? 'border-2 border-red-400' : 'border border-slate-200'}`}>
                     <div id="youtube-player-record" className="w-full h-full" />
                   </div>
                   
-                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
-                    <div className="text-sm text-orange-700 space-y-1">
-                      <p>🎬 <strong>간편 녹음 방법:</strong></p>
-                      <p>1. 아래 <strong>"오디오 녹음 시작"</strong> 버튼 클릭</p>
-                      <p>2. 화면 공유 팝업에서 <strong>"이 탭"</strong> 선택 + <strong>"탭 오디오 공유"</strong> 체크</p>
-                      <p>3. ✅ 영상이 <strong>자동으로 처음부터 재생</strong>됩니다</p>
-                      <p>4. 영상이 끝나면 <strong>자동 종료</strong> 또는 "녹음 완료" 클릭</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={startYoutubeAudioRecording}
-                      className="flex-1 bg-orange-500 hover:bg-orange-600"
-                    >
-                      <Radio className="h-4 w-4 mr-2" />
-                      오디오 녹음 시작
-                    </Button>
-                    <Button 
-                      variant="outline"
-                      onClick={skipYoutubeAudioRecording}
-                      className="border-slate-300"
-                    >
-                      녹음 건너뛰기
-                    </Button>
-                  </div>
-                </div>
-              )}
-              
-              {/* YouTube 오디오 녹음 중 (자막 로드 후) */}
-              {recordMode === "pendingAudio" && pendingYoutubeData && isRecordingAudio && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-4">
-                    <div
-                      className="w-16 h-16 rounded-full bg-red-500 animate-pulse flex items-center justify-center"
-                    >
-                      <Radio className="h-8 w-8 text-white" />
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold text-red-600">
-                        🔴 오디오 녹음 중
-                      </div>
-                      <div className="text-sm text-slate-500">
-                        {pendingYoutubeData.videoTitle}
+                  {/* 안내 메시지 - 녹음 대기 중 */}
+                  {!isRecordingAudio && (
+                    <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                      <div className="text-sm text-orange-700 space-y-1">
+                        <p>🎬 <strong>간편 녹음 방법:</strong></p>
+                        <p>1. 아래 <strong>"오디오 녹음 시작"</strong> 버튼 클릭</p>
+                        <p>2. 화면 공유 팝업에서 <strong>"이 탭"</strong> 선택 + <strong>"탭 오디오 공유"</strong> 체크</p>
+                        <p>3. ✅ 영상이 <strong>자동으로 처음부터 재생</strong>됩니다</p>
+                        <p>4. 영상이 끝나면 <strong>자동 종료</strong> 또는 "녹음 완료" 클릭</p>
                       </div>
                     </div>
-                  </div>
+                  )}
                   
-                  {/* YouTube 영상 - 녹음 중 (자동 재생됨) */}
-                  <div className="aspect-video w-full rounded-lg overflow-hidden border-2 border-red-400 bg-black">
-                    <div id="youtube-player-record" className="w-full h-full" />
-                  </div>
-                  
-                  <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                    <div className="text-sm text-red-700 space-y-1">
-                      <p>🎬 <strong>영상이 자동 재생 중입니다!</strong></p>
-                      <p>영상이 끝나면 자동으로 녹음이 종료됩니다.</p>
-                      <p>또는 아래 "녹음 완료" 버튼을 클릭하세요.</p>
+                  {/* 안내 메시지 - 녹음 중 */}
+                  {isRecordingAudio && (
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                      <div className="text-sm text-red-700 space-y-1">
+                        <p>🎬 <strong>영상이 자동 재생 중입니다!</strong></p>
+                        <p>영상이 끝나면 자동으로 녹음이 종료됩니다.</p>
+                        <p>또는 아래 "녹음 완료" 버튼을 클릭하세요.</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={handleYoutubeAudioRecordingComplete}
-                      className="flex-1 bg-red-500 hover:bg-red-600"
-                    >
-                      <Square className="h-4 w-4 mr-2" />
-                      녹음 완료
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      onClick={() => {
-                        stopUrlAudioRecording()
-                        setError(null)
-                      }}
-                    >
-                      취소
-                    </Button>
-                  </div>
+                  )}
+                  
+                  {/* 버튼 - 녹음 대기 중 */}
+                  {!isRecordingAudio && (
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={startYoutubeAudioRecording}
+                        className="flex-1 bg-orange-500 hover:bg-orange-600"
+                      >
+                        <Radio className="h-4 w-4 mr-2" />
+                        오디오 녹음 시작
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        onClick={skipYoutubeAudioRecording}
+                        className="border-slate-300"
+                      >
+                        녹음 건너뛰기
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {/* 버튼 - 녹음 중 */}
+                  {isRecordingAudio && (
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleYoutubeAudioRecordingComplete}
+                        className="flex-1 bg-red-500 hover:bg-red-600"
+                      >
+                        <Square className="h-4 w-4 mr-2" />
+                        녹음 완료
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => {
+                          if (youtubePlayerRef.current) {
+                            youtubePlayerRef.current.pauseVideo()
+                          }
+                          stopUrlAudioRecording()
+                          setError(null)
+                        }}
+                      >
+                        취소
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
 
