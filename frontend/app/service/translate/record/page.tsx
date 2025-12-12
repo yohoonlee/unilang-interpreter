@@ -2035,13 +2035,24 @@ You MUST follow this format exactly. Do not deviate from this format.`
           setIsYoutubePlayerReady(true)
         },
         onStateChange: (event) => {
-          // 영상이 재생 시작되면 시간 기록 (동기화용)
+          console.log("🎬 YouTube Player 상태 변경:", event.data, "(1=재생, 0=종료, 2=일시정지, 3=버퍼링)")
+          
+          // 영상이 실제로 재생 시작되면 시간 기록 (동기화 핵심!)
           if (event.data === 1 && isRecordingAudioRef.current) { // 1 = playing
             if (videoPlayStartTimeRef.current === 0) {
               videoPlayStartTimeRef.current = Date.now()
               // 녹음 시작과 영상 재생 시작 사이의 오프셋 계산 (초 단위)
               audioOffsetRef.current = (videoPlayStartTimeRef.current - actualRecordingStartRef.current) / 1000
-              console.log("🎬 영상 재생 시작! 오프셋:", audioOffsetRef.current.toFixed(2), "초")
+              
+              console.log("🎬 ===== 영상 실제 재생 시작 =====")
+              console.log("   녹음 시작:", new Date(actualRecordingStartRef.current).toISOString())
+              console.log("   영상 시작:", new Date(videoPlayStartTimeRef.current).toISOString())
+              console.log("   오프셋:", audioOffsetRef.current.toFixed(3), "초")
+              console.log("   → 자막 0초 = 녹음 파일", audioOffsetRef.current.toFixed(2), "초 위치")
+              console.log("🎬 ================================")
+              
+              // UI 상태 업데이트
+              setProcessingStatus(`🎙️ 녹음 중 (오프셋: ${audioOffsetRef.current.toFixed(1)}초)`)
             }
           }
           // 영상이 끝나면 자동으로 녹음 완료 처리 (ref 사용으로 클로저 문제 해결)
@@ -2235,28 +2246,21 @@ You MUST follow this format exactly. Do not deviate from this format.`
     if (youtubePlayerRef.current && isYoutubePlayerReady) {
       console.log("🎬 영상 자동 재생 준비")
       
+      // 오프셋 초기화 (onStateChange에서 실제 재생 시작 시 계산됨)
+      videoPlayStartTimeRef.current = 0
+      audioOffsetRef.current = 0
+      
       // 1. 영상을 처음으로 이동
       youtubePlayerRef.current.seekTo(0, true)
       
       // 2. 약간의 딜레이 후 재생 시작 (seekTo 완료 대기)
-      await new Promise(resolve => setTimeout(resolve, 300))
+      await new Promise(resolve => setTimeout(resolve, 500))
       
-      // 3. 재생 시작
+      // 3. 재생 시작 - 실제 재생은 onStateChange에서 감지됨
+      console.log("🎬 playVideo() 호출, 녹음 시작 시간:", actualRecordingStartRef.current)
       youtubePlayerRef.current.playVideo()
       
-      // 4. 재생 시작 직후 시간 기록
-      await new Promise(resolve => setTimeout(resolve, 100)) // 재생 시작 안정화
-      videoPlayStartTimeRef.current = Date.now()
-      
-      // 5. 오프셋 계산: 녹음 파일에서 영상 시작 위치 = (영상 시작 - 녹음 시작) / 1000
-      audioOffsetRef.current = (videoPlayStartTimeRef.current - actualRecordingStartRef.current) / 1000
-      
-      console.log("🎬 녹음 & 영상 동기화 시작!")
-      console.log("   - 녹음 시작:", actualRecordingStartRef.current)
-      console.log("   - 영상 시작:", videoPlayStartTimeRef.current)
-      console.log("   - 오프셋:", audioOffsetRef.current.toFixed(2), "초")
-      
-      setProcessingStatus("🎙️ 녹음 중... 영상이 자동 재생됩니다")
+      setProcessingStatus("🎙️ 녹음 중... 영상 재생 대기")
     } else {
       console.log("🎬 플레이어 준비 안됨, 수동 재생 필요")
       videoPlayStartTimeRef.current = 0
