@@ -1132,19 +1132,30 @@ function RecordTranslatePageContent() {
           translated = await translateText(item.text, sourceLanguage, targetLanguage)
         }
         
-        const baseItem = transcripts[item.merged_from[0]] || transcripts[0]
+        // 합쳐진 자막의 시간 범위 계산
+        // 첫 번째 원본 자막의 start ~ 마지막 원본 자막의 end
+        const firstIndex = item.merged_from[0]
+        const lastIndex = item.merged_from[item.merged_from.length - 1]
+        const firstItem = transcripts[firstIndex] || transcripts[0]
+        const lastItem = transcripts[lastIndex] || transcripts[transcripts.length - 1]
+        
+        // 시간 범위 계산 (첫 번째의 start, 마지막의 end)
+        const mergedStart = firstItem.start
+        const mergedEnd = lastItem.end !== undefined ? lastItem.end : firstItem.end
+        
+        console.log(`🔄 AI 재정리: 자막 ${item.merged_from.join(',')} 합침 → start: ${mergedStart}, end: ${mergedEnd}`)
         
         newTranscripts.push({
           id: `reorganized-${Date.now()}-${Math.random()}`,
-          speaker: baseItem.speaker,
-          speakerName: baseItem.speakerName,
+          speaker: firstItem.speaker,
+          speakerName: firstItem.speakerName,
           original: item.text,
           translated,
-          sourceLanguage: baseItem.sourceLanguage,
-          targetLanguage: baseItem.targetLanguage,
-          timestamp: baseItem.timestamp,
-          start: baseItem.start,
-          end: baseItem.end,
+          sourceLanguage: firstItem.sourceLanguage,
+          targetLanguage: firstItem.targetLanguage,
+          timestamp: firstItem.timestamp,
+          start: mergedStart,
+          end: mergedEnd,
         })
       }
 
