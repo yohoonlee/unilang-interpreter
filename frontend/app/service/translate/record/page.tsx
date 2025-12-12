@@ -2174,25 +2174,11 @@ You MUST follow this format exactly. Do not deviate from this format.`
         onStateChange: (event) => {
           console.log("🎬 YouTube Player 상태 변경:", event.data, "(1=재생, 0=종료, 2=일시정지, 3=버퍼링)")
           
-          // 영상이 실제로 재생 시작되면 → 녹음도 시작! (동기화 핵심!)
+          // 영상이 재생 시작되면 로그만 출력 (녹음은 startYoutubeAudioRecording에서 이미 시작됨)
           if (event.data === 1) { // 1 = playing
-            // 녹음 준비 상태이고 아직 녹음 시작 안했으면 → 지금 시작!
-            if (mediaRecorderRef.current && 
-                mediaRecorderRef.current.state === 'inactive' && 
-                !isRecordingAudioRef.current) {
-              console.log("🎬🎙️ ===== 영상 재생 시작 & 녹음 동시 시작! =====")
-              
-              // 녹음 시작! (영상과 동시에!)
-              startActualRecording()
-              videoPlayStartTimeRef.current = Date.now()
-              
-              console.log("   영상 & 녹음 동시 시작:", new Date().toISOString())
-              console.log("   오프셋: 0초 (완벽 동기화!)")
-              console.log("🎬🎙️ =========================================")
-              
-              setProcessingStatus("🎙️ 녹음 중... (영상과 동기화됨)")
-            }
+            console.log("🎬 영상 재생 중, 녹음 상태:", isRecordingAudioRef.current ? "녹음 중" : "대기")
           }
+          
           // 영상이 끝나면 자동으로 녹음 완료 처리
           if (event.data === 0 && isRecordingAudioRef.current) { // 0 = ended
             console.log("🎬 영상 재생 완료, 녹음 자동 종료")
@@ -2373,7 +2359,7 @@ You MUST follow this format exactly. Do not deviate from this format.`
     setError(null)
     setProcessingStatus("시스템 오디오 캡처 준비 중...")
     
-    // 1단계: 화면 공유 + MediaRecorder 준비 (아직 녹음 시작 안함!)
+    // 1단계: 화면 공유 + MediaRecorder 준비
     const prepared = await prepareUrlAudioRecording()
     
     if (!prepared) {
@@ -2382,25 +2368,29 @@ You MUST follow this format exactly. Do not deviate from this format.`
     
     // YouTube 플레이어가 준비되어 있으면 자동 재생
     if (youtubePlayerRef.current && isYoutubePlayerReady) {
-      console.log("🎬 영상 자동 재생 준비 (녹음은 재생 시작 시 동시 시작됨)")
-      
-      // 오프셋 초기화
-      videoPlayStartTimeRef.current = 0
-      audioOffsetRef.current = 0
+      console.log("🎬 영상 자동 재생 준비")
       
       // 1. 영상을 처음으로 이동
       youtubePlayerRef.current.seekTo(0, true)
       
-      // 2. 약간의 딜레이 후 재생 시작 (seekTo 완료 대기)
+      // 2. seekTo 완료 대기
       await new Promise(resolve => setTimeout(resolve, 500))
       
-      // 3. 재생 시작 → onStateChange에서 state === 1 감지 → 거기서 녹음 시작!
-      console.log("🎬 playVideo() 호출, 녹음은 영상 재생 시작과 동시에 시작됨")
+      // 3. ⭐ 녹음 먼저 시작! (영상보다 먼저)
+      console.log("🎙️ 녹음 먼저 시작!")
+      startActualRecording()
+      
+      // 4. ⭐ 즉시 영상 재생! (녹음 시작 직후)
+      console.log("🎬 영상 재생 시작! (녹음 이미 진행 중)")
       youtubePlayerRef.current.playVideo()
       
-      setProcessingStatus("⏳ 영상 재생 & 녹음 시작 대기...")
+      // 오프셋은 0 (녹음 시작 직후 영상 재생이므로 거의 동시)
+      videoPlayStartTimeRef.current = Date.now()
+      audioOffsetRef.current = 0
+      
+      setProcessingStatus("🎙️ 녹음 중... (영상과 동기화됨)")
     } else {
-      // 플레이어 준비 안됨 → 기존 방식으로 녹음 즉시 시작
+      // 플레이어 준비 안됨 → 녹음 즉시 시작
       console.log("🎬 플레이어 준비 안됨, 녹음 즉시 시작")
       startActualRecording()
       videoPlayStartTimeRef.current = 0
