@@ -24,6 +24,10 @@ Reorganize them into natural, complete sentences.
 3. Remove filler words like "음", "어", "그", "저기", "um", "uh", "like", "you know".
 4. Merge related incomplete segments into complete sentences.
 5. Keep the original order (sort by first number in merged_from).
+6. **NEVER SPLIT a single segment into multiple sentences.** Only MERGE segments, never divide them.
+   - OK: [1] + [2] → one merged sentence (merge)
+   - OK: [3] → one sentence (keep as-is)
+   - BAD: [4] → two separate sentences (split is NOT allowed)
 
 Input (${sourceLangName}):
 ${utteranceText}
