@@ -2884,8 +2884,25 @@ You MUST follow this format exactly. Do not deviate from this format.`
                     <div className="text-sm text-green-700 mb-3">
                       {transcripts.length}개 자막 | {Math.floor(pendingYoutubeData.duration / 60)}분 {Math.floor(pendingYoutubeData.duration % 60)}초
                     </div>
-                    <div className="text-sm text-slate-600 bg-white p-3 rounded border border-green-100">
-                      💡 <strong>오디오 녹음</strong>을 진행하면 각 자막 구간별로 음성을 재생할 수 있습니다.
+                  </div>
+                  
+                  {/* YouTube 영상 Embed */}
+                  <div className="aspect-video w-full rounded-lg overflow-hidden border border-slate-200 bg-black">
+                    <iframe
+                      src={`https://www.youtube.com/embed/${pendingYoutubeData.videoId}?enablejsapi=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`}
+                      className="w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
+                  
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                    <div className="text-sm text-orange-700 space-y-1">
+                      <p>🎬 <strong>오디오 녹음 방법:</strong></p>
+                      <p>1. 아래 <strong>"오디오 녹음 시작"</strong> 버튼 클릭</p>
+                      <p>2. 화면 공유 팝업에서 <strong>"이 탭"</strong> 선택 + <strong>"탭 오디오 공유"</strong> 체크</p>
+                      <p>3. 위 영상을 <strong>처음부터 재생</strong></p>
+                      <p>4. 영상 끝나면 <strong>"녹음 완료"</strong> 클릭</p>
                     </div>
                   </div>
                   
@@ -2905,9 +2922,6 @@ You MUST follow this format exactly. Do not deviate from this format.`
                       녹음 건너뛰기
                     </Button>
                   </div>
-                  <p className="text-xs text-slate-500 text-center">
-                    오디오 녹음: YouTube 영상을 재생하면서 시스템 오디오를 캡처합니다
-                  </p>
                 </div>
               )}
               
@@ -2916,31 +2930,40 @@ You MUST follow this format exactly. Do not deviate from this format.`
                 <div className="space-y-4">
                   <div className="flex items-center gap-4">
                     <div
-                      className="w-16 h-16 rounded-full bg-orange-500 animate-pulse flex items-center justify-center"
+                      className="w-16 h-16 rounded-full bg-red-500 animate-pulse flex items-center justify-center"
                     >
                       <Radio className="h-8 w-8 text-white" />
                     </div>
                     <div>
-                      <div className="text-xl font-bold text-orange-600">
-                        🎬 YouTube 오디오 녹음 중
+                      <div className="text-xl font-bold text-red-600">
+                        🔴 오디오 녹음 중
                       </div>
                       <div className="text-sm text-slate-500">
                         {pendingYoutubeData.videoTitle}
                       </div>
                     </div>
                   </div>
-                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
-                    <div className="text-sm text-orange-700 space-y-1">
-                      <p>📌 <strong>녹음 방법:</strong></p>
-                      <p>1. YouTube 영상을 <strong>처음부터</strong> 재생하세요</p>
-                      <p>2. 영상이 끝나면 아래 버튼 클릭</p>
-                      <p>3. 자막과 오디오가 자동으로 연결됩니다</p>
+                  
+                  {/* YouTube 영상 Embed - 녹음 중에도 표시 */}
+                  <div className="aspect-video w-full rounded-lg overflow-hidden border-2 border-red-400 bg-black">
+                    <iframe
+                      src={`https://www.youtube.com/embed/${pendingYoutubeData.videoId}?enablejsapi=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`}
+                      className="w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
+                  
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="text-sm text-red-700 space-y-1">
+                      <p>🎬 <strong>위 영상을 처음부터 재생하세요!</strong></p>
+                      <p>영상 재생이 끝나면 아래 "녹음 완료" 버튼을 클릭하세요.</p>
                     </div>
                   </div>
                   <div className="flex gap-2">
                     <Button
                       onClick={handleYoutubeAudioRecordingComplete}
-                      className="flex-1 bg-orange-500 hover:bg-orange-600"
+                      className="flex-1 bg-red-500 hover:bg-red-600"
                     >
                       <Square className="h-4 w-4 mr-2" />
                       녹음 완료
