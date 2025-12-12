@@ -176,7 +176,9 @@ function RecordTranslatePageContent() {
   // YouTube Player API (녹음 동기화용)
   const youtubePlayerRef = useRef<YTPlayer | null>(null)
   const [isYoutubePlayerReady, setIsYoutubePlayerReady] = useState(false)
-  const recordingStartTimeRef = useRef<number>(0) // 녹음 시작 시간 (동기화용)
+  const recordingStartTimeRef = useRef<number>(0) // 녹음 시작 시간
+  const videoPlayStartTimeRef = useRef<number>(0) // 영상 실제 재생 시작 시간 (동기화용)
+  const audioOffsetRef = useRef<number>(0) // 오디오 오프셋 (초 단위)
   
   // 오디오 재생 관련
   const [sessionAudioUrl, setSessionAudioUrl] = useState<string | null>(null) // 세션의 녹음 파일 URL
@@ -190,7 +192,9 @@ function RecordTranslatePageContent() {
   const audioSourceRef = useRef<HTMLAudioElement | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const [isRecordingAudio, setIsRecordingAudio] = useState(false)
+  const isRecordingAudioRef = useRef(false) // 클로저 문제 해결용
   const [isUploadingAudio, setIsUploadingAudio] = useState(false)
+  const [isProcessingYoutube, setIsProcessingYoutube] = useState(false) // AI 처리 중 로딩 상태
   
   // 전사 결과
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([])
@@ -662,6 +666,7 @@ function RecordTranslatePageContent() {
       // 녹음 시작
       mediaRecorder.start(1000) // 1초마다 데이터 수집
       setIsRecordingAudio(true)
+      isRecordingAudioRef.current = true
       console.log("🎙️ URL 시스템 오디오 녹음 시작 성공!")
       
       // 스트림 종료 감지 (사용자가 화면 공유 중지 시)
@@ -693,6 +698,10 @@ function RecordTranslatePageContent() {
   // URL 오디오 녹음 중지 (Promise 반환)
   const stopUrlAudioRecording = (): Promise<void> => {
     return new Promise((resolve) => {
+      // 녹음 상태 업데이트
+      setIsRecordingAudio(false)
+      isRecordingAudioRef.current = false
+      
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         // onstop 핸들러가 완료될 때 resolve
         const originalOnStop = mediaRecorderRef.current.onstop
@@ -1013,7 +1022,9 @@ function RecordTranslatePageContent() {
   
   // 특정 시점부터 오디오 재생 (endTimeMs가 있으면 해당 구간만 재생) - 마이크녹음과 동일
   const playAudioFromTime = (itemId: string, startTimeMs?: number, endTimeMs?: number) => {
-    console.log("🔊 playAudioFromTime 호출:", { itemId, startTimeMs, endTimeMs, sessionAudioUrl: sessionAudioUrl ? "있음" : "없음" })
+    // YouTube 녹음의 경우 오프셋 적용 (녹음 시작과 영상 재생 시작 사이의 시간차)
+    const offset = audioOffsetRef.current || 0
+    console.log("🔊 playAudioFromTime 호출:", { itemId, startTimeMs, endTimeMs, offset, sessionAudioUrl: sessionAudioUrl ? "있음" : "없음" })
     
     if (!sessionAudioUrl) {
       console.log("🔊 오디오 URL이 없습니다")
@@ -1029,18 +1040,20 @@ function RecordTranslatePageContent() {
     const audio = new Audio(sessionAudioUrl)
     audioPlayerRef.current = audio
     
-    // 시작 시간이 있으면 해당 시점으로 이동
-    if (startTimeMs !== undefined && startTimeMs > 0) {
-      audio.currentTime = startTimeMs / 1000 // ms → seconds
-      console.log("🔊 오디오 재생:", startTimeMs / 1000, "초부터", endTimeMs ? `${endTimeMs / 1000}초까지` : "끝까지")
+    // 시작 시간이 있으면 해당 시점으로 이동 (오프셋 적용)
+    if (startTimeMs !== undefined && startTimeMs >= 0) {
+      // 자막 타임스탬프 + 오프셋 = 실제 녹음 파일에서의 위치
+      const adjustedStartTime = (startTimeMs / 1000) + offset
+      audio.currentTime = Math.max(0, adjustedStartTime) // 음수 방지
+      console.log("🔊 오디오 재생:", adjustedStartTime.toFixed(2), "초부터 (원본:", startTimeMs / 1000, "초, 오프셋:", offset.toFixed(2), "초)")
     }
     
-    // endTimeMs가 있으면 해당 시점에서 멈추기
+    // endTimeMs가 있으면 해당 시점에서 멈추기 (오프셋 적용)
     if (endTimeMs !== undefined && endTimeMs > 0) {
-      const endTimeSeconds = endTimeMs / 1000
-      console.log("🔊 종료 시간 설정:", endTimeSeconds, "초")
+      const adjustedEndTime = (endTimeMs / 1000) + offset
+      console.log("🔊 종료 시간 설정:", adjustedEndTime.toFixed(2), "초 (원본:", endTimeMs / 1000, "초)")
       audio.ontimeupdate = () => {
-        if (audio.currentTime >= endTimeSeconds) {
+        if (audio.currentTime >= adjustedEndTime) {
           console.log("🔊 종료 시간 도달, 재생 중지")
           audio.pause()
           setIsPlayingAudio(false)
@@ -2010,8 +2023,17 @@ You MUST follow this format exactly. Do not deviate from this format.`
           setIsYoutubePlayerReady(true)
         },
         onStateChange: (event) => {
-          // 영상이 끝나면 자동으로 녹음 완료 처리
-          if (event.data === 0 && isRecordingAudio) { // 0 = ended
+          // 영상이 재생 시작되면 시간 기록 (동기화용)
+          if (event.data === 1 && isRecordingAudioRef.current) { // 1 = playing
+            if (videoPlayStartTimeRef.current === 0) {
+              videoPlayStartTimeRef.current = Date.now()
+              // 녹음 시작과 영상 재생 시작 사이의 오프셋 계산 (초 단위)
+              audioOffsetRef.current = (videoPlayStartTimeRef.current - recordingStartTimeRef.current) / 1000
+              console.log("🎬 영상 재생 시작! 오프셋:", audioOffsetRef.current.toFixed(2), "초")
+            }
+          }
+          // 영상이 끝나면 자동으로 녹음 완료 처리 (ref 사용으로 클로저 문제 해결)
+          if (event.data === 0 && isRecordingAudioRef.current) { // 0 = ended
             console.log("🎬 영상 재생 완료, 녹음 자동 종료")
             handleYoutubeAudioRecordingComplete()
           }
@@ -2199,6 +2221,8 @@ You MUST follow this format exactly. Do not deviate from this format.`
     
     // 녹음 시작 시간 기록 (동기화용)
     recordingStartTimeRef.current = Date.now()
+    videoPlayStartTimeRef.current = 0 // 초기화 (영상 재생 시 설정됨)
+    audioOffsetRef.current = 0 // 초기화
     
     // YouTube 플레이어가 준비되어 있으면 자동 재생
     if (youtubePlayerRef.current && isYoutubePlayerReady) {
@@ -2218,6 +2242,9 @@ You MUST follow this format exactly. Do not deviate from this format.`
     
     console.log("🎬 YouTube 오디오 녹음 완료 처리 시작")
     
+    // 처리 중 상태 설정 (UI 블록)
+    setIsProcessingYoutube(true)
+    
     // YouTube 영상 일시정지
     if (youtubePlayerRef.current) {
       youtubePlayerRef.current.pauseVideo()
@@ -2233,6 +2260,7 @@ You MUST follow this format exactly. Do not deviate from this format.`
     
     if (validChunks.length === 0) {
       setError("⚠️ 오디오가 녹음되지 않았습니다.\n화면 공유 시 '탭 오디오도 공유'를 체크했는지 확인하세요.")
+      setIsProcessingYoutube(false)
       return
     }
     
@@ -2242,6 +2270,7 @@ You MUST follow this format exactly. Do not deviate from this format.`
     
     if (audioBlob.size < 1000) {
       setError("⚠️ 녹음된 오디오가 너무 짧습니다.")
+      setIsProcessingYoutube(false)
       return
     }
     
@@ -2295,12 +2324,14 @@ You MUST follow this format exactly. Do not deviate from this format.`
       setPendingYoutubeData(null)
       audioChunksRef.current = []
       setError(null)
+      setIsProcessingYoutube(false)
       
       console.log("🎬 YouTube 오디오 녹음 처리 완료!")
       
     } catch (err) {
       console.error("🎬 YouTube 오디오 처리 오류:", err)
       setError(err instanceof Error ? err.message : "오디오 처리 중 오류가 발생했습니다")
+      setIsProcessingYoutube(false)
     }
   }
   
@@ -3004,8 +3035,35 @@ You MUST follow this format exactly. Do not deviate from this format.`
                 </div>
               )}
 
+              {/* YouTube 처리 중 로딩 화면 */}
+              {isProcessingYoutube && (
+                <div className="space-y-4">
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <Loader2 className="h-16 w-16 text-teal-500 animate-spin mb-4" />
+                    <div className="text-xl font-bold text-teal-700 mb-2">
+                      {processingStatus || "처리 중..."}
+                    </div>
+                    <div className="text-sm text-slate-500 text-center">
+                      AI 재정리, 문서 정리, 요약 생성 중입니다.<br/>
+                      잠시만 기다려 주세요...
+                    </div>
+                    {uploadProgress > 0 && (
+                      <div className="w-full max-w-xs mt-4">
+                        <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-teal-500 transition-all duration-300"
+                            style={{ width: `${uploadProgress}%` }}
+                          />
+                        </div>
+                        <div className="text-xs text-slate-400 text-center mt-1">{uploadProgress}%</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* YouTube 자막 로드 완료 - 오디오 녹음 (대기/진행) */}
-              {recordMode === "pendingAudio" && pendingYoutubeData && (
+              {recordMode === "pendingAudio" && pendingYoutubeData && !isProcessingYoutube && (
                 <div className="space-y-4">
                   {/* 상태 표시 - 녹음 대기 중 */}
                   {!isRecordingAudio && (
