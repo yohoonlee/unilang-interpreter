@@ -224,6 +224,7 @@ function RecordTranslatePageContent() {
   const [isReorganizing, setIsReorganizing] = useState(false)
   const [selectedForMerge, setSelectedForMerge] = useState<Set<string>>(new Set())
   const [mergeMode, setMergeMode] = useState(false)
+  const [skipAiReorganize, setSkipAiReorganize] = useState(false) // AI 재정리 건너뛰기 옵션 (디버깅용)
   const [isReTranslating, setIsReTranslating] = useState(false)
   
   // 확인 모달
@@ -553,10 +554,12 @@ function RecordTranslatePageContent() {
   // 녹음 종료 후 자동 AI 처리
   async function autoProcessAfterRecording(sessId: string, items: TranscriptItem[]) {
     try {
-      // 1. AI 재정리 (items가 2개 이상일 때만)
-      if (items.length >= 2) {
+      // 1. AI 재정리 (items가 2개 이상일 때만, skipAiReorganize가 false일 때만)
+      if (items.length >= 2 && !skipAiReorganize) {
         setError("🔄 AI 재정리 중...")
         await reorganizeSentences()
+      } else if (skipAiReorganize) {
+        console.log("⏭️ AI 재정리 건너뛰기 (디버깅 모드)")
       }
       
       // 2. 문서 정리 (items 전달)
@@ -577,6 +580,143 @@ function RecordTranslatePageContent() {
   // ========== URL 오디오 녹음 기능 ==========
   
   // URL 녹음: 시스템 오디오 캡처 시작 (YouTube 기능과 동일)
+  // MediaRecorder 준비 완료 상태 (start 대기)
+  const [isRecorderReady, setIsRecorderReady] = useState(false)
+  
+  // YouTube 영상용: 화면 공유 + MediaRecorder 준비 (start는 하지 않음!)
+  const prepareUrlAudioRecording = async (): Promise<boolean> => {
+    try {
+      console.log("🎙️ [준비] 시스템 오디오 캡처 준비 시작")
+      
+      // 기존 녹음 정리
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      
+      audioChunksRef.current = []
+      
+      // getDisplayMedia로 화면 + 시스템 오디오 캡처
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+        // @ts-expect-error - Chrome specific options
+        preferCurrentTab: true,
+        selfBrowserSurface: "include",
+      })
+
+      // 오디오 트랙 확인
+      const audioTracks = stream.getAudioTracks()
+      if (audioTracks.length === 0) {
+        setError("⚠️ 오디오가 캡처되지 않았습니다!\n\n화면 공유 팝업에서:\n1. 'Chrome 탭' 선택\n2. 오디오가 재생되는 탭 선택\n3. '탭 오디오도 공유' 체크 ✅\n4. '공유' 클릭")
+        stream.getTracks().forEach(track => track.stop())
+        return false
+      }
+
+      console.log("🎙️ [준비] 시스템 오디오 트랙 캡처 성공:", audioTracks[0].label)
+      
+      // 비디오 트랙 중지 (오디오만 필요)
+      stream.getVideoTracks().forEach(track => track.stop())
+      
+      // 오디오 트랙만 포함하는 새 스트림 생성
+      const audioOnlyStream = new MediaStream(audioTracks)
+      
+      // MediaRecorder 설정
+      let mimeType = 'audio/webm;codecs=opus'
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/webm'
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'audio/mp4'
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = ''
+          }
+        }
+      }
+      console.log("🎙️ [준비] 사용할 mimeType:", mimeType || '기본값')
+      
+      // MediaRecorder 생성 (아직 start 하지 않음!)
+      const mediaRecorder = mimeType 
+        ? new MediaRecorder(audioOnlyStream, { mimeType })
+        : new MediaRecorder(audioOnlyStream)
+      
+      mediaRecorderRef.current = mediaRecorder
+      audioSourceRef.current = null
+      audioContextRef.current = null
+      recordingStreamRef.current = stream
+      
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data)
+        if (audioChunksRef.current.length % 5 === 0) {
+          console.log(`🎙️ 청크 ${audioChunksRef.current.length}: 크기=${event.data.size} bytes`)
+        }
+      }
+      
+      mediaRecorder.onstop = () => {
+        console.log("🎙️ URL 오디오 녹음 중지, 청크 수:", audioChunksRef.current.length)
+        setIsRecordingAudio(false)
+        setIsRecorderReady(false)
+        stream.getTracks().forEach(track => track.stop())
+      }
+      
+      mediaRecorder.onerror = (event) => {
+        console.error("🎙️ URL 오디오 녹음 오류:", event)
+        setIsRecordingAudio(false)
+        setIsRecorderReady(false)
+        stream.getTracks().forEach(track => track.stop())
+      }
+      
+      // 스트림 종료 감지
+      audioTracks[0].onended = () => {
+        console.log("🎙️ 시스템 오디오 트랙 종료됨")
+        if (isRecordingAudioRef.current) {
+          handleUrlRecordingComplete()
+        }
+      }
+      
+      // 준비 완료! (아직 녹음 시작 안함)
+      setIsRecorderReady(true)
+      console.log("🎙️ [준비] MediaRecorder 준비 완료, 영상 재생 대기 중...")
+      
+      return true
+      
+    } catch (err) {
+      console.error("🎙️ [준비] 시스템 오디오 캡처 준비 실패:", err)
+      if ((err as Error).name === "NotAllowedError") {
+        setError("화면 공유가 취소되었습니다.")
+      } else {
+        setError(`시스템 오디오 캡처 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`)
+      }
+      return false
+    }
+  }
+  
+  // 실제 녹음 시작 (영상 재생 시작 시 호출)
+  const startActualRecording = () => {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== 'inactive') {
+      console.log("🎙️ [시작] MediaRecorder가 준비되지 않았거나 이미 녹음 중")
+      return false
+    }
+    
+    // 녹음 시작! (영상 재생과 동시에!)
+    mediaRecorderRef.current.start(1000)
+    actualRecordingStartRef.current = Date.now()
+    audioOffsetRef.current = 0 // 동시 시작이므로 오프셋 0!
+    
+    setIsRecordingAudio(true)
+    isRecordingAudioRef.current = true
+    
+    console.log("🎙️ ===== 실제 녹음 시작! =====")
+    console.log("   시작 시간:", new Date(actualRecordingStartRef.current).toISOString())
+    console.log("   오프셋: 0초 (영상과 동시 시작)")
+    console.log("🎙️ ============================")
+    
+    return true
+  }
+  
+  // 일반 URL용: 기존 방식 (화면 공유 + 즉시 녹음 시작)
   const startUrlAudioRecording = async (): Promise<boolean> => {
     try {
       console.log("🎙️ URL 시스템 오디오 캡처 시작")
@@ -588,9 +728,9 @@ function RecordTranslatePageContent() {
       
       audioChunksRef.current = []
       
-      // getDisplayMedia로 화면 + 시스템 오디오 캡처 (YouTube Live 기능과 동일)
+      // getDisplayMedia로 화면 + 시스템 오디오 캡처
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true, // 화면 공유 필수 (오디오만 불가)
+        video: true,
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
@@ -612,48 +752,39 @@ function RecordTranslatePageContent() {
 
       console.log("🎙️ 시스템 오디오 트랙 캡처 성공:", audioTracks[0].label)
       
-      // 비디오 트랙 중지 (오디오만 필요)
       stream.getVideoTracks().forEach(track => track.stop())
-      
-      // 오디오 트랙만 포함하는 새 스트림 생성 (YouTube Live와 동일)
       const audioOnlyStream = new MediaStream(audioTracks)
       
-      // MediaRecorder 설정 (마이크녹음과 동일)
       let mimeType = 'audio/webm;codecs=opus'
       if (!MediaRecorder.isTypeSupported(mimeType)) {
         mimeType = 'audio/webm'
         if (!MediaRecorder.isTypeSupported(mimeType)) {
           mimeType = 'audio/mp4'
           if (!MediaRecorder.isTypeSupported(mimeType)) {
-            mimeType = '' // 기본값 사용
+            mimeType = ''
           }
         }
       }
-      console.log("🎙️ 사용할 mimeType:", mimeType || '기본값')
       
-      // 오디오 전용 스트림으로 MediaRecorder 생성
       const mediaRecorder = mimeType 
         ? new MediaRecorder(audioOnlyStream, { mimeType })
         : new MediaRecorder(audioOnlyStream)
       
       mediaRecorderRef.current = mediaRecorder
-      audioSourceRef.current = null // 시스템 오디오는 stream 사용
+      audioSourceRef.current = null
       audioContextRef.current = null
-      
-      // 스트림 참조 저장 (나중에 정리용)
       recordingStreamRef.current = stream
       
       mediaRecorder.ondataavailable = (event) => {
-        // 모든 데이터 추가 (빈 청크도 디버깅용으로)
         audioChunksRef.current.push(event.data)
-        console.log(`🎙️ 청크 ${audioChunksRef.current.length}: 크기=${event.data.size} bytes`)
+        if (audioChunksRef.current.length % 5 === 0) {
+          console.log(`🎙️ 청크 ${audioChunksRef.current.length}: 크기=${event.data.size} bytes`)
+        }
       }
       
       mediaRecorder.onstop = () => {
         console.log("🎙️ URL 오디오 녹음 중지, 청크 수:", audioChunksRef.current.length)
         setIsRecordingAudio(false)
-        
-        // 스트림 정리
         stream.getTracks().forEach(track => track.stop())
       }
       
@@ -663,18 +794,16 @@ function RecordTranslatePageContent() {
         stream.getTracks().forEach(track => track.stop())
       }
       
-      // 녹음 시작
-      mediaRecorder.start(1000) // 1초마다 데이터 수집
+      // 즉시 녹음 시작
+      mediaRecorder.start(1000)
       setIsRecordingAudio(true)
       isRecordingAudioRef.current = true
-      actualRecordingStartRef.current = Date.now() // 녹음 파일 실제 시작 시점 기록
-      console.log("🎙️ URL 시스템 오디오 녹음 시작 성공! 시작 시간:", actualRecordingStartRef.current)
+      actualRecordingStartRef.current = Date.now()
+      console.log("🎙️ URL 시스템 오디오 녹음 시작 성공!")
       
-      // 스트림 종료 감지 (사용자가 화면 공유 중지 시)
       audioTracks[0].onended = () => {
-        console.log("🎙️ 시스템 오디오 트랙 종료됨 (사용자가 화면 공유 중지)")
+        console.log("🎙️ 시스템 오디오 트랙 종료됨")
         if (isRecordingAudio) {
-          // 자동으로 녹음 완료 처리
           handleUrlRecordingComplete()
         }
       }
@@ -1025,7 +1154,15 @@ function RecordTranslatePageContent() {
   const playAudioFromTime = (itemId: string, startTimeMs?: number, endTimeMs?: number) => {
     // YouTube 녹음의 경우 오프셋 적용 (녹음 시작과 영상 재생 시작 사이의 시간차)
     const offset = audioOffsetRef.current || 0
-    console.log("🔊 playAudioFromTime 호출:", { itemId, startTimeMs, endTimeMs, offset, sessionAudioUrl: sessionAudioUrl ? "있음" : "없음" })
+    
+    console.log("🔊 ===== playAudioFromTime 호출 =====")
+    console.log("   itemId:", itemId)
+    console.log("   startTimeMs (자막 시간):", startTimeMs, "ms =", (startTimeMs || 0) / 1000, "초")
+    console.log("   endTimeMs:", endTimeMs, "ms =", (endTimeMs || 0) / 1000, "초")
+    console.log("   audioOffset:", offset, "초")
+    console.log("   → 계산: 자막시간", (startTimeMs || 0) / 1000, "+ 오프셋", offset, "=", ((startTimeMs || 0) / 1000) + offset, "초")
+    console.log("   sessionAudioUrl:", sessionAudioUrl ? "있음" : "없음")
+    console.log("🔊 ====================================")
     
     if (!sessionAudioUrl) {
       console.log("🔊 오디오 URL이 없습니다")
@@ -2037,25 +2174,26 @@ You MUST follow this format exactly. Do not deviate from this format.`
         onStateChange: (event) => {
           console.log("🎬 YouTube Player 상태 변경:", event.data, "(1=재생, 0=종료, 2=일시정지, 3=버퍼링)")
           
-          // 영상이 실제로 재생 시작되면 시간 기록 (동기화 핵심!)
-          if (event.data === 1 && isRecordingAudioRef.current) { // 1 = playing
-            if (videoPlayStartTimeRef.current === 0) {
+          // 영상이 실제로 재생 시작되면 → 녹음도 시작! (동기화 핵심!)
+          if (event.data === 1) { // 1 = playing
+            // 녹음 준비 상태이고 아직 녹음 시작 안했으면 → 지금 시작!
+            if (mediaRecorderRef.current && 
+                mediaRecorderRef.current.state === 'inactive' && 
+                !isRecordingAudioRef.current) {
+              console.log("🎬🎙️ ===== 영상 재생 시작 & 녹음 동시 시작! =====")
+              
+              // 녹음 시작! (영상과 동시에!)
+              startActualRecording()
               videoPlayStartTimeRef.current = Date.now()
-              // 녹음 시작과 영상 재생 시작 사이의 오프셋 계산 (초 단위)
-              audioOffsetRef.current = (videoPlayStartTimeRef.current - actualRecordingStartRef.current) / 1000
               
-              console.log("🎬 ===== 영상 실제 재생 시작 =====")
-              console.log("   녹음 시작:", new Date(actualRecordingStartRef.current).toISOString())
-              console.log("   영상 시작:", new Date(videoPlayStartTimeRef.current).toISOString())
-              console.log("   오프셋:", audioOffsetRef.current.toFixed(3), "초")
-              console.log("   → 자막 0초 = 녹음 파일", audioOffsetRef.current.toFixed(2), "초 위치")
-              console.log("🎬 ================================")
+              console.log("   영상 & 녹음 동시 시작:", new Date().toISOString())
+              console.log("   오프셋: 0초 (완벽 동기화!)")
+              console.log("🎬🎙️ =========================================")
               
-              // UI 상태 업데이트
-              setProcessingStatus(`🎙️ 녹음 중 (오프셋: ${audioOffsetRef.current.toFixed(1)}초)`)
+              setProcessingStatus("🎙️ 녹음 중... (영상과 동기화됨)")
             }
           }
-          // 영상이 끝나면 자동으로 녹음 완료 처리 (ref 사용으로 클로저 문제 해결)
+          // 영상이 끝나면 자동으로 녹음 완료 처리
           if (event.data === 0 && isRecordingAudioRef.current) { // 0 = ended
             console.log("🎬 영상 재생 완료, 녹음 자동 종료")
             handleYoutubeAudioRecordingComplete()
@@ -2235,18 +2373,18 @@ You MUST follow this format exactly. Do not deviate from this format.`
     setError(null)
     setProcessingStatus("시스템 오디오 캡처 준비 중...")
     
-    // 시스템 오디오 녹음 시작 (화면 공유 팝업)
-    const recordingStarted = await startUrlAudioRecording()
+    // 1단계: 화면 공유 + MediaRecorder 준비 (아직 녹음 시작 안함!)
+    const prepared = await prepareUrlAudioRecording()
     
-    if (!recordingStarted) {
+    if (!prepared) {
       return
     }
     
     // YouTube 플레이어가 준비되어 있으면 자동 재생
     if (youtubePlayerRef.current && isYoutubePlayerReady) {
-      console.log("🎬 영상 자동 재생 준비")
+      console.log("🎬 영상 자동 재생 준비 (녹음은 재생 시작 시 동시 시작됨)")
       
-      // 오프셋 초기화 (onStateChange에서 실제 재생 시작 시 계산됨)
+      // 오프셋 초기화
       videoPlayStartTimeRef.current = 0
       audioOffsetRef.current = 0
       
@@ -2256,13 +2394,15 @@ You MUST follow this format exactly. Do not deviate from this format.`
       // 2. 약간의 딜레이 후 재생 시작 (seekTo 완료 대기)
       await new Promise(resolve => setTimeout(resolve, 500))
       
-      // 3. 재생 시작 - 실제 재생은 onStateChange에서 감지됨
-      console.log("🎬 playVideo() 호출, 녹음 시작 시간:", actualRecordingStartRef.current)
+      // 3. 재생 시작 → onStateChange에서 state === 1 감지 → 거기서 녹음 시작!
+      console.log("🎬 playVideo() 호출, 녹음은 영상 재생 시작과 동시에 시작됨")
       youtubePlayerRef.current.playVideo()
       
-      setProcessingStatus("🎙️ 녹음 중... 영상 재생 대기")
+      setProcessingStatus("⏳ 영상 재생 & 녹음 시작 대기...")
     } else {
-      console.log("🎬 플레이어 준비 안됨, 수동 재생 필요")
+      // 플레이어 준비 안됨 → 기존 방식으로 녹음 즉시 시작
+      console.log("🎬 플레이어 준비 안됨, 녹음 즉시 시작")
+      startActualRecording()
       videoPlayStartTimeRef.current = 0
       audioOffsetRef.current = 0
       setProcessingStatus("🎙️ 녹음 중... 영상을 수동으로 재생하세요")
