@@ -36,12 +36,40 @@ import {
   Clock,
   Users,
   Radio,
+  Pause,
 } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { useAssemblyAI, formatDuration, AssemblyAIResult, AssemblyAIUtterance } from "@/hooks/useAssemblyAI"
+
+// YouTube Player 타입 정의
+interface YTPlayer {
+  playVideo: () => void
+  pauseVideo: () => void
+  seekTo: (seconds: number, allowSeekAhead?: boolean) => void
+  getCurrentTime: () => number
+  getDuration: () => number
+  getPlayerState: () => number
+  destroy: () => void
+}
+
+declare global {
+  interface Window {
+    YT: {
+      Player: new (elementId: string, options: {
+        videoId: string
+        playerVars?: Record<string, unknown>
+        events?: {
+          onReady?: (event: { target: YTPlayer }) => void
+          onStateChange?: (event: { data: number }) => void
+        }
+      }) => YTPlayer
+    }
+    onYouTubeIframeAPIReady: () => void
+  }
+}
 
 // 지원 언어 목록
 const LANGUAGES = [
@@ -144,6 +172,11 @@ function RecordTranslatePageContent() {
     items: TranscriptItem[]
     newSessionId: string | null
   } | null>(null)
+  
+  // YouTube Player API (녹음 동기화용)
+  const youtubePlayerRef = useRef<YTPlayer | null>(null)
+  const [isYoutubePlayerReady, setIsYoutubePlayerReady] = useState(false)
+  const recordingStartTimeRef = useRef<number>(0) // 녹음 시작 시간 (동기화용)
   
   // 오디오 재생 관련
   const [sessionAudioUrl, setSessionAudioUrl] = useState<string | null>(null) // 세션의 녹음 파일 URL
@@ -1899,6 +1932,93 @@ You MUST follow this format exactly. Do not deviate from this format.`
     ]
     return patterns.some(pattern => pattern.test(url))
   }
+  
+  // YouTube IFrame API 로드 및 플레이어 초기화
+  useEffect(() => {
+    if (!pendingYoutubeData?.videoId) return
+    
+    const loadPlayer = () => {
+      const checkAndInit = () => {
+        const playerElement = document.getElementById("youtube-player-record")
+        if (playerElement && !youtubePlayerRef.current) {
+          initializeYoutubePlayer()
+        } else if (!playerElement) {
+          setTimeout(checkAndInit, 100)
+        }
+      }
+      checkAndInit()
+    }
+    
+    // API가 이미 로드되어 있으면 플레이어 초기화
+    if (window.YT && window.YT.Player) {
+      loadPlayer()
+      return
+    }
+    
+    // API 로드
+    const existingScript = document.querySelector('script[src="https://www.youtube.com/iframe_api"]')
+    if (!existingScript) {
+      const tag = document.createElement("script")
+      tag.src = "https://www.youtube.com/iframe_api"
+      const firstScriptTag = document.getElementsByTagName("script")[0]
+      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag)
+    }
+    
+    // API 로드 완료 시 플레이어 초기화
+    window.onYouTubeIframeAPIReady = () => {
+      loadPlayer()
+    }
+    
+    // API가 이미 로드되었는데 콜백이 이미 호출된 경우
+    const checkAPILoaded = setInterval(() => {
+      if (window.YT && window.YT.Player) {
+        clearInterval(checkAPILoaded)
+        loadPlayer()
+      }
+    }, 100)
+    
+    return () => {
+      clearInterval(checkAPILoaded)
+      if (youtubePlayerRef.current) {
+        youtubePlayerRef.current.destroy()
+        youtubePlayerRef.current = null
+      }
+      setIsYoutubePlayerReady(false)
+    }
+  }, [pendingYoutubeData?.videoId])
+  
+  // YouTube 플레이어 초기화
+  const initializeYoutubePlayer = useCallback(() => {
+    if (!pendingYoutubeData?.videoId || youtubePlayerRef.current) return
+    
+    const playerElement = document.getElementById("youtube-player-record")
+    if (!playerElement) return
+    
+    console.log("🎬 YouTube Player 초기화:", pendingYoutubeData.videoId)
+    
+    youtubePlayerRef.current = new window.YT.Player("youtube-player-record", {
+      videoId: pendingYoutubeData.videoId,
+      playerVars: {
+        autoplay: 0, // 자동 재생 끄기 (녹음 시작 시 재생)
+        rel: 0,
+        enablejsapi: 1,
+        modestbranding: 1,
+      },
+      events: {
+        onReady: () => {
+          console.log("🎬 YouTube Player 준비 완료")
+          setIsYoutubePlayerReady(true)
+        },
+        onStateChange: (event) => {
+          // 영상이 끝나면 자동으로 녹음 완료 처리
+          if (event.data === 0 && isRecordingAudio) { // 0 = ended
+            console.log("🎬 영상 재생 완료, 녹음 자동 종료")
+            handleYoutubeAudioRecordingComplete()
+          }
+        }
+      }
+    })
+  }, [pendingYoutubeData?.videoId])
 
   // URL 전사 - YouTube는 자막 API, 일반 URL은 AssemblyAI 직접 전사
   const handleUrlTranscribe = async () => {
@@ -2077,8 +2197,19 @@ You MUST follow this format exactly. Do not deviate from this format.`
       return
     }
     
-    setError(`🎬 YouTube 오디오 녹음 중!\n\n1. YouTube 영상을 처음부터 재생하세요: ${audioUrl}\n2. 영상이 끝나면 아래 '녹음 완료' 버튼을 클릭하세요\n\n💡 자막은 이미 로드되어 있습니다. 오디오만 녹음하면 됩니다.`)
-    setProcessingStatus("🎙️ YouTube 오디오 녹음 중...")
+    // 녹음 시작 시간 기록 (동기화용)
+    recordingStartTimeRef.current = Date.now()
+    
+    // YouTube 플레이어가 준비되어 있으면 자동 재생
+    if (youtubePlayerRef.current && isYoutubePlayerReady) {
+      console.log("🎬 녹음 시작과 동시에 영상 자동 재생")
+      youtubePlayerRef.current.seekTo(0, true) // 영상 처음으로
+      youtubePlayerRef.current.playVideo() // 재생 시작
+      setProcessingStatus("🎙️ 녹음 중... 영상이 자동 재생됩니다")
+    } else {
+      console.log("🎬 플레이어 준비 안됨, 수동 재생 필요")
+      setProcessingStatus("🎙️ 녹음 중... 영상을 재생하세요")
+    }
   }
   
   // YouTube 오디오 녹음 완료 처리
@@ -2086,6 +2217,11 @@ You MUST follow this format exactly. Do not deviate from this format.`
     if (!pendingYoutubeData) return
     
     console.log("🎬 YouTube 오디오 녹음 완료 처리 시작")
+    
+    // YouTube 영상 일시정지
+    if (youtubePlayerRef.current) {
+      youtubePlayerRef.current.pauseVideo()
+    }
     
     // 녹음 중지 (onstop 완료까지 대기)
     await stopUrlAudioRecording()
@@ -2886,23 +3022,18 @@ You MUST follow this format exactly. Do not deviate from this format.`
                     </div>
                   </div>
                   
-                  {/* YouTube 영상 Embed */}
+                  {/* YouTube 영상 Embed (IFrame API 제어) */}
                   <div className="aspect-video w-full rounded-lg overflow-hidden border border-slate-200 bg-black">
-                    <iframe
-                      src={`https://www.youtube.com/embed/${pendingYoutubeData.videoId}?enablejsapi=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`}
-                      className="w-full h-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                    />
+                    <div id="youtube-player-record" className="w-full h-full" />
                   </div>
                   
                   <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
                     <div className="text-sm text-orange-700 space-y-1">
-                      <p>🎬 <strong>오디오 녹음 방법:</strong></p>
+                      <p>🎬 <strong>간편 녹음 방법:</strong></p>
                       <p>1. 아래 <strong>"오디오 녹음 시작"</strong> 버튼 클릭</p>
                       <p>2. 화면 공유 팝업에서 <strong>"이 탭"</strong> 선택 + <strong>"탭 오디오 공유"</strong> 체크</p>
-                      <p>3. 위 영상을 <strong>처음부터 재생</strong></p>
-                      <p>4. 영상 끝나면 <strong>"녹음 완료"</strong> 클릭</p>
+                      <p>3. ✅ 영상이 <strong>자동으로 처음부터 재생</strong>됩니다</p>
+                      <p>4. 영상이 끝나면 <strong>자동 종료</strong> 또는 "녹음 완료" 클릭</p>
                     </div>
                   </div>
                   
@@ -2944,20 +3075,16 @@ You MUST follow this format exactly. Do not deviate from this format.`
                     </div>
                   </div>
                   
-                  {/* YouTube 영상 Embed - 녹음 중에도 표시 */}
+                  {/* YouTube 영상 - 녹음 중 (자동 재생됨) */}
                   <div className="aspect-video w-full rounded-lg overflow-hidden border-2 border-red-400 bg-black">
-                    <iframe
-                      src={`https://www.youtube.com/embed/${pendingYoutubeData.videoId}?enablejsapi=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`}
-                      className="w-full h-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                    />
+                    <div id="youtube-player-record" className="w-full h-full" />
                   </div>
                   
                   <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
                     <div className="text-sm text-red-700 space-y-1">
-                      <p>🎬 <strong>위 영상을 처음부터 재생하세요!</strong></p>
-                      <p>영상 재생이 끝나면 아래 "녹음 완료" 버튼을 클릭하세요.</p>
+                      <p>🎬 <strong>영상이 자동 재생 중입니다!</strong></p>
+                      <p>영상이 끝나면 자동으로 녹음이 종료됩니다.</p>
+                      <p>또는 아래 "녹음 완료" 버튼을 클릭하세요.</p>
                     </div>
                   </div>
                   <div className="flex gap-2">
