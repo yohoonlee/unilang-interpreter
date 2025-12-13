@@ -700,17 +700,17 @@ function RecordTranslatePageContent() {
       return false
     }
     
-    // 녹음 시작! (영상 재생과 동시에!)
+    // 녹음 시작!
     mediaRecorderRef.current.start(1000)
     actualRecordingStartRef.current = Date.now()
-    audioOffsetRef.current = 0 // 동시 시작이므로 오프셋 0!
+    // 오프셋은 아직 설정하지 않음 - onStateChange에서 영상 실제 재생 시 설정
     
     setIsRecordingAudio(true)
     isRecordingAudioRef.current = true
     
     console.log("🎙️ ===== 실제 녹음 시작! =====")
-    console.log("   시작 시간:", new Date(actualRecordingStartRef.current).toISOString())
-    console.log("   오프셋: 0초 (영상과 동시 시작)")
+    console.log("   녹음 시작 시간:", new Date(actualRecordingStartRef.current).toISOString())
+    console.log("   (오프셋은 영상 실제 재생 시 계산됨)")
     console.log("🎙️ ============================")
     
     return true
@@ -1788,9 +1788,14 @@ You MUST follow this format exactly. Do not deviate from this format.`
       setShowSessionList(false)
       setShowDocumentInPanel(false)
       
-      // 🎙️ 오디오 URL 설정 (마이크녹음과 동일)
+      // 🎙️ 오디오 URL 및 오프셋 설정
       console.log("🔊 세션 로드 - audio_url:", session.audio_url)
       setSessionAudioUrl(session.audio_url || null)
+      
+      // 오프셋 복원 (YouTube 녹음의 경우)
+      const savedOffset = (session as any).metadata?.audioOffset || 0
+      audioOffsetRef.current = savedOffset
+      console.log("🔊 세션 로드 - 오디오 오프셋:", savedOffset, "초")
       
       // 발화 데이터 로드
       const { data: utterances, error } = await supabase
@@ -2174,9 +2179,28 @@ You MUST follow this format exactly. Do not deviate from this format.`
         onStateChange: (event) => {
           console.log("🎬 YouTube Player 상태 변경:", event.data, "(1=재생, 0=종료, 2=일시정지, 3=버퍼링)")
           
-          // 영상이 재생 시작되면 로그만 출력 (녹음은 startYoutubeAudioRecording에서 이미 시작됨)
+          // 영상이 실제로 재생 시작되면 오프셋 계산!
           if (event.data === 1) { // 1 = playing
-            console.log("🎬 영상 재생 중, 녹음 상태:", isRecordingAudioRef.current ? "녹음 중" : "대기")
+            const now = Date.now()
+            
+            // 녹음이 진행 중이고, 아직 오프셋이 계산되지 않았으면
+            if (isRecordingAudioRef.current && actualRecordingStartRef.current > 0 && videoPlayStartTimeRef.current === 0) {
+              videoPlayStartTimeRef.current = now
+              
+              // 오프셋 = (영상 실제 재생 시작 - 녹음 시작) / 1000 초
+              // 이 값만큼 녹음 파일에서 앞부분이 무음/버퍼링 상태
+              const offsetMs = now - actualRecordingStartRef.current
+              audioOffsetRef.current = offsetMs / 1000
+              
+              console.log("🎬🎙️ ===== 영상 실제 재생 시작! 오프셋 계산 =====")
+              console.log("   녹음 시작:", new Date(actualRecordingStartRef.current).toISOString())
+              console.log("   영상 재생:", new Date(now).toISOString())
+              console.log("   오프셋:", audioOffsetRef.current.toFixed(3), "초")
+              console.log("   → 자막 시간 + 오프셋 = 녹음 파일 위치")
+              console.log("🎬🎙️ =============================================")
+            } else {
+              console.log("🎬 영상 재생 중, 녹음 상태:", isRecordingAudioRef.current ? "녹음 중" : "대기")
+            }
           }
           
           // 영상이 끝나면 자동으로 녹음 완료 처리
@@ -2376,19 +2400,21 @@ You MUST follow this format exactly. Do not deviate from this format.`
       // 2. seekTo 완료 대기
       await new Promise(resolve => setTimeout(resolve, 500))
       
-      // 3. ⭐ 녹음 먼저 시작! (영상보다 먼저)
+      // 3. 오프셋 계산을 위해 초기화
+      videoPlayStartTimeRef.current = 0  // onStateChange에서 설정됨
+      audioOffsetRef.current = 0         // onStateChange에서 계산됨
+      
+      // 4. ⭐ 녹음 먼저 시작! (영상보다 먼저)
       console.log("🎙️ 녹음 먼저 시작!")
       startActualRecording()
       
-      // 4. ⭐ 즉시 영상 재생! (녹음 시작 직후)
-      console.log("🎬 영상 재생 시작! (녹음 이미 진행 중)")
+      // 5. ⭐ 즉시 영상 재생! (녹음 시작 직후)
+      // → 버퍼링 후 실제 재생 시작 시 onStateChange(1) 호출됨
+      // → 그때 오프셋이 계산됨
+      console.log("🎬 영상 재생 요청! (버퍼링 후 실제 재생 시 오프셋 계산)")
       youtubePlayerRef.current.playVideo()
       
-      // 오프셋은 0 (녹음 시작 직후 영상 재생이므로 거의 동시)
-      videoPlayStartTimeRef.current = Date.now()
-      audioOffsetRef.current = 0
-      
-      setProcessingStatus("🎙️ 녹음 중... (영상과 동기화됨)")
+      setProcessingStatus("🎙️ 녹음 중... (영상 버퍼링 대기)")
     } else {
       // 플레이어 준비 안됨 → 녹음 즉시 시작
       console.log("🎬 플레이어 준비 안됨, 녹음 즉시 시작")
@@ -2458,14 +2484,20 @@ You MUST follow this format exactly. Do not deviate from this format.`
             .from('audio-recordings')
             .getPublicUrl(filePath)
           
-          // 세션에 audio_url 저장
+          // 세션에 audio_url 및 오프셋 저장
+          const currentOffset = audioOffsetRef.current
           await supabase
             .from('translation_sessions')
-            .update({ audio_url: publicUrl })
+            .update({ 
+              audio_url: publicUrl,
+              metadata: {
+                audioOffset: currentOffset  // 녹음 시작 ~ 영상 재생 시작 간 오프셋 (초)
+              }
+            })
             .eq('id', pendingYoutubeData.newSessionId)
           
           setSessionAudioUrl(publicUrl)
-          console.log("🎬 오디오 URL 저장 완료:", publicUrl)
+          console.log("🎬 오디오 URL 저장 완료:", publicUrl, "오프셋:", currentOffset, "초")
         }
       }
       
