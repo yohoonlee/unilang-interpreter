@@ -2216,7 +2216,7 @@ You MUST follow this format exactly. Do not deviate from this format.`
     })
   }, [pendingYoutubeData?.videoId])
 
-  // URL 전사 - YouTube는 자막 API, 일반 URL은 AssemblyAI 직접 전사
+  // URL 전사 - YouTube/일반 URL 모두 시스템 오디오 녹음 후 AssemblyAI STT
   const handleUrlTranscribe = async () => {
     if (!audioUrl.trim()) {
       setError("URL을 입력해주세요")
@@ -2227,132 +2227,51 @@ You MUST follow this format exactly. Do not deviate from this format.`
     setTranscripts([])
     setDocumentTextOriginal("")
     setDocumentTextTranslated("")
-    setRecordMode("url")
     setUploadProgress(10)
     setProcessingStatus("URL 분석 중...")
 
-    // YouTube URL인 경우 자막 API 사용
+    // YouTube URL인 경우: 영상 임베드 후 녹음 모드로 전환 (자막 API 사용 안함!)
     if (isYouTubeUrl(audioUrl)) {
-      try {
-        setProcessingStatus("YouTube 자막 추출 중...")
-        setUploadProgress(30)
-
-        const response = await fetch("/api/youtube/transcript", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            youtubeUrl: audioUrl,
-            targetLanguage: targetLanguage !== "none" ? targetLanguage : undefined,
-          }),
-        })
-
-        const data = await response.json()
-
-        if (!data.success) {
-          // 자막 API 실패 시 시스템 오디오 캡처 모드로 전환
-          if (data.useRealtimeMode) {
-            setError(`⚠️ ${data.error}\n\n대안: 시스템 오디오 녹음 모드를 사용하시겠습니까?\n아래 '시스템 오디오 녹음' 버튼을 클릭하세요.`)
-            setRecordMode("idle")
-            setUploadProgress(0)
-            setProcessingStatus("")
-            return
-          }
-          throw new Error(data.error || "YouTube 자막을 가져올 수 없습니다")
-        }
-
-        setUploadProgress(70)
-        setProcessingStatus("데이터 변환 중...")
-
-        // 세션 생성
-        let newSessionId: string | null = null
-        if (userId) {
-          const { count } = await supabase
-            .from("translation_sessions")
-            .select("*", { count: "exact", head: true })
-            .eq("user_id", userId)
-            .eq("session_type", "record")
-          
-          const sessionNumber = (count || 0) + 1
-          const title = data.videoTitle || `YouTube 녹음 ${sessionNumber}`
-          
-          const { data: session, error } = await supabase
-            .from("translation_sessions")
-            .insert({
-              user_id: userId,
-              title,
-              session_type: "record",
-              source_language: data.language || sourceLanguage,
-              target_languages: targetLanguage === "none" ? [] : [targetLanguage],
-              status: "completed",
-              total_utterances: data.utterances?.length || 0,
-              metadata: {
-                youtubeVideoId: data.videoId,
-                youtubeTitle: data.videoTitle,
-                duration: data.duration,
-              },
-            })
-            .select()
-            .single()
-
-          if (!error && session) {
-            newSessionId = session.id
-            setSessionId(session.id)
-            setCurrentSessionTitle(session.title)
-          }
-        }
-
-        // 발화 변환 (첫 번째 자막 시간 기준으로 보정 → 0초부터 시작)
-        const utterances = data.utterances || []
-        const firstStartTime = utterances.length > 0 ? (utterances[0].start || 0) : 0
-        console.log("🎬 YouTube 자막 시간 보정: 첫 번째 자막 시작 시간 =", firstStartTime, "ms → 0으로 보정")
-        
-        const items: TranscriptItem[] = utterances.map((u: any, idx: number) => ({
-          id: `youtube-${idx}-${Date.now()}`,
-          speaker: u.speaker || "A",
-          speakerName: `화자 ${u.speaker || "A"}`,
-          original: u.text,
-          translated: u.translated || "",
-          sourceLanguage: data.language || sourceLanguage,
-          targetLanguage: targetLanguage,
-          timestamp: new Date(),
-          // ⭐ 첫 번째 자막 시작 시간을 빼서 0초부터 시작하도록 보정
-          start: Math.max(0, (u.start || 0) - firstStartTime),
-          end: Math.max(0, (u.end || 0) - firstStartTime),
-        }))
-
-        setTranscripts(items)
-        setUploadProgress(100)
-
-        // DB 저장
-        if (newSessionId) {
-          await saveUtterancesToDb(items, newSessionId)
-        }
-
-        // 세션 목록 새로고침
-        await loadSessions()
-
-        // 오디오 녹음 대기 상태로 전환 (자막은 로드됨, 오디오 녹음 필요)
-        setPendingYoutubeData({
-          videoId: data.videoId,
-          videoTitle: data.videoTitle,
-          duration: data.duration,
-          items,
-          newSessionId,
-        })
-        
-        setProcessingStatus("")
-        setRecordMode("pendingAudio")
-        setUploadProgress(0)
-        // audioUrl은 유지 (녹음 시 참조용)
-
-      } catch (err) {
-        console.error("YouTube 처리 오류:", err)
-        setError(err instanceof Error ? err.message : "YouTube 처리 중 오류가 발생했습니다")
-        setRecordMode("idle")
+      const videoId = extractYouTubeVideoId(audioUrl)
+      if (!videoId) {
+        setError("유효하지 않은 YouTube URL입니다")
         setUploadProgress(0)
         setProcessingStatus("")
+        return
       }
-    } else {
+      
+      // YouTube 제목 가져오기 (oEmbed)
+      let videoTitle = `YouTube 영상`
+      try {
+        const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`)
+        if (oembedRes.ok) {
+          const oembedData = await oembedRes.json()
+          videoTitle = oembedData.title || videoTitle
+        }
+      } catch (e) {
+        console.log("YouTube 제목 가져오기 실패, 기본 제목 사용")
+      }
+      
+      console.log("🎬 YouTube 직접 녹음 모드: videoId =", videoId, ", title =", videoTitle)
+      
+      // pendingYoutubeData 설정 (자막 없이, 녹음 후 STT)
+      setPendingYoutubeData({
+        videoId,
+        videoTitle,
+        duration: 0, // 녹음 후 계산
+        items: [], // 녹음 후 STT로 채움
+        newSessionId: null, // 녹음 후 세션 생성
+      })
+      
+      setRecordMode("pendingAudio")
+      setUploadProgress(0)
+      setProcessingStatus("🎬 YouTube 영상 준비 완료. '오디오 녹음 시작' 버튼을 클릭하세요.")
+      return
+    }
+    
+    // 일반 오디오/비디오 URL인 경우도 시스템 오디오 녹음 모드로 전환
+    // (직접 URL에서 오디오를 가져오기 어려운 경우가 많음)
+    {
       // 일반 오디오/비디오 URL인 경우 AssemblyAI 직접 전사
       setProcessingStatus("오디오 파일 분석 중...")
       await transcribeFromUrl(audioUrl)
@@ -2433,11 +2352,11 @@ You MUST follow this format exactly. Do not deviate from this format.`
     }
   }
   
-  // YouTube 오디오 녹음 완료 처리
+  // YouTube 오디오 녹음 완료 처리 (AssemblyAI STT 사용)
   const handleYoutubeAudioRecordingComplete = async () => {
     if (!pendingYoutubeData) return
     
-    console.log("🎬 YouTube 오디오 녹음 완료 처리 시작")
+    console.log("🎬 YouTube 오디오 녹음 완료 처리 시작 (AssemblyAI STT)")
     
     // 처리 중 상태 설정 (UI 블록)
     setIsProcessingYoutube(true)
@@ -2472,49 +2391,125 @@ You MUST follow this format exactly. Do not deviate from this format.`
     }
     
     setProcessingStatus("오디오 저장 중...")
-    setUploadProgress(50)
+    setUploadProgress(30)
     
     try {
-      // Supabase Storage에 오디오 업로드
-      if (pendingYoutubeData.newSessionId && userId) {
-        const fileName = `${pendingYoutubeData.newSessionId}_${Date.now()}.webm`
-        const filePath = `recordings/${userId}/${fileName}`
+      // 1. Supabase Storage에 오디오 업로드
+      const tempSessionId = `youtube-${Date.now()}`
+      const fileName = `${tempSessionId}.webm`
+      const filePath = `recordings/${userId || 'anonymous'}/${fileName}`
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('audio-recordings')
+        .upload(filePath, audioBlob, {
+          contentType: 'audio/webm',
+          upsert: true
+        })
+      
+      if (uploadError) {
+        throw new Error("오디오 업로드 실패: " + uploadError.message)
+      }
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('audio-recordings')
+        .getPublicUrl(filePath)
+      
+      setSessionAudioUrl(publicUrl)
+      console.log("🎬 오디오 업로드 완료:", publicUrl)
+      
+      // 2. AssemblyAI로 STT 전사
+      setProcessingStatus("🎙️ 음성 인식 중 (AssemblyAI)...")
+      setUploadProgress(50)
+      
+      const sttResponse = await fetch("/api/assemblyai/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audioUrl: publicUrl,
+          languageCode: sourceLanguage === "auto" ? undefined : sourceLanguage,
+        }),
+      })
+      
+      const sttResult = await sttResponse.json()
+      
+      if (!sttResult.success) {
+        throw new Error(sttResult.error || "음성 인식 실패")
+      }
+      
+      console.log("🎬 AssemblyAI STT 완료:", sttResult.utterances?.length, "개 발화")
+      
+      // 3. 세션 생성
+      setProcessingStatus("세션 생성 중...")
+      setUploadProgress(70)
+      
+      let newSessionId: string | null = null
+      if (userId) {
+        const { count } = await supabase
+          .from("translation_sessions")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .eq("session_type", "record")
         
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('audio-recordings')
-          .upload(filePath, audioBlob, {
-            contentType: 'audio/webm',
-            upsert: true
+        const sessionNumber = (count || 0) + 1
+        const title = pendingYoutubeData.videoTitle || `URL 녹음 ${sessionNumber}`
+        
+        const { data: session, error } = await supabase
+          .from("translation_sessions")
+          .insert({
+            user_id: userId,
+            title,
+            session_type: "record",
+            source_language: sttResult.language || sourceLanguage,
+            target_languages: targetLanguage === "none" ? [] : [targetLanguage],
+            status: "completed",
+            total_utterances: sttResult.utterances?.length || 0,
+            audio_url: publicUrl,
+            metadata: {
+              youtubeVideoId: pendingYoutubeData.videoId,
+              youtubeTitle: pendingYoutubeData.videoTitle,
+              duration: sttResult.duration,
+              transcriptId: sttResult.transcriptId,
+            },
           })
+          .select()
+          .single()
         
-        if (!uploadError && uploadData) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('audio-recordings')
-            .getPublicUrl(filePath)
-          
-          // 세션에 audio_url 및 오프셋 저장
-          const currentOffset = audioOffsetRef.current
-          await supabase
-            .from('translation_sessions')
-            .update({ 
-              audio_url: publicUrl,
-              metadata: {
-                audioOffset: currentOffset  // 녹음 시작 ~ 영상 재생 시작 간 오프셋 (초)
-              }
-            })
-            .eq('id', pendingYoutubeData.newSessionId)
-          
-          setSessionAudioUrl(publicUrl)
-          console.log("🎬 오디오 URL 저장 완료:", publicUrl, "오프셋:", currentOffset, "초")
+        if (!error && session) {
+          newSessionId = session.id
+          setSessionId(session.id)
+          setCurrentSessionTitle(session.title)
         }
       }
       
-      setUploadProgress(80)
+      // 4. 발화 변환 (STT 결과 → TranscriptItem)
+      const detectedLang = sttResult.language || sourceLanguage
+      const items: TranscriptItem[] = (sttResult.utterances || []).map((u: any, idx: number) => ({
+        id: `stt-${idx}-${Date.now()}`,
+        speaker: u.speaker || "A",
+        speakerName: `화자 ${u.speaker || "A"}`,
+        original: u.text,
+        translated: "",
+        sourceLanguage: detectedLang,
+        targetLanguage: targetLanguage,
+        timestamp: new Date(),
+        start: u.start || 0,  // AssemblyAI의 시간 = 녹음 파일의 시간 (완벽 동기화!)
+        end: u.end || 0,
+      }))
+      
+      setTranscripts(items)
+      setSourceLanguage(detectedLang)
+      
+      // 5. DB 저장
+      if (newSessionId) {
+        await saveUtterancesToDb(items, newSessionId)
+      }
+      
+      setUploadProgress(85)
       setProcessingStatus("AI 처리 중...")
       
-      // 자동 AI 처리 (URL 녹음이므로 AI 재정리 건너뜀)
-      if (pendingYoutubeData.newSessionId && pendingYoutubeData.items.length > 0) {
-        await autoProcessAfterRecording(pendingYoutubeData.newSessionId, pendingYoutubeData.items, true)
+      // 6. 자동 AI 처리 (URL 녹음이므로 AI 재정리 건너뜀 - 시간 동기화 유지)
+      if (newSessionId && items.length > 0) {
+        await autoProcessAfterRecording(newSessionId, items, true)
       }
       
       // 세션 목록 새로고침
@@ -3340,10 +3335,15 @@ You MUST follow this format exactly. Do not deviate from this format.`
                       </Button>
                       <Button 
                         variant="outline"
-                        onClick={skipYoutubeAudioRecording}
+                        onClick={() => {
+                          setRecordMode("idle")
+                          setPendingYoutubeData(null)
+                          setAudioUrl("")
+                          setError(null)
+                        }}
                         className="border-slate-300"
                       >
-                        녹음 건너뛰기
+                        취소
                       </Button>
                     </div>
                   )}
