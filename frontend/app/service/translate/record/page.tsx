@@ -2523,24 +2523,6 @@ You MUST follow this format exactly. Do not deviate from this format.`
     }
   }
   
-  // 텍스트 번역 함수
-  const translateText = async (text: string, from: string, to: string): Promise<string> => {
-    try {
-      const response = await fetch(
-        `https://translation.googleapis.com/language/translate/v2?key=${process.env.NEXT_PUBLIC_GOOGLE_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ q: text, source: from === "auto" ? undefined : from, target: to, format: "text" }),
-        }
-      )
-      const data = await response.json()
-      return data.data?.translations?.[0]?.translatedText || text
-    } catch {
-      return text
-    }
-  }
-  
   // URL 실시간 STT 중지
   const stopUrlRealtimeSTT = async () => {
     console.log("🎙️ [URL STT] 중지 시작")
