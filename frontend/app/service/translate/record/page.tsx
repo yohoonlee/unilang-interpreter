@@ -2322,14 +2322,17 @@ You MUST follow this format exactly. Do not deviate from this format.`
       setError(null)
       setProcessingStatus("시스템 오디오 캡처 준비 중...")
       
-      // 1. 시스템 오디오 캡처
+      // 1. 시스템 오디오 캡처 (현재 탭 우선 선택)
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
-        }
+        },
+        // @ts-expect-error - Chrome specific options
+        preferCurrentTab: true, // 현재 탭 우선 선택
+        selfBrowserSurface: "include",
       })
       
       const audioTracks = stream.getAudioTracks()
@@ -2416,6 +2419,15 @@ You MUST follow this format exactly. Do not deviate from this format.`
         setIsDeepgramConnected(true)
         setError(null)
         setProcessingStatus("🎙️ 실시간 음성 인식 중...")
+        
+        // YouTube 영상 자동 재생 (연결 성공 후)
+        if (youtubePlayerRef.current && isYoutubePlayerReady) {
+          console.log("🎬 YouTube 영상 자동 재생 시작")
+          youtubePlayerRef.current.seekTo(0, true)
+          setTimeout(() => {
+            youtubePlayerRef.current?.playVideo()
+          }, 300)
+        }
         
         // 4. 오디오 데이터를 Deepgram에 전송
         const audioContext = new AudioContext({ sampleRate: 16000 })
@@ -3646,49 +3658,20 @@ You MUST follow this format exactly. Do not deviate from this format.`
                     </div>
                   )}
                   
-                  {/* 상태 표시 - 녹음 중 */}
+                  {/* 상태 표시 - 녹음 중 (상단 간략 표시) */}
                   {isRecordingAudio && (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                        <div className="w-12 h-12 rounded-full bg-red-500 animate-pulse flex items-center justify-center">
-                          <Radio className="h-6 w-6 text-white" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="text-lg font-bold text-red-600">🔴 실시간 녹음 + STT 중</div>
-                          <div className="text-sm text-slate-500">{pendingYoutubeData.videoTitle}</div>
-                          <div className="text-xs text-green-600 mt-1">
-                            {isDeepgramConnected ? "✅ Deepgram 연결됨" : "⏳ 연결 중..."}
-                            {" | "}발화: {transcripts.length}개
-                          </div>
+                    <div className="flex items-center gap-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <div className="w-10 h-10 rounded-full bg-red-500 animate-pulse flex items-center justify-center">
+                        <Radio className="h-5 w-5 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-base font-bold text-red-600">🔴 실시간 녹음 + STT 중</div>
+                        <div className="text-xs text-slate-500">
+                          {isDeepgramConnected ? "✅ 연결됨" : "⏳ 연결 중..."}
+                          {" | "}발화: {transcripts.length}개
+                          {" | "}{pendingYoutubeData.videoTitle}
                         </div>
                       </div>
-                      
-                      {/* 현재 인식 중인 텍스트 */}
-                      {currentTranscript && (
-                        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                          <div className="text-xs text-yellow-600 mb-1">🎙️ 현재 인식 중...</div>
-                          <div className="text-sm text-yellow-800">{currentTranscript}</div>
-                        </div>
-                      )}
-                      
-                      {/* 실시간 발화 목록 (최근 5개) */}
-                      {transcripts.length > 0 && (
-                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg max-h-48 overflow-y-auto">
-                          <div className="text-xs text-slate-500 mb-2">📝 인식된 발화 (최근)</div>
-                          {transcripts.slice(-5).reverse().map((t) => (
-                            <div key={t.id} className="py-2 border-b border-slate-100 last:border-0">
-                              <div className="text-sm text-slate-700">
-                                <span className="text-xs text-slate-400">[{(t.start / 1000).toFixed(1)}s]</span> {t.original.length > 60 ? t.original.substring(0, 60) + "..." : t.original}
-                              </div>
-                              {t.translated && (
-                                <div className="text-sm text-blue-600 mt-1 pl-4">
-                                  → {t.translated.length > 60 ? t.translated.substring(0, 60) + "..." : t.translated}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   )}
                   
@@ -3696,6 +3679,53 @@ You MUST follow this format exactly. Do not deviate from this format.`
                   <div className={`aspect-video w-full rounded-lg overflow-hidden bg-black ${isRecordingAudio ? 'border-2 border-red-400' : 'border border-slate-200'}`}>
                     <div id="youtube-player-record" className="w-full h-full" />
                   </div>
+                  
+                  {/* 실시간 STT + 번역 결과 (녹음 중일 때) */}
+                  {isRecordingAudio && (
+                    <div className="space-y-3 mt-4">
+                      {/* 현재 인식 중인 텍스트 */}
+                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg min-h-[60px]">
+                        <div className="text-xs text-yellow-600 mb-1">🎙️ 현재 인식 중...</div>
+                        <div className="text-sm text-yellow-800">
+                          {currentTranscript || <span className="text-slate-400 italic">음성을 감지하면 여기에 표시됩니다...</span>}
+                        </div>
+                      </div>
+                      
+                      {/* 실시간 발화 목록 */}
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg">
+                        <div className="p-2 bg-slate-100 border-b border-slate-200 flex justify-between items-center">
+                          <span className="text-xs font-medium text-slate-600">📝 실시간 통역 결과</span>
+                          <span className="text-xs text-slate-400">{transcripts.length}개 발화</span>
+                        </div>
+                        <div className="max-h-[300px] overflow-y-auto p-3">
+                          {transcripts.length === 0 ? (
+                            <div className="text-center text-sm text-slate-400 py-4">
+                              아직 인식된 발화가 없습니다...
+                            </div>
+                          ) : (
+                            transcripts.slice().reverse().map((t) => (
+                              <div key={t.id} className="py-3 border-b border-slate-100 last:border-0">
+                                <div className="flex items-start gap-2">
+                                  <span className="text-xs text-slate-400 whitespace-nowrap mt-0.5">
+                                    [{(t.start / 1000).toFixed(1)}s]
+                                  </span>
+                                  <div className="flex-1">
+                                    <div className="text-sm text-slate-700">{t.original}</div>
+                                    {t.translated && (
+                                      <div className="text-sm text-blue-600 mt-1">→ {t.translated}</div>
+                                    )}
+                                    {targetLanguage !== "none" && !t.translated && (
+                                      <div className="text-xs text-slate-400 mt-1 italic">번역 중...</div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   
                   {/* 안내 메시지 - 녹음 대기 중 */}
                   {!isRecordingAudio && (
