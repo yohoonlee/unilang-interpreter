@@ -2483,33 +2483,44 @@ You MUST follow this format exactly. Do not deviate from this format.`
     }
   }
   
-  // 발화 추가 (시간 정보 포함)
+  // 발화 추가 (시간 정보 포함 + 실시간 번역)
   const addTranscriptWithTime = async (text: string, startMs: number, endMs: number) => {
+    const detectedLang = sourceLanguage === "auto" ? "en" : sourceLanguage
+    
+    // 먼저 원본만 추가 (빠른 UI 반영)
     const newItem: TranscriptItem = {
       id: `realtime-${Date.now()}-${Math.random()}`,
       speaker: "A",
       speakerName: "화자 A",
       original: text,
-      translated: "",
-      sourceLanguage: sourceLanguage === "auto" ? "en" : sourceLanguage,
+      translated: "", // 번역은 비동기로 추가
+      sourceLanguage: detectedLang,
       targetLanguage: targetLanguage,
       timestamp: new Date(),
       start: startMs,
       end: endMs,
     }
     
-    // 번역 (필요한 경우)
-    if (targetLanguage !== "none" && sourceLanguage !== targetLanguage) {
+    // 즉시 UI에 추가
+    setTranscripts(prev => [...prev, newItem])
+    console.log("🎙️ [발화 추가] start:", startMs, "ms, end:", endMs, "ms, text:", text.substring(0, 30) + "...")
+    
+    // 번역 (필요한 경우) - 비동기로 처리 후 업데이트
+    if (targetLanguage !== "none" && detectedLang !== targetLanguage) {
       try {
-        const translated = await translateText(text, sourceLanguage, targetLanguage)
-        newItem.translated = translated
+        const translated = await translateText(text, detectedLang, targetLanguage)
+        
+        // 번역 완료 후 해당 항목 업데이트
+        setTranscripts(prev => prev.map(item => 
+          item.id === newItem.id 
+            ? { ...item, translated } 
+            : item
+        ))
+        console.log("🌐 [번역 완료]", text.substring(0, 20), "→", translated.substring(0, 20))
       } catch (e) {
         console.error("번역 오류:", e)
       }
     }
-    
-    setTranscripts(prev => [...prev, newItem])
-    console.log("🎙️ [발화 추가] start:", startMs, "ms, end:", endMs, "ms, text:", text.substring(0, 30) + "...")
   }
   
   // 텍스트 번역 함수
@@ -3676,11 +3687,18 @@ You MUST follow this format exactly. Do not deviate from this format.`
                       
                       {/* 실시간 발화 목록 (최근 5개) */}
                       {transcripts.length > 0 && (
-                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg max-h-40 overflow-y-auto">
+                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg max-h-48 overflow-y-auto">
                           <div className="text-xs text-slate-500 mb-2">📝 인식된 발화 (최근)</div>
-                          {transcripts.slice(-5).reverse().map((t, idx) => (
-                            <div key={t.id} className="text-sm text-slate-700 py-1 border-b border-slate-100 last:border-0">
-                              <span className="text-xs text-slate-400">[{(t.start / 1000).toFixed(1)}s]</span> {t.original.substring(0, 50)}...
+                          {transcripts.slice(-5).reverse().map((t) => (
+                            <div key={t.id} className="py-2 border-b border-slate-100 last:border-0">
+                              <div className="text-sm text-slate-700">
+                                <span className="text-xs text-slate-400">[{(t.start / 1000).toFixed(1)}s]</span> {t.original.length > 60 ? t.original.substring(0, 60) + "..." : t.original}
+                              </div>
+                              {t.translated && (
+                                <div className="text-sm text-blue-600 mt-1 pl-4">
+                                  → {t.translated.length > 60 ? t.translated.substring(0, 60) + "..." : t.translated}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
