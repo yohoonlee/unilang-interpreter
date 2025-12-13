@@ -2103,6 +2103,19 @@ You MUST follow this format exactly. Do not deviate from this format.`
     return patterns.some(pattern => pattern.test(url))
   }
   
+  // YouTube Video ID 추출
+  const extractYouTubeVideoId = (url: string): string | null => {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+      /^([a-zA-Z0-9_-]{11})$/,
+    ]
+    for (const pattern of patterns) {
+      const match = url.match(pattern)
+      if (match) return match[1]
+    }
+    return null
+  }
+  
   // YouTube IFrame API 로드 및 플레이어 초기화
   useEffect(() => {
     if (!pendingYoutubeData?.videoId) return
