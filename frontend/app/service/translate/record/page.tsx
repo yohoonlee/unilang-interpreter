@@ -2503,7 +2503,13 @@ You MUST follow this format exactly. Do not deviate from this format.`
       
       // 4. 발화 변환 (STT 결과 → TranscriptItem)
       const detectedLang = sttResult.language || sourceLanguage
-      const items: TranscriptItem[] = (sttResult.utterances || []).map((u: any, idx: number) => ({
+      const utterances = sttResult.utterances || []
+      
+      // 첫 발화의 시작 시간을 기준으로 보정 (녹음 시작 ~ 첫 음성 사이의 무음 제거)
+      const firstStartTime = utterances.length > 0 ? (utterances[0].start || 0) : 0
+      console.log("🎬 STT 시간 보정: 첫 발화 시작 =", firstStartTime, "ms → 0으로 보정")
+      
+      const items: TranscriptItem[] = utterances.map((u: any, idx: number) => ({
         id: `stt-${idx}-${Date.now()}`,
         speaker: u.speaker || "A",
         speakerName: `화자 ${u.speaker || "A"}`,
@@ -2512,8 +2518,9 @@ You MUST follow this format exactly. Do not deviate from this format.`
         sourceLanguage: detectedLang,
         targetLanguage: targetLanguage,
         timestamp: new Date(),
-        start: u.start || 0,  // AssemblyAI의 시간 = 녹음 파일의 시간 (완벽 동기화!)
-        end: u.end || 0,
+        // 첫 발화를 0초로 보정
+        start: Math.max(0, (u.start || 0) - firstStartTime),
+        end: Math.max(0, (u.end || 0) - firstStartTime),
       }))
       
       setTranscripts(items)
@@ -3280,23 +3287,23 @@ You MUST follow this format exactly. Do not deviate from this format.`
                 </div>
               )}
 
-              {/* YouTube 자막 로드 완료 - 오디오 녹음 (대기/진행) */}
+              {/* YouTube 영상 준비 완료 - 오디오 녹음 (대기/진행) */}
               {recordMode === "pendingAudio" && pendingYoutubeData && !isProcessingYoutube && (
                 <div className="space-y-4">
                   {/* 상태 표시 - 녹음 대기 중 */}
                   {!isRecordingAudio && (
-                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                       <div className="flex items-center gap-3 mb-3">
-                        <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
-                          <Check className="h-5 w-5 text-white" />
+                        <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
+                          <Play className="h-5 w-5 text-white" />
                         </div>
                         <div>
-                          <div className="font-bold text-green-700">✅ 자막 로드 완료!</div>
-                          <div className="text-sm text-green-600">{pendingYoutubeData.videoTitle}</div>
+                          <div className="font-bold text-blue-700">🎬 영상 준비 완료</div>
+                          <div className="text-sm text-blue-600">{pendingYoutubeData.videoTitle}</div>
                         </div>
                       </div>
-                      <div className="text-sm text-green-700">
-                        {transcripts.length}개 자막 | {Math.floor(pendingYoutubeData.duration / 60)}분 {Math.floor(pendingYoutubeData.duration % 60)}초
+                      <div className="text-sm text-blue-700">
+                        아래 '오디오 녹음 시작' 버튼을 클릭하면 영상이 재생되며 음성이 녹음됩니다.
                       </div>
                     </div>
                   )}
