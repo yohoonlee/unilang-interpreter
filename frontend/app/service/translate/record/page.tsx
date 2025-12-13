@@ -2384,8 +2384,12 @@ You MUST follow this format exactly. Do not deviate from this format.`
       // 3. Deepgram WebSocket 연결
       setProcessingStatus("음성 인식 연결 중...")
       
-      // Deepgram 토큰 가져오기
-      const tokenResponse = await fetch("/api/deepgram/token")
+      // Deepgram 토큰 가져오기 (POST 방식)
+      const tokenResponse = await fetch("/api/deepgram/token", { method: "POST" })
+      if (!tokenResponse.ok) {
+        const errorData = await tokenResponse.json().catch(() => ({ error: "토큰 가져오기 실패" }))
+        throw new Error(errorData.error || "Deepgram 토큰을 가져올 수 없습니다")
+      }
       const tokenData = await tokenResponse.json()
       
       if (!tokenData.apiKey) {
