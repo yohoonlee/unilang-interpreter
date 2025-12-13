@@ -2240,23 +2240,10 @@ You MUST follow this format exactly. Do not deviate from this format.`
         return
       }
       
-      // YouTube 제목 가져오기 (서버 API 사용 - CORS 우회)
+      // 즉시 녹음 모드로 전환 (제목은 비동기로 가져옴)
       let videoTitle = `YouTube 녹음`
-      try {
-        const response = await fetch("/api/youtube/title", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ videoId }),
-        })
-        const data = await response.json()
-        if (data.success && data.title) {
-          videoTitle = data.title
-        }
-      } catch (e) {
-        console.log("YouTube 제목 가져오기 실패, 기본 제목 사용")
-      }
       
-      console.log("🎬 YouTube 직접 녹음 모드: videoId =", videoId, ", title =", videoTitle)
+      console.log("🎬 YouTube 직접 녹음 모드: videoId =", videoId)
       
       // pendingYoutubeData 설정 (자막 없이, 녹음 후 STT)
       setPendingYoutubeData({
@@ -2270,6 +2257,22 @@ You MUST follow this format exactly. Do not deviate from this format.`
       setRecordMode("pendingAudio")
       setUploadProgress(0)
       setProcessingStatus("🎬 YouTube 영상 준비 완료. '오디오 녹음 시작' 버튼을 클릭하세요.")
+      
+      // 비동기로 제목 가져오기 (UI 블로킹 없음)
+      fetch("/api/youtube/title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.title) {
+            setPendingYoutubeData(prev => prev ? { ...prev, videoTitle: data.title } : null)
+            console.log("🎬 YouTube 제목 로드 완료:", data.title)
+          }
+        })
+        .catch(() => console.log("YouTube 제목 가져오기 실패"))
+      
       return
     }
     
