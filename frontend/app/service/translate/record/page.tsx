@@ -2658,10 +2658,24 @@ You MUST follow this format exactly. Do not deviate from this format.`
       await loadSessions()
       
       setProcessingStatus("")
-      setRecordMode("idle")
       setAudioUrl("")
       audioChunksRef.current = []
       setIsProcessingYoutube(false)
+      setPendingYoutubeData(null)
+      setRecordMode("idle")
+      
+      // 세션이 생성되었으면 해당 세션 로드하여 결과 표시
+      if (newSessionId) {
+        const { data: sessions } = await supabase
+          .from("translation_sessions")
+          .select("*")
+          .eq("id", newSessionId)
+          .single()
+        
+        if (sessions) {
+          await loadSessionData(sessions)
+        }
+      }
       
       console.log("🎙️ [URL STT] 완료!")
       
