@@ -552,12 +552,15 @@ function RecordTranslatePageContent() {
   }
   
   // 녹음 종료 후 자동 AI 처리
-  async function autoProcessAfterRecording(sessId: string, items: TranscriptItem[]) {
+  // isUrlRecording: URL/YouTube 녹음의 경우 AI 재정리 건너뜀 (시간 동기화 유지)
+  async function autoProcessAfterRecording(sessId: string, items: TranscriptItem[], isUrlRecording: boolean = false) {
     try {
-      // 1. AI 재정리 (items가 2개 이상일 때만, skipAiReorganize가 false일 때만)
-      if (items.length >= 2 && !skipAiReorganize) {
+      // 1. AI 재정리 (마이크 녹음만, URL 녹음은 시간 동기화를 위해 건너뜀)
+      if (items.length >= 2 && !skipAiReorganize && !isUrlRecording) {
         setError("🔄 AI 재정리 중...")
         await reorganizeSentences()
+      } else if (isUrlRecording) {
+        console.log("⏭️ AI 재정리 건너뛰기 (URL 녹음 - 시간 동기화 유지)")
       } else if (skipAiReorganize) {
         console.log("⏭️ AI 재정리 건너뛰기 (디버깅 모드)")
       }
@@ -2509,9 +2512,9 @@ You MUST follow this format exactly. Do not deviate from this format.`
       setUploadProgress(80)
       setProcessingStatus("AI 처리 중...")
       
-      // 자동 AI 처리
+      // 자동 AI 처리 (URL 녹음이므로 AI 재정리 건너뜀)
       if (pendingYoutubeData.newSessionId && pendingYoutubeData.items.length > 0) {
-        await autoProcessAfterRecording(pendingYoutubeData.newSessionId, pendingYoutubeData.items)
+        await autoProcessAfterRecording(pendingYoutubeData.newSessionId, pendingYoutubeData.items, true)
       }
       
       // 세션 목록 새로고침
@@ -2542,9 +2545,9 @@ You MUST follow this format exactly. Do not deviate from this format.`
     setProcessingStatus("AI 처리 중...")
     setUploadProgress(80)
     
-    // 자동 AI 처리 (오디오 없이)
+    // 자동 AI 처리 (오디오 없이, URL 녹음이므로 AI 재정리 건너뜀)
     if (pendingYoutubeData.newSessionId && pendingYoutubeData.items.length > 0) {
-      await autoProcessAfterRecording(pendingYoutubeData.newSessionId, pendingYoutubeData.items)
+      await autoProcessAfterRecording(pendingYoutubeData.newSessionId, pendingYoutubeData.items, true)
     }
     
     // 세션 목록 새로고침
