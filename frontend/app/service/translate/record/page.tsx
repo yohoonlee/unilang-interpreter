@@ -2298,8 +2298,12 @@ You MUST follow this format exactly. Do not deviate from this format.`
           }
         }
 
-        // 발화 변환
-        const items: TranscriptItem[] = (data.utterances || []).map((u: any, idx: number) => ({
+        // 발화 변환 (첫 번째 자막 시간 기준으로 보정 → 0초부터 시작)
+        const utterances = data.utterances || []
+        const firstStartTime = utterances.length > 0 ? (utterances[0].start || 0) : 0
+        console.log("🎬 YouTube 자막 시간 보정: 첫 번째 자막 시작 시간 =", firstStartTime, "ms → 0으로 보정")
+        
+        const items: TranscriptItem[] = utterances.map((u: any, idx: number) => ({
           id: `youtube-${idx}-${Date.now()}`,
           speaker: u.speaker || "A",
           speakerName: `화자 ${u.speaker || "A"}`,
@@ -2308,8 +2312,9 @@ You MUST follow this format exactly. Do not deviate from this format.`
           sourceLanguage: data.language || sourceLanguage,
           targetLanguage: targetLanguage,
           timestamp: new Date(),
-          start: u.start || 0,
-          end: u.end || 0,
+          // ⭐ 첫 번째 자막 시작 시간을 빼서 0초부터 시작하도록 보정
+          start: Math.max(0, (u.start || 0) - firstStartTime),
+          end: Math.max(0, (u.end || 0) - firstStartTime),
         }))
 
         setTranscripts(items)
