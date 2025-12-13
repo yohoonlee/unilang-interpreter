@@ -196,6 +196,14 @@ function RecordTranslatePageContent() {
   const [isUploadingAudio, setIsUploadingAudio] = useState(false)
   const [isProcessingYoutube, setIsProcessingYoutube] = useState(false) // AI 처리 중 로딩 상태
   
+  // Deepgram 실시간 STT 관련 (URL 녹음용)
+  const deepgramWSRef = useRef<WebSocket | null>(null)
+  const deepgramAudioContextRef = useRef<AudioContext | null>(null)
+  const systemAudioStreamRef = useRef<MediaStream | null>(null)
+  const [isDeepgramConnected, setIsDeepgramConnected] = useState(false)
+  const [currentTranscript, setCurrentTranscript] = useState("") // 현재 인식 중인 텍스트
+  const recordingStartTimeRef = useRef<number>(0) // 녹음 시작 시점 (밀리초)
+  
   // 전사 결과
   const [transcripts, setTranscripts] = useState<TranscriptItem[]>([])
   const [assemblyResult, setAssemblyResult] = useState<AssemblyAIResult | null>(null)
@@ -2229,7 +2237,7 @@ You MUST follow this format exactly. Do not deviate from this format.`
     })
   }, [pendingYoutubeData?.videoId])
 
-  // URL 전사 - YouTube/일반 URL 모두 시스템 오디오 녹음 후 AssemblyAI STT
+  // URL 전사 - 모든 URL에 대해 실시간 STT + 녹음 방식 사용
   const handleUrlTranscribe = async () => {
     if (!audioUrl.trim()) {
       setError("URL을 입력해주세요")
@@ -2240,66 +2248,49 @@ You MUST follow this format exactly. Do not deviate from this format.`
     setTranscripts([])
     setDocumentTextOriginal("")
     setDocumentTextTranslated("")
-    setUploadProgress(10)
-    setProcessingStatus("URL 분석 중...")
-
-    // YouTube URL인 경우: 영상 임베드 후 녹음 모드로 전환 (자막 API 사용 안함!)
+    setUploadProgress(0)
+    
+    // 모든 URL (YouTube 포함)에 대해 실시간 STT 모드로 전환
+    setRecordMode("pendingAudio")
+    
+    // YouTube URL인 경우 제목 가져오기
     if (isYouTubeUrl(audioUrl)) {
       const videoId = extractYouTubeVideoId(audioUrl)
-      if (!videoId) {
-        setError("유효하지 않은 YouTube URL입니다")
-        setUploadProgress(0)
-        setProcessingStatus("")
-        return
-      }
-      
-      // 즉시 녹음 모드로 전환 (제목은 비동기로 가져옴)
-      let videoTitle = `YouTube 녹음`
-      
-      console.log("🎬 YouTube 직접 녹음 모드: videoId =", videoId)
-      
-      // pendingYoutubeData 설정 (자막 없이, 녹음 후 STT)
-      setPendingYoutubeData({
-        videoId,
-        videoTitle,
-        duration: 0, // 녹음 후 계산
-        items: [], // 녹음 후 STT로 채움
-        newSessionId: null, // 녹음 후 세션 생성
-      })
-      
-      setRecordMode("pendingAudio")
-      setUploadProgress(0)
-      setProcessingStatus("🎬 YouTube 영상 준비 완료. '오디오 녹음 시작' 버튼을 클릭하세요.")
-      
-      // 비동기로 제목 가져오기 (UI 블로킹 없음)
-      fetch("/api/youtube/title", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoId }),
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && data.title) {
-            setPendingYoutubeData(prev => prev ? { ...prev, videoTitle: data.title } : null)
-            console.log("🎬 YouTube 제목 로드 완료:", data.title)
-          }
+      if (videoId) {
+        setPendingYoutubeData({
+          videoId,
+          videoTitle: "YouTube 영상",
+          duration: 0,
+          items: [],
+          newSessionId: null,
         })
-        .catch(() => console.log("YouTube 제목 가져오기 실패"))
-      
-      return
+        
+        // 비동기로 제목 가져오기
+        fetch("/api/youtube/title", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoId }),
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && data.title) {
+              setPendingYoutubeData(prev => prev ? { ...prev, videoTitle: data.title } : null)
+            }
+          })
+          .catch(() => {})
+      }
+    } else {
+      // 일반 URL인 경우
+      setPendingYoutubeData({
+        videoId: "",
+        videoTitle: "URL 음원",
+        duration: 0,
+        items: [],
+        newSessionId: null,
+      })
     }
     
-    // 일반 오디오/비디오 URL인 경우도 시스템 오디오 녹음 모드로 전환
-    // (직접 URL에서 오디오를 가져오기 어려운 경우가 많음)
-    {
-      // 일반 오디오/비디오 URL인 경우 AssemblyAI 직접 전사
-      setProcessingStatus("오디오 파일 분석 중...")
-      await transcribeFromUrl(audioUrl)
-      setRecordMode("idle")
-      setUploadProgress(0)
-      setAudioUrl("")
-      // 세션 목록 새로고침 (AssemblyAI 콜백에서 처리됨)
-    }
+    setProcessingStatus("🎙️ '실시간 녹음 시작' 버튼을 클릭하세요.\n\n1. 버튼 클릭 후 화면 공유 팝업에서 오디오가 재생되는 탭 선택\n2. '탭 오디오도 공유' 체크\n3. 음원 재생 시작")
   }
   
   // 시스템 오디오 녹음 모드 시작 (YouTube 자막 API 실패 시 대안)
@@ -2321,6 +2312,356 @@ You MUST follow this format exactly. Do not deviate from this format.`
     setError(`📢 시스템 오디오 녹음 준비 완료!\n\n1. 새 탭에서 URL을 열고 오디오를 재생하세요\n2. 재생이 끝나면 아래 '녹음 완료' 버튼을 클릭하세요`)
     setProcessingStatus("🎙️ 시스템 오디오 녹음 중...")
     setUploadProgress(30)
+  }
+  
+  // ========== URL 실시간 STT (Deepgram + 동시 녹음) ==========
+  
+  // URL 실시간 STT 시작 (시스템 오디오 캡처 + Deepgram + 녹음)
+  const startUrlRealtimeSTT = async () => {
+    try {
+      setError(null)
+      setProcessingStatus("시스템 오디오 캡처 준비 중...")
+      
+      // 1. 시스템 오디오 캡처
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        }
+      })
+      
+      const audioTracks = stream.getAudioTracks()
+      if (audioTracks.length === 0) {
+        setError("⚠️ 오디오가 캡처되지 않았습니다!\n\n화면 공유 팝업에서:\n1. 'Chrome 탭' 선택\n2. 오디오가 재생되는 탭 선택\n3. '탭 오디오도 공유' 체크 ✅\n4. '공유' 클릭")
+        stream.getTracks().forEach(track => track.stop())
+        return
+      }
+      
+      console.log("🎙️ [URL STT] 오디오 트랙 캡처 성공:", audioTracks[0].label)
+      
+      // 비디오 트랙 중지 (오디오만 필요)
+      stream.getVideoTracks().forEach(track => track.stop())
+      
+      systemAudioStreamRef.current = stream
+      
+      // 스트림 종료 감지
+      audioTracks[0].onended = () => {
+        console.log("🎙️ [URL STT] 스트림 종료됨")
+        stopUrlRealtimeSTT()
+      }
+      
+      // 2. MediaRecorder로 동시 녹음
+      const audioOnlyStream = new MediaStream(audioTracks)
+      let mimeType = 'audio/webm;codecs=opus'
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/webm'
+      }
+      
+      const mediaRecorder = new MediaRecorder(audioOnlyStream, { mimeType })
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data)
+        }
+      }
+      
+      mediaRecorder.onstop = () => {
+        console.log("🎙️ [URL STT] 녹음 중지, 청크 수:", audioChunksRef.current.length)
+      }
+      
+      // 녹음 시작
+      mediaRecorder.start(1000)
+      recordingStartTimeRef.current = Date.now()
+      setIsRecordingAudio(true)
+      isRecordingAudioRef.current = true
+      
+      console.log("🎙️ [URL STT] 녹음 시작:", new Date(recordingStartTimeRef.current).toISOString())
+      
+      // 3. Deepgram WebSocket 연결
+      setProcessingStatus("음성 인식 연결 중...")
+      
+      // Deepgram 토큰 가져오기
+      const tokenResponse = await fetch("/api/deepgram/token")
+      const tokenData = await tokenResponse.json()
+      
+      if (!tokenData.apiKey) {
+        throw new Error("Deepgram API 키를 가져올 수 없습니다")
+      }
+      
+      // 언어 매핑
+      const langMap: Record<string, string> = {
+        ko: "ko", en: "en", ja: "ja", zh: "zh", es: "es", fr: "fr", de: "de",
+        auto: "en" // 자동 감지는 영어로 기본 설정
+      }
+      const deepgramLang = langMap[sourceLanguage] || "en"
+      
+      // WebSocket 연결
+      const ws = new WebSocket(
+        `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-2&language=${deepgramLang}&punctuate=true&interim_results=true`,
+        ["token", tokenData.apiKey]
+      )
+      
+      deepgramWSRef.current = ws
+      
+      ws.onopen = () => {
+        console.log("🎙️ [Deepgram] WebSocket 연결됨")
+        setIsDeepgramConnected(true)
+        setError(null)
+        setProcessingStatus("🎙️ 실시간 음성 인식 중...")
+        
+        // 4. 오디오 데이터를 Deepgram에 전송
+        const audioContext = new AudioContext({ sampleRate: 16000 })
+        deepgramAudioContextRef.current = audioContext
+        const source = audioContext.createMediaStreamSource(audioOnlyStream)
+        const processor = audioContext.createScriptProcessor(4096, 1, 1)
+        
+        source.connect(processor)
+        const gainNode = audioContext.createGain()
+        gainNode.gain.value = 0 // 하울링 방지
+        processor.connect(gainNode)
+        gainNode.connect(audioContext.destination)
+        
+        processor.onaudioprocess = (e) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            const inputData = e.inputBuffer.getChannelData(0)
+            const int16Array = new Int16Array(inputData.length)
+            for (let i = 0; i < inputData.length; i++) {
+              const s = Math.max(-1, Math.min(1, inputData[i]))
+              int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
+            }
+            ws.send(int16Array.buffer)
+          }
+        }
+      }
+      
+      ws.onmessage = async (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          
+          if (data.type === "Results" && data.channel?.alternatives?.[0]) {
+            const transcript = data.channel.alternatives[0].transcript
+            const startTime = data.start || 0 // Deepgram이 제공하는 시작 시간 (초)
+            const duration = data.duration || 0 // 지속 시간 (초)
+            
+            if (data.is_final && transcript?.trim()) {
+              console.log("🎙️ [Deepgram] 최종:", transcript, `(${startTime.toFixed(2)}s ~ ${(startTime + duration).toFixed(2)}s)`)
+              setCurrentTranscript("")
+              
+              // 발화 저장 (시간 정보 포함)
+              await addTranscriptWithTime(
+                transcript.trim(),
+                Math.round(startTime * 1000), // 시작 시간 (ms)
+                Math.round((startTime + duration) * 1000) // 종료 시간 (ms)
+              )
+            } else if (transcript) {
+              setCurrentTranscript(transcript)
+            }
+          }
+        } catch (err) {
+          console.error("🎙️ [Deepgram] 메시지 파싱 오류:", err)
+        }
+      }
+      
+      ws.onerror = (err) => {
+        console.error("🎙️ [Deepgram] WebSocket 오류:", err)
+        setError("Deepgram 연결 오류가 발생했습니다.")
+      }
+      
+      ws.onclose = () => {
+        console.log("🎙️ [Deepgram] WebSocket 종료")
+        setIsDeepgramConnected(false)
+      }
+      
+    } catch (err) {
+      console.error("🎙️ [URL STT] 시작 오류:", err)
+      setError(err instanceof Error ? err.message : "시스템 오디오 캡처 실패")
+      setProcessingStatus("")
+    }
+  }
+  
+  // 발화 추가 (시간 정보 포함)
+  const addTranscriptWithTime = async (text: string, startMs: number, endMs: number) => {
+    const newItem: TranscriptItem = {
+      id: `realtime-${Date.now()}-${Math.random()}`,
+      speaker: "A",
+      speakerName: "화자 A",
+      original: text,
+      translated: "",
+      sourceLanguage: sourceLanguage === "auto" ? "en" : sourceLanguage,
+      targetLanguage: targetLanguage,
+      timestamp: new Date(),
+      start: startMs,
+      end: endMs,
+    }
+    
+    // 번역 (필요한 경우)
+    if (targetLanguage !== "none" && sourceLanguage !== targetLanguage) {
+      try {
+        const translated = await translateText(text, sourceLanguage, targetLanguage)
+        newItem.translated = translated
+      } catch (e) {
+        console.error("번역 오류:", e)
+      }
+    }
+    
+    setTranscripts(prev => [...prev, newItem])
+    console.log("🎙️ [발화 추가] start:", startMs, "ms, end:", endMs, "ms, text:", text.substring(0, 30) + "...")
+  }
+  
+  // 텍스트 번역 함수
+  const translateText = async (text: string, from: string, to: string): Promise<string> => {
+    try {
+      const response = await fetch(
+        `https://translation.googleapis.com/language/translate/v2?key=${process.env.NEXT_PUBLIC_GOOGLE_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ q: text, source: from === "auto" ? undefined : from, target: to, format: "text" }),
+        }
+      )
+      const data = await response.json()
+      return data.data?.translations?.[0]?.translatedText || text
+    } catch {
+      return text
+    }
+  }
+  
+  // URL 실시간 STT 중지
+  const stopUrlRealtimeSTT = async () => {
+    console.log("🎙️ [URL STT] 중지 시작")
+    
+    setIsProcessingYoutube(true)
+    setProcessingStatus("처리 중...")
+    
+    // Deepgram 종료
+    if (deepgramWSRef.current) {
+      deepgramWSRef.current.close()
+      deepgramWSRef.current = null
+    }
+    setIsDeepgramConnected(false)
+    
+    // 오디오 컨텍스트 종료
+    if (deepgramAudioContextRef.current) {
+      deepgramAudioContextRef.current.close()
+      deepgramAudioContextRef.current = null
+    }
+    
+    // 스트림 종료
+    if (systemAudioStreamRef.current) {
+      systemAudioStreamRef.current.getTracks().forEach(track => track.stop())
+      systemAudioStreamRef.current = null
+    }
+    
+    // 녹음 중지
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    setIsRecordingAudio(false)
+    isRecordingAudioRef.current = false
+    
+    // 약간의 대기 후 처리
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    // 오디오 Blob 생성
+    const validChunks = audioChunksRef.current.filter(chunk => chunk.size > 0)
+    if (validChunks.length === 0) {
+      setError("녹음된 오디오가 없습니다.")
+      setIsProcessingYoutube(false)
+      setProcessingStatus("")
+      return
+    }
+    
+    const audioBlob = new Blob(validChunks, { type: 'audio/webm' })
+    console.log("🎙️ [URL STT] 오디오 크기:", (audioBlob.size / 1024 / 1024).toFixed(2), "MB")
+    
+    // 세션 생성 및 저장
+    setProcessingStatus("세션 저장 중...")
+    
+    try {
+      // 세션 생성
+      let newSessionId: string | null = null
+      if (userId) {
+        const { count } = await supabase
+          .from("translation_sessions")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .eq("session_type", "record")
+        
+        const sessionNumber = (count || 0) + 1
+        const title = `URL 녹음 ${sessionNumber}`
+        
+        // 오디오 업로드
+        const fileName = `url-${Date.now()}.webm`
+        const filePath = `recordings/${userId}/${fileName}`
+        
+        const { error: uploadError } = await supabase.storage
+          .from('audio-recordings')
+          .upload(filePath, audioBlob, {
+            contentType: 'audio/webm',
+            upsert: true
+          })
+        
+        let audioUrl = ""
+        if (!uploadError) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('audio-recordings')
+            .getPublicUrl(filePath)
+          audioUrl = publicUrl
+        }
+        
+        const { data: session, error } = await supabase
+          .from("translation_sessions")
+          .insert({
+            user_id: userId,
+            title,
+            session_type: "record",
+            source_language: sourceLanguage === "auto" ? "en" : sourceLanguage,
+            target_languages: targetLanguage === "none" ? [] : [targetLanguage],
+            status: "completed",
+            total_utterances: transcripts.length,
+            audio_url: audioUrl,
+          })
+          .select()
+          .single()
+        
+        if (!error && session) {
+          newSessionId = session.id
+          setSessionId(session.id)
+          setCurrentSessionTitle(session.title)
+          setSessionAudioUrl(audioUrl)
+        }
+      }
+      
+      // 발화 저장
+      if (newSessionId && transcripts.length > 0) {
+        await saveUtterancesToDb(transcripts, newSessionId)
+        
+        // 문서 및 요약 생성
+        setProcessingStatus("문서 생성 중...")
+        await autoProcessAfterRecording(newSessionId, transcripts, true)
+      }
+      
+      // 세션 목록 새로고침
+      await loadSessions()
+      
+      setProcessingStatus("")
+      setRecordMode("idle")
+      setAudioUrl("")
+      audioChunksRef.current = []
+      setIsProcessingYoutube(false)
+      
+      console.log("🎙️ [URL STT] 완료!")
+      
+    } catch (err) {
+      console.error("🎙️ [URL STT] 저장 오류:", err)
+      setError(err instanceof Error ? err.message : "저장 중 오류 발생")
+      setIsProcessingYoutube(false)
+      setProcessingStatus("")
+    }
   }
   
   // YouTube 오디오 녹음 시작 (자막 로드 후)
@@ -3310,14 +3651,40 @@ You MUST follow this format exactly. Do not deviate from this format.`
                   
                   {/* 상태 표시 - 녹음 중 */}
                   {isRecordingAudio && (
-                    <div className="flex items-center gap-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                      <div className="w-12 h-12 rounded-full bg-red-500 animate-pulse flex items-center justify-center">
-                        <Radio className="h-6 w-6 text-white" />
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                        <div className="w-12 h-12 rounded-full bg-red-500 animate-pulse flex items-center justify-center">
+                          <Radio className="h-6 w-6 text-white" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-lg font-bold text-red-600">🔴 실시간 녹음 + STT 중</div>
+                          <div className="text-sm text-slate-500">{pendingYoutubeData.videoTitle}</div>
+                          <div className="text-xs text-green-600 mt-1">
+                            {isDeepgramConnected ? "✅ Deepgram 연결됨" : "⏳ 연결 중..."}
+                            {" | "}발화: {transcripts.length}개
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="text-lg font-bold text-red-600">🔴 오디오 녹음 중</div>
-                        <div className="text-sm text-slate-500">{pendingYoutubeData.videoTitle}</div>
-                      </div>
+                      
+                      {/* 현재 인식 중인 텍스트 */}
+                      {currentTranscript && (
+                        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                          <div className="text-xs text-yellow-600 mb-1">🎙️ 현재 인식 중...</div>
+                          <div className="text-sm text-yellow-800">{currentTranscript}</div>
+                        </div>
+                      )}
+                      
+                      {/* 실시간 발화 목록 (최근 5개) */}
+                      {transcripts.length > 0 && (
+                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg max-h-40 overflow-y-auto">
+                          <div className="text-xs text-slate-500 mb-2">📝 인식된 발화 (최근)</div>
+                          {transcripts.slice(-5).reverse().map((t, idx) => (
+                            <div key={t.id} className="text-sm text-slate-700 py-1 border-b border-slate-100 last:border-0">
+                              <span className="text-xs text-slate-400">[{(t.start / 1000).toFixed(1)}s]</span> {t.original.substring(0, 50)}...
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   
@@ -3330,11 +3697,12 @@ You MUST follow this format exactly. Do not deviate from this format.`
                   {!isRecordingAudio && (
                     <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
                       <div className="text-sm text-orange-700 space-y-1">
-                        <p>🎬 <strong>간편 녹음 방법:</strong></p>
-                        <p>1. 아래 <strong>"오디오 녹음 시작"</strong> 버튼 클릭</p>
-                        <p>2. 화면 공유 팝업에서 <strong>"이 탭"</strong> 선택 + <strong>"탭 오디오 공유"</strong> 체크</p>
-                        <p>3. ✅ 영상이 <strong>자동으로 처음부터 재생</strong>됩니다</p>
-                        <p>4. 영상이 끝나면 <strong>자동 종료</strong> 또는 "녹음 완료" 클릭</p>
+                        <p>🎙️ <strong>실시간 녹음 + STT 방법:</strong></p>
+                        <p>1. 아래 <strong>"실시간 녹음 시작"</strong> 버튼 클릭</p>
+                        <p>2. 화면 공유 팝업에서 <strong>오디오가 재생되는 탭</strong> 선택</p>
+                        <p>3. <strong>"탭 오디오도 공유"</strong> 체크 ✅</p>
+                        <p>4. 음원/영상을 재생하면 <strong>실시간으로 음성 인식</strong>됩니다</p>
+                        <p>5. 끝나면 <strong>"녹음 완료"</strong> 클릭</p>
                       </div>
                     </div>
                   )}
@@ -3354,11 +3722,11 @@ You MUST follow this format exactly. Do not deviate from this format.`
                   {!isRecordingAudio && (
                     <div className="flex gap-2">
                       <Button
-                        onClick={startYoutubeAudioRecording}
+                        onClick={startUrlRealtimeSTT}
                         className="flex-1 bg-orange-500 hover:bg-orange-600"
                       >
                         <Radio className="h-4 w-4 mr-2" />
-                        오디오 녹음 시작
+                        실시간 녹음 시작
                       </Button>
                       <Button 
                         variant="outline"
@@ -3379,8 +3747,9 @@ You MUST follow this format exactly. Do not deviate from this format.`
                   {isRecordingAudio && (
                     <div className="flex gap-2">
                       <Button
-                        onClick={handleYoutubeAudioRecordingComplete}
+                        onClick={stopUrlRealtimeSTT}
                         className="flex-1 bg-red-500 hover:bg-red-600"
+                        disabled={isProcessingYoutube}
                       >
                         <Square className="h-4 w-4 mr-2" />
                         녹음 완료
@@ -3388,12 +3757,23 @@ You MUST follow this format exactly. Do not deviate from this format.`
                       <Button 
                         variant="outline" 
                         onClick={() => {
-                          if (youtubePlayerRef.current) {
-                            youtubePlayerRef.current.pauseVideo()
+                          // 녹음 취소
+                          if (deepgramWSRef.current) {
+                            deepgramWSRef.current.close()
                           }
-                          stopUrlAudioRecording()
+                          if (systemAudioStreamRef.current) {
+                            systemAudioStreamRef.current.getTracks().forEach(t => t.stop())
+                          }
+                          if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                            mediaRecorderRef.current.stop()
+                          }
+                          setIsRecordingAudio(false)
+                          setIsDeepgramConnected(false)
+                          setRecordMode("idle")
+                          setTranscripts([])
                           setError(null)
                         }}
+                        disabled={isProcessingYoutube}
                       >
                         취소
                       </Button>
