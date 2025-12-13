@@ -2240,27 +2240,20 @@ You MUST follow this format exactly. Do not deviate from this format.`
         return
       }
       
-      setProcessingStatus("YouTube 영상 준비 중...")
-      setUploadProgress(30)
-      
-      // YouTube 제목 가져오기 (oEmbed, 3초 타임아웃)
-      let videoTitle = `YouTube 영상`
+      // YouTube 제목 가져오기 (서버 API 사용 - CORS 우회)
+      let videoTitle = `YouTube 녹음`
       try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 3000) // 3초 타임아웃
-        
-        const oembedRes = await fetch(
-          `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
-          { signal: controller.signal }
-        )
-        clearTimeout(timeoutId)
-        
-        if (oembedRes.ok) {
-          const oembedData = await oembedRes.json()
-          videoTitle = oembedData.title || videoTitle
+        const response = await fetch("/api/youtube/title", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoId }),
+        })
+        const data = await response.json()
+        if (data.success && data.title) {
+          videoTitle = data.title
         }
       } catch (e) {
-        console.log("YouTube 제목 가져오기 실패/타임아웃, 기본 제목 사용")
+        console.log("YouTube 제목 가져오기 실패, 기본 제목 사용")
       }
       
       console.log("🎬 YouTube 직접 녹음 모드: videoId =", videoId, ", title =", videoTitle)
